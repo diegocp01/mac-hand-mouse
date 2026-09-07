@@ -525,7 +525,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func readyFeedback() {
         clearClickFeedback()
-        if !running {
+        if practicing {
+            showFeedback("Practice only · No system input", "Aim at green, then use the selected gesture. Finish practice whenever you like.")
+        } else if !running {
             showFeedback("Ready when you are", "Start the camera, then show one hand with your palm visible.")
         } else if control.state != .on {
             showFeedback("Preview only", "Pointer and clicks off.")
@@ -669,7 +671,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refreshClickChrome(); readyFeedback(); refresh()
     }
     @objc private func clickModeChanged() {
-        if practicing { finishPractice() }
+        if practicing { practice.reset(); practiceCursor = nil; practiceMessageUntil = 0 }
         clickMode = clickModeControl.selectedSegment == 1 ? .forward : .pinch
         UserDefaults.standard.set(clickMode.rawValue, forKey: "clickMode")
         engine.reset(); clickedUntil = 0
