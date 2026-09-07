@@ -21,11 +21,21 @@ at. Pointer motion alone is lower blast radius than click injection.
   `allowPinchClicks` and are migrated on launch).
 - Injection is gated by `SafetyPolicy.shouldInjectClick` (gesture ∧ allowClicks ∧ AX ∧
   pointer control). White flash / `clickedUntil` only fire on a real inject.
-- **Pinch** is the default click *mode*; **Dwell** is shipped and opt-in via the Click
-  mode control (not a wave-2 idea).
-- Esc remains the panic kill-switch: pauses the camera and resets pinch/dwell/filter state.
+- **Pinch** is the default click mode. **Point forward** is experimental and requires
+  two-pose calibration plus two successful simulated target clicks before enabling real clicks.
+  Existing Dwell selections migrate to Point forward with clicks off. Forward calibration
+  is session-only; relaunching requires setup again.
+- Setup returns before OS event dispatch; practice results additionally expose no system
+  location or click. Switching from practice to system output resets gesture intent.
+- Esc remains the panic kill-switch: pauses the camera and resets gesture/filter state.
 - Sleep, session deactivation, and display changes pause capture until Start camera is pressed again.
-- Dwell requires movement after each click, including after a tracking interruption. Invalid or stale frames cannot advance it.
+- Forward clicking requires a neutral-to-forward pose transition, then a hold. Staying
+  still alone cannot start the countdown. Withdrawal, lateral palm motion, uncertain
+  landmarks, invalid frames, and stale delivery cancel it. A sustained return to the
+  movement pose is required before another click, including after tracking loss.
+- Forward intent is inferred from 2D features, so pose changes and rotations can still
+  produce false positives. Practice is a basic check, not a reliability guarantee.
+- A camera/format change or capture error invalidates forward calibration and turns clicks off.
 - Camera errors and disconnects stop the session and require an explicit retry. No recovery path automatically restarts mouse control.
 
 ## Later ideas (not shipped)

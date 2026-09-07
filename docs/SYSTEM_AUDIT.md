@@ -1,5 +1,8 @@
 # v1.3 system audit
 
+Historical audit. Version 1.4 replaces the automatic Dwell mode discussed below;
+see [forward-click design and validation](FORWARD_CLICK.md) for the current interaction.
+
 Reviewed September 7, 2026. Scope includes the existing application, PR #1's pointer and click modes, and PR #2's camera/countdown interface. The fixes and enhancements are included together in PR #2.
 
 ## Findings and fixes

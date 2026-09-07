@@ -15,7 +15,11 @@ enum GestureTuning {
 
 enum ClickMode: String, CaseIterable {
     case pinch
-    case dwell
+    case forward
+
+    static func restored(_ value: String?) -> ClickMode {
+        value == "dwell" ? .forward : (value.flatMap(ClickMode.init(rawValue:)) ?? .pinch)
+    }
 }
 
 struct PinchSettings {

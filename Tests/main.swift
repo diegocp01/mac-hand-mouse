@@ -222,7 +222,7 @@ check(buffer.take() == 101, "Next delivery is current")
 
 
 // --- DwellDetector: separate physics from pinch's 25ms hold ---
-check(ClickMode.pinch.rawValue == "pinch" && ClickMode.dwell.rawValue == "dwell", "ClickMode cases exist")
+check(ClickMode.pinch.rawValue == "pinch" && ClickMode.forward.rawValue == "forward", "ClickMode cases exist")
 check(DwellSettings().dwellSeconds >= 0.5 && DwellSettings().dwellSeconds <= 0.8, "Default dwell in CTO 0.5–0.8s band")
 
 func closeEnough(_ actual: Double, _ expected: Double, tolerance: Double = 1e-9) -> Bool {
