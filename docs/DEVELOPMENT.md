@@ -24,8 +24,9 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 
 | File | Responsibility |
 | --- | --- |
-| `Sources/Gesture.swift` | Pinch detection, hold timer primitive, tuning, smoothing, preference migration |
-| `Sources/ForwardClick.swift` | 2D pose features, automatic hand reference, intentional forward-click state machine |
+| `Sources/Gesture.swift` | Two-finger tap detection, legacy pinch/hold detectors, tuning, smoothing, preference migration |
+| `Sources/TapGuidance.swift` | Next-action instructions for practice, status, and cursor feedback |
+| `Sources/ForwardClick.swift` | Legacy 2D pose features, automatic hand reference, intentional forward-click state machine |
 | `Sources/InteractionEngine.swift` | Production pipeline, cursor acquisition, freshness/permission gates, gesture/filter ordering |
 | `Sources/InputMotion.swift` | Cursor acquisition, scroll geometry/deltas, and activation lifecycle policy |
 | `Sources/ResumeShortcut.swift` | Exclusive global pause/resume shortcut registration |
@@ -45,9 +46,11 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `scripts/verify-update-identity.sh` | Reject updates that would discard an existing certificate-backed identity |
 | `Tests/signing.sh` | Changed binaries retain identity; different signers and ad-hoc downgrades are rejected |
 
-Defaults: velocity-adaptive pointer smoothing from 8–50 ms; Balanced pinch threshold 0.42 hand-scale units, confirmation after at least two samples and 25 ms, reopening above 0.60 for 70 ms, and a 300 ms click cooldown. Precise uses 0.34 and Easy uses 0.50, with release 0.18 above each threshold. Confirmation tolerates 0.06 units of threshold jitter. The hand scale is the greater of palm width and 0.75 times wrist-to-middle-base distance, corrected for frame aspect ratio.
+The app selects **Two-finger tap** for every launch. Start or reacquire with index + middle raised, palm toward the camera, and hold briefly; move the index fingertip to aim, then bend and lift both fingers to click. **Scroll** uses a thumb + index pinch and has a separate saved setting. See [current tap behavior and validation](TWO_FINGER_TAP.md). Pinch and Point forward clicking remain internal regression paths, with no selectable app modes or tuning controls.
 
-`InteractionEngine` evaluates the gesture before applying index motion, preserving the pre-gesture aim during a pinch or forward press. Forward mode requires a forward transition relative to an automatically estimated hand reference before invoking the hold timer; neither normal motion nor stillness starts it. Palm motion is measured independently of the frozen pointer. Changing settings cancels active progress. Hold duration is configurable at 0.65, 1, or 1.5 seconds and retains the existing `dwellDurationPreset` preference. The standalone Pinch detector tolerates missing pinch observations for at most 120 ms, but the production engine cancels all input immediately on a missing index or interrupts on a callback gap over 120 ms. Returning hands must reacquire the current cursor before gesture detection resumes. A pinch attempted during cooldown is consumed rather than delayed. Camera results are coalesced to the latest frame and callbacks from old sessions are rejected. Camera and inference latency are additional to smoothing time. See the [forward gesture design](FORWARD_CLICK.md) for automatic adaptation, thresholds, and limitations.
+Pointer smoothing remains velocity-adaptive from 8–50 ms. Legacy pinch detector defaults: Balanced threshold 0.42 hand-scale units, confirmation after at least two samples and 25 ms, reopening above 0.60 for 70 ms, and a 300 ms click cooldown. Precise uses 0.34 and Easy uses 0.50, with release 0.18 above each threshold. Confirmation tolerates 0.06 units of threshold jitter. The hand scale is the greater of palm width and 0.75 times wrist-to-middle-base distance, corrected for frame aspect ratio.
+
+`InteractionEngine` evaluates the gesture before applying index motion, preserving the pre-gesture aim during a tap bend and lift. Its legacy pinch/forward paths also preserve that aim. Legacy forward mode requires a forward transition relative to an automatically estimated hand reference before invoking the hold timer; neither normal motion nor stillness starts it. Palm motion is measured independently of the frozen pointer. Changing settings cancels active progress. The legacy hold presets are 0.65, 1, or 1.5 seconds, retained with the existing `dwellDurationPreset` preference. The standalone Pinch detector tolerates missing pinch observations for at most 120 ms, but the production engine cancels all input immediately on a missing index or interrupts on a callback gap over 120 ms. Returning hands must reacquire the current cursor before gesture detection resumes. A legacy pinch attempted during cooldown is consumed rather than delayed. Camera results are coalesced to the latest frame and callbacks from old sessions are rejected. Camera and inference latency are additional to smoothing time. See the [legacy forward gesture design](FORWARD_CLICK.md) for automatic adaptation, thresholds, and limitations.
 
 Tests cover confirmation, gentle pinches, duplicate prevention, reopening, cooldown, tracking loss, malformed observations, pointer settling, overshoot, freezing, and display-coordinate mapping. The integration suite runs the same `InteractionEngine` used by the app, including freshness and permission gates. It does not use a physical camera or send mouse clicks. CI runs these tests plus installer regressions, app builds, and signature checks on Apple Silicon and Intel.
 
@@ -89,9 +92,11 @@ Before v1.3.1, ad-hoc signatures changed with rebuilt code. Migrating that old a
 
 ## Camera and click feedback
 
-`ForwardClickDetector.progress` and `remainingSeconds` are read-only values derived from observed frame timestamps. Rendering never advances the detector or triggers a click. Reset, cancel, tracking loss, and post-click phases clear progress. A fresh movement-pose observation and forward transition are required to rearm, including after interruption. The UI hides stale feedback if delivery stops, using a 100 ms watchdog in common run-loop modes and the 120 ms tracking grace measured from the last received frame. Frames at least 200 ms old, future-dated frames, and duplicate/out-of-order timestamps cannot move or click.
+`TapGuidance` supplies the current **Aim → Bend → Lift** instructions from observed detector state. It offers **Lift to click** only when the bend can produce a click and replaces that cue with a retry instruction after cancellation. Rendering never advances the detector or triggers a click.
 
-Practice uses the actual target display bounds in the same engine, then scales its simulated pointer into the canvas. `InteractionDestination.practice` permits simulation without Accessibility but exposes no `systemLocation`, `systemClick`, or `systemScrollY`; the OS dispatch path consumes only those system output fields. The practice handler for both modes also returns before reaching dispatch. Changing output destination resets gesture intent. The reference and camera identity/frame dimensions stay in process memory. Tracking loss, a source change, or capture failure discards the reference; it rebuilds automatically during pointing. Reference adaptation is frozen during a forward gesture and never starts a timer by itself.
+In the legacy forward path, `ForwardClickDetector.progress` and `remainingSeconds` are read-only values derived from observed frame timestamps. Reset, cancel, tracking loss, and post-click phases clear progress. A fresh movement-pose observation and forward transition are required to rearm, including after interruption. All modes hide stale feedback if delivery stops, using a 100 ms watchdog in common run-loop modes and the 120 ms tracking grace measured from the last received frame. Frames at least 200 ms old, future-dated frames, and duplicate/out-of-order timestamps cannot move or click.
+
+Practice uses the actual target display bounds in the same engine, then scales its simulated pointer into the canvas. `InteractionDestination.practice` permits simulation without Accessibility but exposes no `systemLocation`, `systemClick`, or `systemScrollY`; the OS dispatch path consumes only those system output fields. The practice handler also returns before reaching dispatch. Changing output destination resets gesture intent. The legacy forward reference and camera identity/frame dimensions stay in process memory. Tracking loss, a source change, or capture failure discards that reference; it rebuilds automatically during pointing. Reference adaptation is frozen during a legacy forward gesture and never starts a timer by itself.
 
 The cursor panel ignores mouse events, never becomes key or main, and uses no screen recording. Quartz pointer coordinates convert to AppKit using the primary screen's top edge. The label stays inside the target screen, while the ring remains at the actual click location. The panel supports other applications' Spaces/full-screen contexts and hides when its target display is unavailable. Duplicate overlay content is excluded from accessibility; the app exposes a labeled progress indicator, percentage, and state announcements without announcing every countdown frame. No decorative progress animation runs ahead of detector state.
 
@@ -99,9 +104,9 @@ Sleep, display sleep, user-session deactivation, and display configuration chang
 
 ## Recovery, scrolling, and keyboard activation
 
-See [v1.5 interaction recovery](RECOVERY_AND_SCROLL.md) for the activation policy, relative cursor anchoring, scroll gesture, keyboard registration, regression coverage, and manual test checklist. These features change the production pipeline, not just the visual feedback.
+See [current tap and pinch-scroll behavior](TWO_FINGER_TAP.md) for the raised-finger starting pose and thumb + index scrolling. The [v1.5 interaction recovery notes](RECOVERY_AND_SCROLL.md) retain the original activation policy, relative cursor anchoring, keyboard registration, and legacy regression coverage; their old click modes and scrolling pose are historical.
 
-Validation before release: with a live camera, confirm Start/Pause, no-hand recovery, Pinch, setup-free forward clicks, optional practice, cancel/rearm, clicks off during a countdown, Escape, Accessibility loss, and cursor ring alignment on additional displays/full-screen apps. Use the practice canvas and app's Test click target. Synthetic tests do not verify physical tracking or delivery to other apps.
+Validation before release: with a live camera, confirm Start/Pause and no-hand recovery with index + middle raised, palm toward the camera. Check aiming, bending both fingers, lifting to click, retry guidance, and clicks off during a pending tap. Try optional practice, thumb + index pinch scrolling, Escape, Accessibility loss, and cursor feedback alignment on additional displays/full-screen apps. Use the practice canvas and app's Test click target. Synthetic tests do not verify physical tracking or delivery to other apps.
 
 ## Gesture interface review
 
@@ -111,6 +116,9 @@ currently live. Move and Click are always available; Scroll and Select text show
 their off state until the corresponding control is enabled. The camera remains off
 until Start is activated. These visuals never authorize movement, change gesture
 thresholds, advance a detector, or claim that tracking is live.
+
+Startup and recovery instructions consistently name index + middle raised, palm
+toward the camera, and a brief steady hold before aiming.
 
 The camera-free guide renderer exercises the production `GestureGuideView` at a
 900×370 default size and a 620×350 narrow size. It asserts resolved Auto Layout and

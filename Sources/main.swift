@@ -129,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var preview: PreviewView!
     private let titleLabel = NSTextField(labelWithString: "Hand Mouse")
     private let gestureGuide = GestureGuideView(frame: .zero)
-    private let startingPoseTitle = "Palm forward · Raise two fingers"
+    private let startingPoseTitle = "Palm toward camera · Raise index + middle"
     private let startingPoseDetail = "Palm toward camera · Index + middle raised · Hold still briefly."
     private let optionsToggle = NSButton(title: "Settings", target: nil, action: nil)
     private var optionsRows: NSStackView!
@@ -622,7 +622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if practicing {
             showFeedback("Practice only · No system input", "Aim at green. Bend index + middle, then lift to click.")
         } else if !running {
-            showFeedback("Palm forward · Raise two fingers", "Start the camera, then show one hand with your palm visible.")
+            showFeedback(startingPoseTitle, "Start the camera, then raise index + middle with your palm toward the camera.")
         } else if control.state != .on {
             showFeedback("Preview only", "Pointer and clicks off.")
         } else if allowClicks.state != .on {
@@ -873,7 +873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cameraMenuItem.title = "Pause camera"
         cameraStatus.stringValue = "Starting camera…"
         preview.showPlaceholder("Allow camera access.")
-        showFeedback("Starting camera", "Get ready: index finger up, palm toward camera, thumb apart.")
+        showFeedback("Starting camera", startingPoseDetail)
         camera.start()
     }
     @objc private func pause() {
@@ -970,7 +970,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if cameraReady && now - lastFrameTime > GestureTuning.trackingGraceSeconds {
             interruptInteraction(); clearClickFeedback(); preview.update(nil)
             cameraStatus.stringValue = "Tracking interrupted"
-            showFeedback("Tracking interrupted", "Countdown canceled. Pause and restart the camera if tracking does not resume.")
+            showFeedback("Tracking interrupted", "Raise index + middle, palm toward camera. Restart the camera if tracking does not resume.")
             return
         }
         if !trusted || control.state != .on {
@@ -1007,7 +1007,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             lastCameraSource = frame.source
             if sourceChanged {
                 resetInteraction(); clearClickFeedback()
-                showFeedback("Camera changed", "Point normally to resume. The gesture adapts automatically.")
+                showFeedback("Camera changed", startingPoseDetail + " The pointer stays where you left it.")
                 return
             }
         }
@@ -1030,7 +1030,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case .staleFrame:
                 preview.update(nil)
                 cameraStatus.stringValue = "Tracking delayed"
-                showFeedback("Tracking delayed", "Countdown canceled. Hold still briefly to reacquire your hand.")
+                showFeedback("Tracking delayed", startingPoseDetail + " No click is pending.")
             case .invalidDisplay:
                 pause(); showFeedback("Display unavailable", "Choose a connected display, then start camera.")
             case .permission, .previewOnly:
@@ -1047,7 +1047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if ownership.side == nil && capture.hands.count > 1 {
                     showFeedback("Start with one hand", "Lower the other hand until Pointer ready. Then bring it back as the drag modifier.")
                 } else {
-                    showFeedback("Looking for your hand", "Return your original pointer hand, palm visible. The other hand cannot take over.")
+                    showFeedback("Looking for your hand", "Raise index + middle on your original pointer hand, palm toward camera.")
                 }
             case .acquiring, .differentHand, .cursorUnavailable:
                 lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
@@ -1080,7 +1080,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: location, mouseButton: .left),
                   let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: location, mouseButton: .left) else {
                 clearClickFeedback()
-                showFeedback("Click unavailable", "No click was sent. Move or release your pinch to try again.")
+                showFeedback("Click unavailable", "No click was sent. Raise index + middle, then bend and lift to try again.")
                 return
             }
             down.setIntegerValueField(.mouseEventClickState, value: 1)

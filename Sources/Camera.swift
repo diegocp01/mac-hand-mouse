@@ -132,7 +132,7 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 session.startRunning()
                 if session.isRunning {
                     consecutiveVisionFailures = 0
-                    status("Show one hand and separate thumb + index to get ready.", token: token)
+                    status("Show one hand, palm toward camera. Raise index + middle and hold still briefly.", token: token)
                 } else {
                     captureActive = false
                     invalidateConfiguration()
