@@ -46,7 +46,9 @@ alone has less impact than click injection.
   pinch, a different left/right hand, missing cursor position, or a cursor outside the
   chosen display cannot acquire control.
 - **Scroll** defaults **ON** for new installs; a saved OFF choice stays off.
-  Pinch thumb + index, hold steady for 250 ms, then move the hand vertically. Scroll
+  Bring thumb + index + middle fingertips together, hold steady for 250 ms, then
+  move the hand vertically. All three fingertips must remain visible and close.
+  A thumb/index-only pinch cannot start scrolling. Scroll
   confirmation suppresses clicks and freezes the pointer. Release or tracking loss
   cancels scrolling with no queued motion or inertia. Raised index + middle alone
   never starts scrolling.

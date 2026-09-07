@@ -67,12 +67,14 @@ import CoreGraphics
 
         @discardableResult mutating func frame(_ pose: PointingPose? = .move,
                 point: CGPoint? = aim, right: Double? = 1.2, scrollPinch: Double? = 0.9,
+                legacyPinch: Double? = 0.9,
                 age: Double = 0.01, gap: Double? = nil, trusted: Bool = true) -> InteractionStep {
             time += gap ?? 1 / fps
             last = engine.process(index: point, pinchRatio: nil, timestamp: time, now: time + age,
                 bounds: bounds, running: true, trusted: trusted && destination == .system,
                 destination: destination, cursorPosition: cursor, handSide: "left",
-                palm: point, scrollPinchRatio: scrollPinch, pointingPose: pose, fiveFingerPinchRatio: right)
+                palm: point, scrollPinchRatio: legacyPinch, pointingPose: pose, fiveFingerPinchRatio: right,
+                threeFingerPinchRatio: scrollPinch)
             if let location = last.location { cursor = location }
             if last.click { leftClicks += 1 }
             if last.rightClick { rightClicks += 1 }
@@ -87,14 +89,38 @@ import CoreGraphics
         }
 
         mutating func hold(_ pose: PointingPose? = .move, seconds: Double = 0.7,
-                point: CGPoint? = aim, right: Double? = 1.2, scrollPinch: Double? = 0.9) {
+                point: CGPoint? = aim, right: Double? = 1.2, scrollPinch: Double? = 0.9,
+                legacyPinch: Double? = 0.9) {
             for _ in 0..<Int(ceil(seconds * fps)) {
-                frame(pose, point: point, right: right, scrollPinch: scrollPinch)
+                frame(pose, point: point, right: right, scrollPinch: scrollPinch, legacyPinch: legacyPinch)
             }
         }
     }
 
     static func main() {
+        let tightThree = [CGPoint(x: 0.49, y: 0.40), CGPoint(x: 0.51, y: 0.40), CGPoint(x: 0.50, y: 0.42)]
+        let middleApart = [CGPoint(x: 0.49, y: 0.40), CGPoint(x: 0.51, y: 0.40), CGPoint(x: 0.70, y: 0.20)]
+        func threeRatio(_ tips: [CGPoint], aspect: Double = 1) -> Double? {
+            ThreeFingerPinchGeometry.ratio(tips: tips,
+                indexBase: CGPoint(x: 0.4, y: 0.6), littleBase: CGPoint(x: 0.6, y: 0.6),
+                wrist: CGPoint(x: 0.5, y: 0.85), middleBase: CGPoint(x: 0.5, y: 0.58), aspect: aspect)
+        }
+        let closedThree = threeRatio(tightThree)
+        let openMiddle = threeRatio(middleApart)
+        check(closedThree != nil && closedThree! < 0.34,
+            "Three gathered fingertips provide a scroll pinch below all sensitivity presets")
+        check(openMiddle != nil && openMiddle! > 0.68,
+            "Thumb and index together with middle apart cannot satisfy the scroll pinch")
+        check(threeRatio(Array(tightThree.prefix(2))) == nil && threeRatio(tightThree + [aim]) == nil,
+            "Three-finger geometry requires exactly three observed fingertips")
+        check(threeRatio([tightThree[0], tightThree[1], CGPoint(x: .nan, y: 0.4)]) == nil &&
+            threeRatio([tightThree[0], tightThree[1], CGPoint(x: 0.5, y: 1.1)]) == nil,
+            "Malformed or out-of-frame fingertip locations cannot scroll")
+        for aspect in [0.0, -1.0, Double.nan, Double.infinity] {
+            check(threeRatio(tightThree, aspect: aspect) == nil,
+                "Invalid camera aspect ratios cannot supply a scroll pinch")
+        }
+
         var sparseRight = FiveFingerPinchDetector()
         for time in [0.0, 0.05, 0.10, 0.15, 0.20] {
             _ = sparseRight.update(ratio: 1.2, time: time)
@@ -273,13 +299,45 @@ import CoreGraphics
                 var stagedRight = Session(fps: fps, practice: practice)
                 stagedRight.hold()
                 let stagedTarget = stagedRight.cursor
-                // Thumb and index can meet before the other three fingertips arrive.
+                // Thumb, index, and middle can meet before the last two fingertips arrive.
                 // This short transitional pinch is not yet a completed scroll gesture.
                 stagedRight.hold(nil, seconds: 0.2, right: 1.2, scrollPinch: 0.2)
                 stagedRight.hold(nil, seconds: 0.45, right: 0.4, scrollPinch: 0.2)
                 check(stagedRight.rightClicks == 1 && stagedRight.leftClicks == 0 && stagedRight.scroll == 0 &&
                     stagedRight.cursor == stagedTarget,
-                    "Closing thumb and index first cannot discard the armed five-finger right click")
+                    "Closing three fingertips first cannot discard the armed five-finger right click")
+
+                var threeScroll = Session(fps: fps, practice: practice)
+                threeScroll.hold()
+                let scrollTarget = threeScroll.cursor
+                threeScroll.hold(nil, seconds: 0.4, scrollPinch: nil, legacyPinch: 0.2)
+                threeScroll.frame(nil, point: CGPoint(x: 0.5, y: 0.48), scrollPinch: nil, legacyPinch: 0.2)
+                check(threeScroll.engine.scroll.phase == .idle && threeScroll.scroll == 0,
+                    "Legacy thumb/index pinch alone cannot scroll when middle-finger evidence is absent")
+                threeScroll.hold(nil, seconds: 0.4, scrollPinch: 0.9, legacyPinch: 0.2)
+                threeScroll.frame(nil, point: CGPoint(x: 0.5, y: 0.48), scrollPinch: 0.9, legacyPinch: 0.2)
+                check(threeScroll.engine.scroll.phase == .idle && threeScroll.scroll == 0,
+                    "Legacy thumb/index pinch cannot scroll while the middle finger remains apart")
+                threeScroll.hold(nil, seconds: 0.4, scrollPinch: 0.2, legacyPinch: 0.2)
+                check(threeScroll.engine.scroll.phase == .scrolling && threeScroll.scroll == 0,
+                    "A steady three-finger pinch arms scrolling without an initial delta")
+                threeScroll.frame(nil, point: CGPoint(x: 0.5, y: 0.48), scrollPinch: 0.2, legacyPinch: 0.2)
+                check(threeScroll.scroll > 0 && threeScroll.cursor == scrollTarget &&
+                    threeScroll.leftClicks == 0 && threeScroll.rightClicks == 0,
+                    "Three-finger movement scrolls while keeping the cursor and mouse buttons still")
+                let beforeThirdRelease = threeScroll.scroll
+                threeScroll.frame(nil, point: CGPoint(x: 0.5, y: 0.46), scrollPinch: 0.9, legacyPinch: 0.2)
+                check(threeScroll.engine.scroll.phase == .idle && threeScroll.scroll == beforeThirdRelease &&
+                    threeScroll.cursor == scrollTarget,
+                    "Releasing only the middle finger stops scroll immediately without a pointer jump")
+                threeScroll.hold(nil, seconds: 0.4, scrollPinch: 0.2, legacyPinch: 0.2)
+                threeScroll.frame(nil, point: CGPoint(x: 0.5, y: 0.48), scrollPinch: 0.2, legacyPinch: 0.2)
+                let beforeMissingThird = threeScroll.scroll
+                threeScroll.frame(nil, point: CGPoint(x: 0.5, y: 0.46), scrollPinch: nil, legacyPinch: 0.2)
+                check(threeScroll.engine.scroll.phase == .idle && threeScroll.scroll == beforeMissingThird,
+                    "Missing third-finger evidence stops an active scroll despite a continuing thumb/index pinch")
+                threeScroll.frame(.move, point: CGPoint(x: 0.5, y: 0.46), scrollPinch: 0.9, legacyPinch: 0.9)
+                check(threeScroll.cursor == scrollTarget, "Returning to index-only movement reanchors after scrolling")
 
                 var stale = Session(fps: fps, practice: practice)
                 stale.hold(); stale.hold(.click, seconds: 0.7)

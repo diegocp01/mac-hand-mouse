@@ -66,13 +66,13 @@ See [source-update behavior and safeguards](docs/UPDATES.md) for details.
 
 Keep both fingers and their knuckles visible during the countdown. Lower the middle finger before it finishes to cancel. Keeping both fingers raised after a click does not repeat it. Excessive hand movement, missing tracking, a competing gesture, or **Esc** cancels the pending click.
 
-**Point and hold replaces two-finger tap.** Your saved click choice is preserved. Thumb + index pinching scrolls; bringing all five fingertips together right-clicks. One-hand pinch dragging is unavailable in this mode.
+**Point and hold replaces two-finger tap.** Your saved click choice is preserved. Bringing thumb + index + middle fingertips together scrolls; bringing all five fingertips together right-clicks. One-hand pinch dragging is unavailable in this mode.
 
 - **Practice:** rehearse clicks on targets without sending mouse events to other apps. Finishing practice leaves clicks off.
 - **Steady aim:** on by default in Settings. Slow, careful hand movements make smaller pointer adjustments; faster movements keep normal travel. After smoothing settles, the pointer stays at your fine adjustment. This responds to your movement, without detecting buttons or other targets. Turn it off to use the previous pointer behavior.
 - **Right click:** bring all five fingertips together and hold briefly. Keep every fingertip visible so the camera can confirm the gesture. It sends one right-click; open your hand before doing it again, including after a canceled attempt.
 - **Precision:** enable **Precision** for roughly 35% of normal hand-to-pointer travel. Lower and raise your hand to reposition when needed. The setting is saved.
-- **Scroll:** enable **Scroll**, touch thumb + index and hold steady for about a quarter second, then move your hand up/down. The cursor stays put and clicks are suppressed. Release the pinch to stop immediately and resume aiming without a jump. Scrolling also works with Click off.
+- **Scroll:** enable **Scroll**, bring thumb + index + middle fingertips together and hold steady for about a quarter second, then move your hand up/down. Keep the ring and little fingertips separate from the pinch. The cursor stays put and clicks are suppressed. Release the pinch to stop immediately and resume aiming without a jump. Thumb + index alone does not scroll. Scrolling also works with Click off.
 - **Click:** enabled by default. Turn it off to aim without clicking; your manual choice is saved. Practice leaves clicks off for the current session without changing that preference, so the next launch restores your saved choice or the default on.
 - **Rest/reposition:** lower your hand, then extend the index alone centrally and hold briefly. The pointer resumes where you left it.
 - **Pause:** Esc, **Pause**, or the menu-bar hand icon. **⌃⌥⌘H** pauses/resumes from another app (configurable in Permissions).

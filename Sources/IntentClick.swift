@@ -151,12 +151,30 @@ struct FiveFingerPinchDetector {
     }
 }
 
-enum FiveFingerPinchGeometry {
-    /// Maximum pairwise fingertip distance divided by the same aspect-corrected
-    /// palm scale used by HandGeometry. Landmark confidence is checked upstream.
+enum ThreeFingerPinchGeometry {
     static func ratio(tips: [CGPoint], indexBase: CGPoint, littleBase: CGPoint,
                       wrist: CGPoint, middleBase: CGPoint, aspect: Double) -> Double? {
-        guard tips.count == 5, aspect.isFinite, aspect > 0,
+        guard tips.count == 3 else { return nil }
+        return FingertipClusterGeometry.ratio(tips: tips, indexBase: indexBase, littleBase: littleBase,
+            wrist: wrist, middleBase: middleBase, aspect: aspect)
+    }
+}
+
+enum FiveFingerPinchGeometry {
+    static func ratio(tips: [CGPoint], indexBase: CGPoint, littleBase: CGPoint,
+                      wrist: CGPoint, middleBase: CGPoint, aspect: Double) -> Double? {
+        guard tips.count == 5 else { return nil }
+        return FingertipClusterGeometry.ratio(tips: tips, indexBase: indexBase, littleBase: littleBase,
+            wrist: wrist, middleBase: middleBase, aspect: aspect)
+    }
+}
+
+private enum FingertipClusterGeometry {
+    /// Every pair of tips must be close. Thumb/index contact alone cannot stand
+    /// in for a three-finger pinch. Landmark confidence is checked by the camera.
+    static func ratio(tips: [CGPoint], indexBase: CGPoint, littleBase: CGPoint,
+                      wrist: CGPoint, middleBase: CGPoint, aspect: Double) -> Double? {
+        guard aspect.isFinite, aspect > 0,
               (tips + [indexBase, littleBase, wrist, middleBase]).allSatisfy({
                   $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y)
               }) else { return nil }

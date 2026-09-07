@@ -294,8 +294,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         steadyAim.toolTip = "Slow hand movements make smaller pointer adjustments. Move faster to cross the screen."
         steadyAim.setAccessibilityLabel("Steady aim for easier small targets")
         allowScrolling.target = self; allowScrolling.action = #selector(scrollingChanged)
-        allowScrolling.toolTip = "Pinch thumb + index, hold briefly, then move your hand up/down. Release to stop scrolling."
-        allowScrolling.setAccessibilityLabel("Enable pinch scrolling with vertical hand movement")
+        allowScrolling.toolTip = "Pinch thumb + index + middle together, hold briefly, then move your hand up/down. Release to stop scrolling."
+        allowScrolling.setAccessibilityLabel("Enable thumb, index, and middle finger pinch scrolling with vertical hand movement")
         practiceButton.target = self; practiceButton.action = #selector(startPractice)
         practiceButton.bezelStyle = .rounded
         practiceButton.keyEquivalent = "t"; practiceButton.keyEquivalentModifierMask = [.command, .shift]
@@ -700,7 +700,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func refreshClickChrome() {
         allowScrolling.isEnabled = true
-        allowScrolling.toolTip = "Pinch thumb + index and move your hand vertically. Release to resume aiming."
+        allowScrolling.toolTip = "Pinch thumb + index + middle together and move your hand vertically. Release to resume aiming."
         let clicksOn = allowClicks.state == .on
         configureInteraction()
         clickModeControl.isEnabled = true
@@ -798,7 +798,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
             primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio, scrollPinchRatio: frame.dragPinchRatio,
-            pointingPose: frame.pointingPose, fiveFingerPinchRatio: frame.fiveFingerPinchRatio)
+            pointingPose: frame.pointingPose, fiveFingerPinchRatio: frame.fiveFingerPinchRatio,
+            threeFingerPinchRatio: frame.threeFingerPinchRatio)
         preview.controlRegion = engine.pointerControlRegion
         if let location = step.location { practiceCursor = location }
         let simulatedPoint = step.location.map {
@@ -837,7 +838,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         if engine.scroll.phase != .idle {
-            showFeedback("Practice · Scrolling", "Keep thumb + index pinched and move your hand up/down to change the counter. Release to stop.")
+            showFeedback("Practice · Scrolling", "Keep thumb + index + middle pinched together and move your hand up/down to change the counter. Release to stop.")
             return
         }
         if isPointHold {
@@ -1117,7 +1118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                   handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
             primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio, scrollPinchRatio: frame.dragPinchRatio,
-            pointingPose: frame.pointingPose, fiveFingerPinchRatio: frame.fiveFingerPinchRatio)
+            pointingPose: frame.pointingPose, fiveFingerPinchRatio: frame.fiveFingerPinchRatio,
+            threeFingerPinchRatio: frame.threeFingerPinchRatio)
         preview.controlRegion = engine.pointerControlRegion
         guard dragOutput.dispatch(step, post: postDragEvents) else { interruptInteraction(); return }
         if let blocked = step.blocked {
@@ -1218,7 +1220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else if engine.scroll.phase != .idle {
             let active = engine.scroll.phase == .scrolling
             showFeedback(active ? "Scrolling ↑↓" : "Hold pinch briefly",
-                "Keep thumb + index pinched and move your hand up/down. Release to resume aiming.")
+                "Keep thumb + index + middle pinched together and move your hand up/down. Release to resume aiming.")
             cursorFeedback.show(at: location, displayID: targetDisplay, progress: 0, remaining: 0, clicked: false,
                 caption: active ? "Scrolling ↑↓" : "Pinch…")
         } else if !clicksAllowed {

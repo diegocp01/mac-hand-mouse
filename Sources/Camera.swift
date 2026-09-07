@@ -15,6 +15,7 @@ struct HandFrame {
     var scrollPoint: CGPoint?
     var pointingPose: PointingPose?
     var fiveFingerPinchRatio: Double?
+    var threeFingerPinchRatio: Double?
     var tapPose: TapPose?
     var fingerSeparationRatio: Double?
     var isL = false
@@ -278,6 +279,13 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
            finger(.littleTip, .littlePIP, .littleMCP) == .folded {
             if middleShape == .folded { frame.pointingPose = .move }
             else if middleShape == .extended { frame.pointingPose = .click }
+        }
+        let scrollTipJoints: [VNHumanHandPoseObservation.JointName] = [.thumbTip, .indexTip, .middleTip]
+        if (scrollTipJoints + palmJoints).allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
+           let indexBase = frame.points[.indexMCP], let littleBase = frame.points[.littleMCP],
+           let wrist = frame.points[.wrist], let middleBase = frame.points[.middleMCP] {
+            frame.threeFingerPinchRatio = ThreeFingerPinchGeometry.ratio(tips: scrollTipJoints.compactMap { frame.points[$0] },
+                indexBase: indexBase, littleBase: littleBase, wrist: wrist, middleBase: middleBase, aspect: Double(aspect))
         }
         let tipJoints: [VNHumanHandPoseObservation.JointName] = [.thumbTip, .indexTip, .middleTip, .ringTip, .littleTip]
         if (tipJoints + palmJoints).allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),

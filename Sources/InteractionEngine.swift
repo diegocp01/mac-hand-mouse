@@ -110,7 +110,8 @@ struct InteractionEngine {
                           primaryL: Bool = false, companionPresent: Bool = false, companionL: Bool = false,
                           primaryReleased: Bool = false, companionReleased: Bool = false, palm: CGPoint? = nil,
                           tapPose: TapPose? = nil, fingerSeparationRatio: Double? = nil, scrollPinchRatio: Double? = nil,
-                          pointingPose: PointingPose? = nil, fiveFingerPinchRatio: Double? = nil) -> InteractionStep {
+                          pointingPose: PointingPose? = nil, fiveFingerPinchRatio: Double? = nil,
+                          threeFingerPinchRatio: Double? = nil) -> InteractionStep {
         dragModifierPresent = false
         guard running else { reset(); return InteractionStep(blocked: .paused) }
         let inputAllowed = trusted || destination == .practice
@@ -146,7 +147,8 @@ struct InteractionEngine {
         }
         let scrollPoint: CGPoint?
         if settings.mode == .twoFingerTap || settings.mode == .pointAndHold {
-            if settings.allowScrolling, let ratio = scrollPinchRatio, ratio.isFinite, ratio >= 0, let palm,
+            let scrollRatio = settings.mode == .pointAndHold ? threeFingerPinchRatio : scrollPinchRatio
+            if settings.allowScrolling, let ratio = scrollRatio, ratio.isFinite, ratio >= 0, let palm,
                palm.x.isFinite, palm.y.isFinite {
                 if ratio < settings.pinchThreshold { scrollPinched = true }
                 else if ratio > settings.pinchThreshold + 0.18 { scrollPinched = false }
@@ -233,7 +235,7 @@ struct InteractionEngine {
                 if ratio < 0.75 { rightGestureActive = true }
                 else if ratio > 0.85 { rightGestureActive = false }
             }
-            // All-five closure wins over its embedded thumb/index scroll pinch.
+            // All-five closure wins over its embedded thumb/index/middle scroll pinch.
             // A lost fingertip observation cannot turn a held right click into a scroll.
             if rightGestureActive || wasRightGesture {
                 pointHold.reset(); scroll.reset(); scrollPinched = false

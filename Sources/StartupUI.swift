@@ -42,7 +42,7 @@ enum GestureAction: CaseIterable {
         case .move: return "One finger · Move"
         case .click: return "Raise two · Hold 1 s"
         case .rightClick: return "Five tips together"
-        case .scroll: return "Pinch · move"
+        case .scroll: return "Three tips · Move"
         case .select: return "Two L hands · move"
         }
     }
@@ -56,7 +56,7 @@ enum GestureAction: CaseIterable {
         case .rightClick:
             return "Bring all five fingertips together in a pinch, keeping them visible to the camera. Hold briefly to right-click once. Open the hand before the next right-click."
         case .scroll:
-            return "Pinch the thumb and index fingertip, hold briefly, then move the hand vertically to scroll."
+            return "Bring the thumb, index, and middle fingertips together, hold briefly, then move the hand vertically to scroll. Release the three-finger pinch to stop."
         case .select:
             return "First acquire the primary hand. Add a second hand with both thumbs and index fingers forming L shapes and the other fingers folded. Move only the primary hand. Open either L shape to release."
         }
@@ -304,7 +304,7 @@ private final class GestureCardButton: NSButton {
 }
 
 private final class GestureIllustrationView: NSView {
-    enum HandPose { case point, raised, allPinch, pinch, lShape, open }
+    enum HandPose { case point, raised, allPinch, threePinch, lShape, open }
 
     let gestureAction: GestureAction
     var isLearningSelection = false {
@@ -356,9 +356,9 @@ private final class GestureIllustrationView: NSView {
             drawContextMenu(at: point(179, 22, origin, scale), color: accent, scale: scale)
         case .scroll:
             drawStep("1", at: point(14, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(105, 82, origin, scale), scale: 0.88 * scale, pose: .pinch,
+            drawHand(at: point(105, 82, origin, scale), scale: 0.88 * scale, pose: .threePinch,
                      mirrored: false, primary: true, ink: ink, accent: accent)
-            drawContact(at: point(107, 30, origin, scale), color: accent, scale: scale)
+            drawContact(at: point(112, 29, origin, scale), color: accent, scale: scale)
             drawStep("2", at: point(151, 14, origin, scale), accent: accent, scale: scale)
             drawVerticalTravel(x: origin.x + 204 * scale, y: origin.y + 18 * scale,
                                height: 58 * scale, color: accent, scale: scale)
@@ -434,11 +434,15 @@ private final class GestureIllustrationView: NSView {
             for finger in fingers {
                 if let tip = finger.last { drawTip(at: CGPoint(x: px(tip.0), y: py(tip.1)), color: accent, scale: scale) }
             }
-        case .pinch:
-            drawBentFinger(points: [(-8, 34), (-9, 57), (2, 64), (12, 57)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
-            drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke)
+        case .threePinch:
+            drawBentFinger(points: [(-8, 34), (-14, 53), (-4, 65), (5, 60)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
+            drawBentFinger(points: [(6, 34), (18, 54), (15, 66), (9, 61)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
+            drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke, count: 2)
             drawPinchingThumb(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
             drawPalmAndWrist()
+            for (x, y) in [(CGFloat(5), CGFloat(60)), (9, 61), (12, 56)] {
+                drawTip(at: CGPoint(x: px(x), y: py(y)), color: accent, scale: scale)
+            }
         case .lShape:
             drawFinger(rect(-12, 31, 10, 42), radius: 5, fill: fill, stroke: stroke, scale: scale, rect: rect)
             drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke)
@@ -507,8 +511,8 @@ private final class GestureIllustrationView: NSView {
     }
 
     private func drawFoldedFingers(anchor: CGPoint, scale: CGFloat, mirrored: Bool,
-                                   fill: NSColor, ink: NSColor) {
-        for index in 0..<3 {
+                                   fill: NSColor, ink: NSColor, count: Int = 3) {
+        for index in (3 - count)..<3 {
             let x = CGFloat(7 + index * 7)
             let center = CGPoint(x: anchor.x + (mirrored ? -x : x) * scale,
                                  y: anchor.y - CGFloat(27 - index * 4) * scale)

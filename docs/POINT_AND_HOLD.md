@@ -1,8 +1,8 @@
 # Point and hold
 
-The active gestures are index-only movement, a one-second two-finger hold for left-clicking, a five-fingertip pinch for right-clicking, thumb/index pinch scrolling, and optional two-hand L dragging. The previous [two-finger tap](TWO_FINGER_TAP.md) detector is retained for regression coverage and is not an active click mode.
+The active gestures are index-only movement, a one-second two-finger hold for left-clicking, a five-fingertip pinch for right-clicking, thumb/index/middle pinch scrolling, and optional two-hand L dragging. The previous [two-finger tap](TWO_FINGER_TAP.md) detector is retained for regression coverage and is not an active click mode.
 
-![Five gesture cards with index-only movement, a one-second click ring, and five-fingertip right-clicking](images/point-and-hold-guide.png)
+![Five gesture cards with index-only movement, a one-second click ring, three-fingertip scrolling, and five-fingertip right-clicking](images/point-and-hold-guide.png)
 
 This camera-free snapshot illustrates the guide. Its partial ring explains the countdown; live progress comes from observed gesture timing.
 
@@ -16,11 +16,11 @@ Each raise produces at most one click. Lower the middle finger to return to inde
 
 Bring all five fingertips together. Recognition requires confident observations of every fingertip; an unseen finger does not count as pinched. A short confirmation of about 100 milliseconds sends one right-click at the held target. Keeping the pinch closed does not repeat it. Open the hand before another right-click, including after a canceled confirmation.
 
-The five-finger pinch has priority over ordinary thumb/index scrolling so it does not also scroll or left-click. Keep the other fingers distinct from a simple thumb/index pinch when scrolling. Physical recognition of the five-finger gesture needs testing because the fingertips can obscure one another.
+The five-finger pinch has priority over thumb/index/middle scrolling so it does not also scroll or left-click. Keep the ring and little fingertips separate from the three-finger pinch when scrolling. Physical recognition of the five-finger gesture needs testing because the fingertips can obscure one another.
 
 ## Scroll and select text
 
-Thumb/index pinch scrolling keeps its existing behavior: hold that pinch briefly with a visible palm, then move vertically. Release to stop and resume aiming. It remains separately configurable from clicks. Optional two-hand L dragging still selects text or drags with the original hand; opening either L releases the drag.
+Bring the thumb, index, and middle fingertips together with a visible palm. Hold briefly, then move vertically to scroll. All three fingertips must be visible and close together; thumb and index alone are insufficient. Release the three-finger pinch to stop and resume aiming. The scroll timing and motion remain unchanged, and scrolling stays separately configurable from clicks. Optional two-hand L dragging still selects text or drags with the original hand; opening either L releases the drag.
 
 ## Preferences and practice
 
@@ -32,4 +32,4 @@ Steady aim makes smaller adjustments during slow hand movements while preserving
 
 Synthetic tests can check countdown timing, cancellation, one-click-per-raise behavior, right-click rearming, gesture priority, output isolation, and pointer reanchoring. Static guide snapshots can check layout and gesture labels. Neither verifies physical recognition or improved click accuracy.
 
-With a camera, compare small-target aiming with Steady aim on and off. Confirm that the ring begins when the middle finger rises, fills throughout the one-second hold, and clicks once at completion. Cancel halfway by lowering the middle finger, then repeat after a successful click. Check that small hand movements during a hold do not move the target or cause a jump afterward, and that excessive movement cancels the hold. Test the five-finger pinch from several angles, an obscured fingertip, a held pinch, and reopening after both a successful right-click and a canceled confirmation. Check that thumb/index scrolling remains distinct. Repeat with both hands, different lighting and cameras, and Precision on and off; perform the first attempts in Practice.
+With a camera, compare small-target aiming with Steady aim on and off. Confirm that the ring begins when the middle finger rises, fills throughout the one-second hold, and clicks once at completion. Cancel halfway by lowering the middle finger, then repeat after a successful click. Check that small hand movements during a hold do not move the target or cause a jump afterward, and that excessive movement cancels the hold. Test the five-finger pinch from several angles, an obscured fingertip, a held pinch, and reopening after both a successful right-click and a canceled confirmation. Check that thumb/index/middle scrolling remains distinct from right-clicking, and that a thumb/index-only pinch does not scroll. Verify that moving the middle fingertip away or hiding any required fingertip stops scrolling. Repeat with both hands, different lighting and cameras, and Precision on and off; perform the first attempts in Practice.
