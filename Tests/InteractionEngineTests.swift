@@ -308,6 +308,57 @@ import CoreGraphics
               "Camera aspect correction preserves the forward gesture features")
         check(measured(aspect: 1, folded: true) == nil, "Folded index is rejected rather than treated as forward intent")
         check(measured(aspect: .nan) == nil, "Invalid frame geometry cannot produce gesture evidence")
+        // Synthetic confidence fixtures exercise the same assessment used by Camera.
+        // The fingertip and palm remain strong; only internal joints are moderate.
+        func assessed(reach: Double, aspect: Double = 1, confidence: [Double] = Array(repeating: 0.8, count: 7),
+                      missing: Int? = nil, folded: Bool = false) -> ForwardPoseAssessment {
+            let length = reach * 0.2
+            let raw = [CGPoint(x: 0.4, y: folded ? 0.48 : 0.5 - length),
+                       CGPoint(x: 0.4, y: 0.5 - length * 0.35), CGPoint(x: 0.4, y: 0.5 - length * 0.65),
+                       CGPoint(x: 0.4, y: 0.5), CGPoint(x: 0.6, y: 0.5),
+                       CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.5, y: 0.65)]
+            let joints: [ForwardJoint?] = raw.enumerated().map { i, p in
+                i == missing ? nil : ForwardJoint(point: CGPoint(x: p.x / aspect, y: p.y), confidence: confidence[i])
+            }
+            return ForwardPose.assess(index: joints[0], pip: joints[1], dip: joints[2], base: joints[3],
+                littleBase: joints[4], middleBase: joints[5], wrist: joints[6], aspect: aspect, side: "left")
+        }
+        var moderate = Array(repeating: 0.8, count: 7)
+        moderate[1] = 0.50; moderate[2] = 0.55
+        let accepted = assessed(reach: 0.65, confidence: moderate)
+        check(accepted.pose != nil && accepted.issue == nil, "Moderate internal-joint confidence retains valid forward geometry")
+        for joint in 0..<7 {
+            var weak = moderate; weak[joint] = joint == 1 || joint == 2 ? 0.44 : 0.59
+            let result = assessed(reach: 0.65, confidence: weak)
+            check(result.pose == nil && result.issue == (joint < 3 ? .indexHidden : .palmHidden),
+                  "Weak critical landmark blocks clicking and explains which part is hidden")
+            check(assessed(reach: 0.65, confidence: moderate, missing: joint).pose == nil,
+                  "Missing joints are never invented")
+            for invalid in [Double.nan, Double.infinity, -1, 1.1] {
+                weak = moderate; weak[joint] = invalid
+                check(assessed(reach: 0.65, confidence: weak).pose == nil, "Invalid confidence cannot authorize input")
+            }
+        }
+        check(assessed(reach: 1.4, confidence: moderate, folded: true).issue == .ambiguousShape,
+              "Moderate confidence never bypasses folded-index geometry rejection")
+        for aspect in [1.0, 16.0 / 9] {
+            for fps in [15.0, 30.0, 60.0] {
+                var s = Session(); s.setup()
+                let aimPose = assessed(reach: 1.4, aspect: aspect, confidence: moderate).pose
+                let clickPose = assessed(reach: 0.65, aspect: aspect, confidence: moderate).pose
+                s.hold(a, pose: aimPose, seconds: 1, fps: fps)
+                check(s.engine.forward.phase == .ready && s.clicks == 0, "Moderate-confidence straight aiming only readies the detector")
+                s.hold(a, pose: clickPose, seconds: 1.2, fps: fps)
+                check(s.clicks == 1, "Camera confidence assessment can complete one deliberate forward click")
+                s.hold(a, pose: clickPose, seconds: 1, fps: fps)
+                check(s.clicks == 1, "Confidence change does not permit repeated clicks from one hold")
+                s = Session(); s.setup(); s.hold(a, pose: aimPose, seconds: 1, fps: fps)
+                s.hold(a, pose: clickPose, seconds: 0.4, fps: fps)
+                s.frame(a, pose: assessed(reach: 0.65, missing: 2).pose, dt: 1 / fps)
+                s.hold(a, pose: clickPose, seconds: 1.5, fps: fps)
+                check(s.clicks == 0, "Genuinely missing joints cancel rather than bridging unseen click intent")
+            }
+        }
         print("Passed \(checks) production interaction and forward-intent checks.")
     }
 }

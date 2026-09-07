@@ -84,6 +84,15 @@ This works with either Pinch or Point forward selected and uses **Allow clicks**
 
 Tracking loss, stale frames, camera pause, settings changes, and leaving practice release or cancel a drag. Losing the original hand never transfers control to the remaining hand. Ownership uses left/right handedness, not biometric identity. L recognition needs physical testing across users and cameras; see [two-hand design and checks](docs/TWO_HAND_DRAG.md).
 
+### If pointing does not start a click
+
+Pointer tracking and click recognition are separate. Keep the index straight and
+turn it slightly sideways so the camera can see its fingertip and joints; pointing
+directly into the lens can hide them. Keep your palm and knuckles visible, aim
+again, then point forward at a slight angle. The app now tells you whether the
+index, palm, or finger shape is unclear. No timer runs while the pose is unclear.
+Choose **Pinch** in **Gesture settings** if forward pointing is uncomfortable.
+
 ### Point forward — no pose setup
 
 Expand **Gesture settings**, select **Point forward**, start the camera, and enable **Allow clicks**. Move your index to aim, then point it toward the camera as if touching the screen. The app automatically accounts for your hand's size and visible finger length while you aim. There are no capture buttons, saved poses, or required practice clicks, and the reference can adapt while the pointer moves. Starting or returning after tracking loss still requires a brief steady pointing pose before taking over the current cursor.

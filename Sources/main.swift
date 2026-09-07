@@ -154,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var running = false
     private var engine = InteractionEngine()
     private var ownership = HandOwnership()
+    private var lastForwardIssue: ForwardPoseIssue?
     private var dragOutput = DragOutput()
     private var dragReleaseEvent: CGEvent?
     private let dwellDuration = NSSegmentedControl(labels: ["0.65 s", "1 s", "1.5 s"], trackingMode: .selectOne, target: nil, action: nil)
@@ -459,6 +460,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let next = clickMode == .forward ? "Once the pointer moves, aim first; point toward the camera only to click."
                 : "Once the pointer moves, aim first; touch thumb + index to click."
             pointerGuide.update(title: startingPoseTitle, detail: startingPoseDetail + "\n" + next)
+        } else if clickMode == .forward && engine.settings.allowClicks,
+                  !(engine.settings.allowDragging && engine.drag.phase != .idle),
+                  engine.scroll.phase == .idle, let issue = lastForwardIssue {
+            pointerGuide.update(title: "Pointer works · Adjust your pose to click",
+                detail: issue.detail + "\nYou can also choose Pinch in Gesture settings.")
         } else if engine.scroll.phase != .idle {
             pointerGuide.update(title: "Two-finger scrolling", detail: "Move index + middle up/down to scroll.\nLower your middle finger and return to the starting pose to aim again.")
         } else {
@@ -818,6 +824,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         defer { ownership.lock(engine.acquisition.owner) }
 
         guard running else { return }
+        lastForwardIssue = frame.forwardIssue
         let now = ProcessInfo.processInfo.systemUptime
         if frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.20 {
             let sourceChanged = lastCameraSource != nil && lastCameraSource != frame.source
@@ -935,7 +942,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else if clickMode == .forward && frame.forwardPose == nil {
             cursorFeedback.hide()
             let hint = ForwardClickHint.current(pose: nil, profile: engine.forwardProfile)
-            showFeedback(hint.title, hint.detail)
+            showFeedback(frame.forwardIssue?.title ?? hint.title,
+                (frame.forwardIssue?.detail ?? hint.detail) + " No click is pending. Try Pinch if this is uncomfortable.")
         } else if clickMode == .forward {
             switch engine.forward.phase {
             case .ready:
@@ -974,6 +982,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func resetInteraction() {
+        lastForwardIssue = nil
         releaseDrag()
         engine.reset()
     }
