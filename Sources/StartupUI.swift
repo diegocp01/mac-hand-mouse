@@ -22,6 +22,7 @@ final class SetupStepView: NSView {
     private var presentation = ""
     private let badge = NSTextField(labelWithString: "")
     private let title = NSTextField(labelWithString: "")
+    private let detailLabel = NSTextField(wrappingLabelWithString: "")
 
     init(number: String, title: String) {
         self.number = number
@@ -35,10 +36,15 @@ final class SetupStepView: NSView {
         badge.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
         let heading = NSStackView(views: [badge, self.title])
         heading.spacing = 8
-        let text = heading
+        detailLabel.font = .systemFont(ofSize: 11)
+        detailLabel.textColor = StartupStyle.muted
+        detailLabel.maximumNumberOfLines = 2
+        detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let text = StartupStyle.column([heading, detailLabel], spacing: 4)
         text.translatesAutoresizingMaskIntoConstraints = false
         addSubview(text)
         NSLayoutConstraint.activate([
+            detailLabel.widthAnchor.constraint(equalTo: text.widthAnchor),
             text.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             text.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             text.topAnchor.constraint(equalTo: topAnchor, constant: 12),
@@ -53,6 +59,7 @@ final class SetupStepView: NSView {
         let nextPresentation = "\(complete)|\(active)|\(contrast)|\(detail)"
         guard presentation != nextPresentation else { return }
         presentation = nextPresentation
+        detailLabel.stringValue = detail
         let badgeText = complete ? "✓" : number
         if badge.stringValue != badgeText { badge.stringValue = badgeText }
         badge.textColor = complete || active ? StartupStyle.accent : StartupStyle.muted
@@ -60,6 +67,51 @@ final class SetupStepView: NSView {
         layer?.borderColor = (active || contrast ? StartupStyle.accent : StartupStyle.muted.withAlphaComponent(0.22)).cgColor
         setAccessibilityElement(true)
         setAccessibilityLabel("Step \(number), \(title.stringValue). \(complete ? "Complete. " : "")\(detail)")
+    }
+}
+
+/// Always visible beside the camera controls, including when the settings scroll away.
+final class PointerGuideView: NSView {
+    private let heading = NSTextField(wrappingLabelWithString: "")
+    private let detail = NSTextField(wrappingLabelWithString: "")
+    private let hand = NSImageView()
+    private var presentation = ""
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.backgroundColor = StartupStyle.surface.cgColor
+        hand.image = NSImage(systemSymbolName: "hand.point.up", accessibilityDescription: nil)
+        hand.symbolConfiguration = .init(pointSize: 30, weight: .regular)
+        hand.contentTintColor = StartupStyle.accent
+        hand.setAccessibilityElement(false)
+        heading.font = .systemFont(ofSize: 14, weight: .semibold)
+        detail.font = .systemFont(ofSize: 12)
+        detail.textColor = StartupStyle.muted
+        let text = StartupStyle.column([heading, detail], spacing: 4)
+        for view in [hand, text] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+        NSLayoutConstraint.activate([
+            hand.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            hand.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            hand.widthAnchor.constraint(equalToConstant: 32), hand.heightAnchor.constraint(equalToConstant: 36),
+            text.leadingAnchor.constraint(equalTo: hand.trailingAnchor, constant: 12),
+            text.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            text.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            text.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            heading.widthAnchor.constraint(equalTo: text.widthAnchor),
+            detail.widthAnchor.constraint(equalTo: text.widthAnchor),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 90)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func update(title: String, detail: String) {
+        let next = title + "\n" + detail
+        guard next != presentation else { return }
+        presentation = next
+        heading.stringValue = title
+        self.detail.stringValue = detail
     }
 }
 
