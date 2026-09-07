@@ -97,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var forwardSetup: ForwardSetup = .inactive
     private var poseCapture = ForwardPoseCapture()
     private var neutralPose: ForwardPose?
+    private var calibrationIssue: String?
     private var lastCameraSource: String?
     private let setupForward = NSButton(title: "Set up forward click", target: nil, action: nil)
     private let cancelForward = NSButton(title: "Cancel setup", target: nil, action: nil)
@@ -480,7 +481,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             setupForward.title = "Capturing movement pose…"; setupForward.isEnabled = false
         case .forwardPrompt:
             setupForward.title = "Capture forward pose"
-            forwardInstructions.stringValue = "2 of 2 · Point your index toward the camera as if touching the screen. Hold that pose, then capture."
+            forwardInstructions.stringValue = "2 of 2 · " + (calibrationIssue ?? "Point your index toward the camera as if touching the screen. Hold that pose, then capture.")
         case .captureForward:
             setupForward.title = "Capturing forward pose…"; setupForward.isEnabled = false
         case .practice:
@@ -497,10 +498,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             UserDefaults.standard.set(clickMode.rawValue, forKey: "clickMode")
             allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
             engine.setForwardProfile(nil); neutralPose = nil; poseCapture.reset(); clearClickFeedback()
+            calibrationIssue = nil
             forwardSetup = .neutralPrompt
             if !running { toggleCamera() }
         case .neutralPrompt: forwardSetup = .captureNeutral; poseCapture.reset()
-        case .forwardPrompt: forwardSetup = .captureForward; poseCapture.reset()
+        case .forwardPrompt: forwardSetup = .captureForward; calibrationIssue = nil; poseCapture.reset()
         case .practice:
             guard practice.hits >= 2 else { return }
             forwardSetup = .inactive
@@ -513,6 +515,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func cancelForwardSetup() {
         forwardSetup = .inactive; neutralPose = nil; poseCapture.reset()
+        calibrationIssue = nil
         engine.setForwardProfile(nil); clearClickFeedback(); practice.reset()
         allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
         refreshClickChrome()
@@ -529,8 +532,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         switch forwardSetup {
         case .captureNeutral, .captureForward:
             guard let captured = poseCapture.update(frame.forwardPose, time: frame.timestamp) else {
-                showFeedback(frame.forwardPose == nil ? "Show your finger and palm" : "Hold this pose briefly",
-                    "Keep the same hand visible. Uncertain tracking restarts the capture.", progress: poseCapture.progress)
+                showFeedback(frame.forwardPose == nil ? "Finger pose unclear" : "Hold this pose briefly",
+                    frame.forwardPose == nil ? "Keep your palm visible and turn your index slightly so the camera can see its joints."
+                        : "Keep the same hand visible. Uncertain tracking restarts the capture.", progress: poseCapture.progress)
                 return
             }
             if forwardSetup == .captureNeutral {
@@ -542,7 +546,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 showFeedback("Practice without system clicks", "Move the dot into the green target, then use your forward gesture.")
             } else {
                 forwardSetup = .forwardPrompt
-                showFeedback("The poses look too similar", "Make the forward pose more distinct while keeping the same hand visible, or use Pinch.")
+                calibrationIssue = neutralPose?.side != captured.side
+                    ? "Use the same hand as step 1, then capture again."
+                    : "These poses look too similar. Reach a little toward the camera and capture again, or choose Pinch."
             }
             poseCapture.reset(); refreshClickChrome()
         case .practice:
@@ -566,7 +572,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 : "Move the dot onto green. Point forward to start the timer; pull back to cancel.",
                 progress: engine.forward.phase == .holding ? engine.forward.progress : nil)
         case .neutralPrompt, .forwardPrompt:
-            showFeedback("Your system pointer is paused", "Hold the requested pose and use the capture button. ⌘⇧P also activates it.")
+            showFeedback(calibrationIssue == nil ? "Your system pointer is paused" : "Try the forward pose again",
+                calibrationIssue ?? "Hold the requested pose and use the capture button. ⌘⇧P also activates it.")
         case .inactive: break
         }
     }
@@ -758,6 +765,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else if clicked {
             showFeedback("Clicked ✓", clickMode == .forward ? "Return to your movement pose before pointing forward again." : "Separate thumb + index before the next click.", clicked: true)
             cursorFeedback.show(at: lastClickLocation ?? location, displayID: targetDisplay, progress: 1, remaining: 0, clicked: true)
+        } else if clickMode == .forward && frame.forwardPose == nil {
+            cursorFeedback.hide()
+            showFeedback("Finger pose unclear", "Countdown canceled. Keep your palm visible and turn your index slightly so its joints are visible.")
         } else if clickMode == .forward {
             switch engine.forward.phase {
             case .ready:
