@@ -35,7 +35,8 @@ struct InteractionEngine {
     private(set) var settings = InteractionSettings()
     private(set) var pinch = PinchDetector()
     private(set) var forward = ForwardClickDetector()
-    private(set) var forwardProfile: ForwardProfile?
+    private var forwardReference = AutomaticForwardReference()
+    var forwardProfile: ForwardProfile? { forwardReference.profile }
     private(set) var acquisition = PointerAcquisition()
     private(set) var scroll = ScrollDetector()
     private var filter = PointerFilter()
@@ -53,7 +54,7 @@ struct InteractionEngine {
     }
 
     mutating func reset() {
-        pinch.reset(); forward.reset(); filter.reset()
+        pinch.reset(); forward.reset(); forwardReference.reset(); filter.reset()
         lastTimestamp = nil
         lastDestination = nil
         acquisition.reset(); scroll.reset(); lastLocation = nil; lastBounds = nil
@@ -61,13 +62,8 @@ struct InteractionEngine {
 
     /// Stops an in-progress gesture when delivery stalls, retaining post-click rearm rules.
     mutating func trackingInterrupted() {
-        pinch.reset(); forward.reset(); scroll.reset(); filter.reset()
+        pinch.reset(); forward.reset(); forwardReference.reset(); scroll.reset(); filter.reset()
         acquisition.interrupt(); lastLocation = nil
-    }
-
-    mutating func setForwardProfile(_ profile: ForwardProfile?) {
-        forwardProfile = profile
-        reset()
     }
 
     mutating func process(index: CGPoint?, pinchRatio: Double?, forwardPose: ForwardPose? = nil, timestamp: Double, now: Double,
@@ -106,10 +102,14 @@ struct InteractionEngine {
         if let lastLocation, hypot(cursorPosition.x - lastLocation.x, cursorPosition.y - lastLocation.y) > 12 {
             trackingInterrupted()
         }
+        if settings.mode == .forward {
+            let canAdapt = (forward.phase == .needsNeutral || forward.phase == .ready) && scrollPoint == nil
+            if forwardReference.update(forwardPose, time: timestamp, canAdapt: canAdapt) { forward.reset() }
+        }
         let wasActive = acquisition.active
         let neutral: Bool
-        if settings.mode == .forward, let profile = forwardProfile {
-            if let pose = forwardPose, let position = profile.position(of: pose) {
+        if settings.mode == .forward {
+            if let profile = forwardProfile, let pose = forwardPose, let position = profile.position(of: pose) {
                 neutral = position.amount > -0.4 && position.amount < 0.25 && position.offAxis < 0.5
             } else { neutral = false }
         } else { neutral = pinchRatio.map { $0.isFinite && $0 > settings.pinchThreshold + 0.18 } ?? false }
@@ -125,6 +125,10 @@ struct InteractionEngine {
         if settings.allowScrolling && scrollPoint != nil {
             pinch.reset(); forward.reset()
             let delta = scroll.update(point: scrollPoint, time: timestamp)
+            if scroll.phase == .idle {
+                trackingInterrupted()
+                return InteractionStep(blocked: .acquiring)
+            }
             let location = filter.update(point: index, bounds: bounds, time: timestamp, freeze: true)
             lastLocation = location
             return InteractionStep(location: location, scrollY: delta, destination: destination)

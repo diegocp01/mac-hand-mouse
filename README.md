@@ -2,18 +2,18 @@
 
 # Hand Mouse
 
-**Control your Mac's mouse with your hand.** Move your **index fingertip** to move the pointer. Choose **Pinch**, or teach the experimental **Point forward** gesture. Clicks start **off**. Runs locally with your camera and Apple's hand tracking — no accounts, cloud, or model downloads.
+**Control your Mac's mouse with your hand.** Move your **index fingertip** to move the pointer. Choose **Pinch** or the experimental **Point forward** gesture — no pose setup required. Clicks start **off**. Runs locally with your camera and Apple's hand tracking — no accounts, cloud, or model downloads.
 
 ## First launch
 
-Camera status and **Start / Pause camera** stay at the top. Pointer and click controls sit below the preview; expand **Permissions & setup** when needed.
+The dark startup panel walks you through **Permissions → Camera → Pointer**. Each step reflects the current permission and camera state. **Start / Pause camera** stays visible while you scroll; **Gesture settings** keeps extra controls out of the way until you need them.
 
-1. **Permissions & setup:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
+1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. **Start camera** → allow camera access.
-3. Show **one hand**, palm visible, with thumb + index separated. Keep it steady briefly to take control. Your index then moves the pointer from its current position.
-4. Leave **Allow clicks** off while you practice. Choose **Pinch**, or complete **Set up forward click** and its practice targets. Enable **Allow clicks** when ready.
+3. Show **one hand**, palm visible, with thumb + index separated. Keep it steady briefly to take over the current cursor, then move your **index fingertip** inside the dashed guide.
+4. Expand **Gesture settings** to choose **Pinch** or **Point forward**, then enable **Allow clicks** when ready. Forward clicking adapts automatically as you aim; **Practice safely** lets you try either mode without sending system input.
 
-Keep a trackpad or mouse nearby. **Esc** pauses capture. **Control + Option + Command + H** pauses or resumes from another app; change or disable this shortcut in **Permissions & setup**.
+Keep a trackpad or mouse nearby. **Esc** pauses capture. **Control + Option + Command + H** pauses or resumes from another app; change or disable this shortcut in **Permissions**.
 
 ## Setup with Codex
 
@@ -51,45 +51,31 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | Action | How |
 | --- | --- |
 | Move the pointer | Show a steady, open hand briefly, then move your **index fingertip** inside the dashed box. |
-| Rest and reposition your hand | Lower your hand, then return with thumb + index separated (or your taught movement pose). After a brief steady hold, movement resumes from the current cursor without jumping. |
-| Practice without clicking | Leave **Allow clicks** unchecked (default). Aim freely; no mouse click is sent. |
-| Practice clicks and scrolling safely | Choose **Practice safely** (or **⌘⇧T** in the app). Practice uses a simulated pointer, targets, and scroll counter. |
-| Preview with all system input off | Uncheck **Move the system pointer with my index finger**. |
-| Turn on clicks | Check **Allow clicks**. Forward clicking requires setup and practice first; its clicks reset to off when the app relaunches. |
+| Rest and reposition your hand | Lower your hand, then return with thumb + index separated (or ordinary extended pointing in Forward mode). After a brief steady hold, movement resumes from the current cursor without jumping. |
+| Aim with clicks off | Leave **Allow clicks** unchecked (default). Aim freely; no mouse click is sent. |
+| Preview only | Uncheck **Move pointer**. |
+| Practice safely | Try simulated Pinch or Point forward targets and a scroll counter. No system pointer, click, or scroll input is sent. |
+| Turn on clicks | Check **Allow clicks**. Your choice is saved. No pose capture or practice targets are required. |
 | Left-click — Pinch | Select **Pinch**. Touch **thumb + index** together briefly, then separate before the next click. |
-| Left-click — Point forward (experimental) | Set up your two poses, aim, then point toward the camera as if touching the screen. Hold the forward pose until the ring fills. Pull back to cancel or rearm. |
+| Left-click — Point forward (experimental) | Aim with your index extended, then point toward the camera as if touching the screen. Hold the forward pose until the ring fills. Pull back to cancel or rearm. |
 | Adjust forward hold time | Choose **0.65**, **1**, or **1.5 seconds** (saved). A confirmed forward gesture starts this timer; ordinary stillness does not. |
 | Easier pinches | Under **Pinch feel**, choose **Easy** (Pinch mode only; saved). |
 | Practice a click target | Aim at **Test click** and fire a click; the count rises when the button receives it. |
 | Pause | **Esc**, **Pause camera**, or the menu-bar hand icon. |
-| Pause / resume from another app | **⌃⌥⌘H** by default. Choose **⌃⌥⌘M** or **Off** in **Permissions & setup** if needed. |
-| Scroll (opt-in) | Enable **Allow two-finger scrolling**. Hold index + middle extended with ring + little folded, then move up/down. Lower the middle finger to return to pointing. |
+| Pause / resume from another app | **⌃⌥⌘H** by default. Choose **⌃⌥⌘M** or **Off** in **Permissions** if needed. |
+| Scroll (opt-in) | In **Gesture settings**, enable **Allow two-finger scrolling**. Hold index + middle extended with ring + little folded, then move up/down. Lower the middle finger to return to pointing. |
 
 **Tips:** one hand, palm visible, even lighting. Closing the window pauses capture. For multiple monitors, put the app window on the screen you want before starting; the header names the display being controlled. Sleep, switching away from your Mac session, or a display configuration change pauses the camera. Start it again when ready.
 
-The app keeps the controlling hand's left/right side for the current session. Pause and restart to choose another hand. Returning with a closed pinch, uncertain tracking, or a different hand cannot immediately move or click. If you use the physical mouse, the next activation starts from its new position. Keep the pointer on the chosen display; Hand Mouse will not pull it back from another display.
+### Point forward — no pose setup
 
-### Practice without controlling other apps
+Expand **Gesture settings**, select **Point forward**, start the camera, and enable **Allow clicks**. Move your index to aim, then point it toward the camera as if touching the screen. The app automatically accounts for your hand's size and visible finger length while you aim. There are no capture buttons, saved poses, or required practice clicks, and the reference can adapt while the pointer moves. Starting or returning after tracking loss still requires a brief steady pointing pose before taking over the current cursor.
 
-Choose **Pinch** → **Practice safely** to go straight to a simulated target. For **Point forward**, teach the two poses first. Open your hand and keep it steady briefly, move the dot onto green, then click with the selected gesture. Enable **Try two-finger scrolling in practice** to change the scroll counter. Finishing or canceling practice leaves real clicks and scrolling **off**. Camera access is required; Accessibility is not needed for practice.
+**Practice safely** opens a canvas for the selected click mode and pauses all system input. Use **Try two-finger scrolling in practice** to test the scroll counter. **Finish practice** is always available, even with zero hits; it leaves real clicks and scrolling off. **⌘⇧T** toggles practice while Hand Mouse is focused. The same camera tracking and cursor recovery run in practice, without requiring Accessibility.
 
-### Two-finger scrolling
+Forward clicking still uses **2D pose changes**, not measured depth. Hand rotation can resemble a forward point, and pointing directly into the lens can hide joints. Keep your palm and index visible; use Pinch if recognition is inconsistent. [Detection and testing limits](docs/FORWARD_CLICK.md).
 
-Scrolling is **off by default**, with a separate control from **Allow clicks**. After normal pointing is active, show just index + middle extended, with ring + little folded. Hold the pose briefly; a **Scrolling ↑↓** caption appears at the pointer. Move up to scroll toward the top of the page, or down toward the bottom. The pointer stays fixed and clicks are suppressed. Stopping your fingers stops scrolling; there is no inertia. Lower the middle finger and return to a steady movement pose to resume pointing.
-
-Try the scroll counter in practice first. Camera occlusion or unclear finger shapes can interrupt scrolling; this gesture still needs broader hands-on testing. It uses standard pixel scroll events, whose effect can vary between applications.
-
-### Set up Point forward
-
-1. Select **Point forward** → **Set up forward click**. System pointer movement and clicks pause during setup.
-2. Hold your usual pointing pose and press **Capture movement pose**. Keep it steady briefly. You can use **⌘⇧P** with your other hand to activate the capture button.
-3. Point your index toward the camera as if touching the screen, with a small forward reach. Keep the finger and palm visible, then press **Capture forward pose** and hold it steady.
-4. In the practice canvas, move the dot onto each green target, point forward, and hold. Pull back before trying the next target. These are simulated clicks, with no input sent to other apps.
-5. Hit both targets, press **Finish practice**, then turn on **Allow clicks** when ready.
-
-This mode uses **2D pose changes**, not measured depth. It may confuse a hand rotation or change in seating distance with the taught gesture, and pointing directly at the lens can hide your finger joints. If the two poses cannot be distinguished reliably in practice, choose **Pinch**. Calibration stays in memory for this app session; repeat it after relaunching, changing cameras, or changing your hand/camera position. [How it works and testing limits](docs/FORWARD_CLICK.md).
-
-Upgrading from **Dwell** selects **Point forward** with clicks off and setup required. Automatic hold-still clicking has been removed.
+Upgrading from the old **Dwell** mode selects **Point forward** with clicks off once. Automatic hold-still clicking remains removed.
 
 ### See the click coming
 
@@ -110,8 +96,8 @@ Dragging, right-click, double-click, and tap-to-click are **not** included. Keep
 - **Camera blocked:** click **Camera Settings**, enable Hand Mouse, then restart if macOS requests it.
 - **Camera interrupted or disconnected:** reconnect it or close the other camera app, then click **Start camera** to retry. Hand Mouse rebuilds its capture session instead of silently restarting mouse control.
 - **Hand detected, but mouse won't move:** enable Accessibility for the installed app.
-- **Waiting to resume:** open thumb + index (or return to your calibrated movement pose), use the same hand, and keep it steady briefly. If the pointer is on another display, move it onto the selected display first.
-- **Shortcut unavailable:** another app may own that combination. Choose the other shortcut or **Off** in **Permissions & setup**. Hand Mouse must be running, and the Mac must be awake and in your active session.
+- **Waiting to resume:** open thumb + index (or point normally in Forward mode), use the same hand, and keep it steady briefly. If the pointer is on another display, move it onto the selected display first.
+- **Shortcut unavailable:** another app may own that combination. Choose the other shortcut or **Off** in **Permissions**. Hand Mouse must be running, and the Mac must be awake and in your active session.
 - **Updating from v1.3.0 or earlier:** a one-time Accessibility repair is needed when moving to the persistent signing identity. Use **Show in Finder** to locate the new app, remove the old Hand Mouse entry in Accessibility, then add and enable that exact copy. Future source updates reuse its signer. [Why this changed](docs/SIGNING.md).
 - **Permission is on but the pointer still won't move:** confirm that Accessibility lists the exact running app. If its entry is stale, replace it; toggling the old entry may not help. See the [targeted repair](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the pane is called **Device Control and Data Access**.
 - **Tracking is intermittent:** improve lighting, keep your palm and fingertips visible, and show only one hand.

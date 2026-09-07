@@ -1,8 +1,9 @@
 # v1.5 interaction recovery and navigation
 
-PR #4 replaced automatic Dwell clicking with a calibrated forward gesture and
-introduced isolated forward practice. This change completes the next parts of the
-roadmap: cursor reacquisition, scrolling, keyboard resume, and practice for Pinch.
+PR #4 replaced automatic Dwell clicking with an intentional forward gesture;
+PR #7 removed manual pose setup. This change preserves both and completes the next
+parts of the roadmap: cursor reacquisition, scrolling, keyboard resume, and practice
+for either click mode.
 It does not restore automatic Dwell or claim a measured real-world failure rate.
 
 ## Cursor takeover policy
@@ -10,7 +11,9 @@ It does not restore automatic Dwell or claim a measured real-world failure rate.
 `InteractionEngine` receives the current Quartz cursor position each frame. Before
 first movement, or after lost/invalid/stale tracking, it requires an open, stable
 hand for 250 ms and at least four frames. Pinch mode uses separated thumb/index;
-calibrated forward mode uses the taught movement pose. A held scroll pose cannot
+forward mode uses ordinary extended pointing relative to its automatic reference.
+When that reference is missing, learning it first takes at least 250 ms of usable
+pointing observations; no capture buttons or mandatory practice are added. A held scroll pose cannot
 acquire. Movement over 0.025 normalized camera units or 3 cursor points restarts
 the waiting interval. Timestamp gaps over 120 ms discard pending activation.
 
@@ -61,7 +64,8 @@ the existing close-to-pause behavior remain available.
 
 ## Practice and validation
 
-Practice safely works for Pinch immediately and for Point forward after calibration.
+Practice safely works for Pinch and Point forward without manual calibration or
+required target hits. The latter learns its reference just as it does outside practice.
 The simulated cursor now follows the same acquisition/scroll pipeline as system
 control, including actual display dimensions. A scroll counter makes direction
 visible. `systemLocation`, `systemClick`, and `systemScrollY` are unavailable on

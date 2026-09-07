@@ -117,6 +117,8 @@ import CoreGraphics
             check(outlier.frame(scroll: CGPoint(x: 0.3, y: 0.1)).scrollY == 0 && outlier.engine.scroll.phase == .idle,
                   "A tracking outlier cancels instead of scrolling an entire page")
             outlier.hold(scroll: aim)
+            check(!outlier.engine.acquisition.active && outlier.scrolled == 0,
+                  "A scroll outlier requires fresh pointing before held scrolling can resume")
             outlier.trusted = false; outlier.frame(scroll: aim)
             outlier.trusted = true; outlier.hold(scroll: aim)
             check(outlier.scrolled == 0 && !outlier.engine.acquisition.active,
