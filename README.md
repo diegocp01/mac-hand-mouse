@@ -4,17 +4,43 @@
 
 **Control your Mac's mouse with your hand.** Move your index finger to move the pointer, then pinch your thumb and index finger together to click. Runs locally using your camera and Apple's hand tracking—no accounts, cloud services, or model downloads.
 
-## Install
+## Setup with Codex
 
 You need **macOS 13+**, a camera, and Apple's free **Xcode Command Line Tools**. Apple Silicon and Intel builds are supported; live testing so far is on Apple Silicon.
 
-1. Click **Code → Download ZIP** on this GitHub page, then unzip it.
-2. If you haven't installed Apple's developer tools, open Terminal, run `xcode-select --install`, and let installation finish. This is a one-time step.
-3. Double-click **Install Hand Mouse.command** in the unzipped folder. It builds the app, installs it in your user's **Applications** folder, and opens it.
-4. Click **Enable Accessibility**, then turn on **Hand Mouse** in System Settings. If it isn't listed, click **+** and select `~/Applications/Hand Mouse.app`.
-5. Click **Start camera** and allow camera access. You're ready.
+**Copy this prompt into Codex on your Mac:**
 
-If the downloaded installer is blocked, you can build from the source you reviewed: open Terminal in the unzipped folder and run `bash "Install Hand Mouse.command"`. Future launches: open **Hand Mouse** from your user's Applications folder. Quit it before reinstalling or updating.
+```text
+Install Hand Mouse on this Mac from https://github.com/diegocp01/mac-hand-mouse.git.
+Check that Apple's Xcode Command Line Tools are installed; if they are missing,
+help me install them first. Clone the repository into a suitable local folder,
+review its installation script, then run bash "Install Hand Mouse.command"
+from the repository to build and install the app in ~/Applications.
+If Hand Mouse is already running, help me quit it before installing.
+Open the installed app and guide me through enabling Accessibility and
+camera access. Show me where to launch it next time.
+```
+
+Codex can handle cloning, building, and installing. You may need to finish Apple's tools installer and approve macOS permissions yourself. No ZIP download needed.
+
+## Developer setup
+
+If the Command Line Tools are missing, run `xcode-select --install` in Terminal and finish installation first. Then clone and install:
+
+```sh
+git clone https://github.com/diegocp01/mac-hand-mouse.git
+cd mac-hand-mouse
+bash "Install Hand Mouse.command"
+```
+
+The installer builds from source, installs **Hand Mouse** in `~/Applications`, and opens it. For editing, tests, and running a development build, see [development notes](docs/DEVELOPMENT.md).
+
+## First launch
+
+1. Click **Enable Accessibility**, then turn on **Hand Mouse** in System Settings. If it isn't listed, click **+** and select `~/Applications/Hand Mouse.app`.
+2. Click **Start camera** and allow camera access. You're ready.
+
+Future launches: open **Hand Mouse** from your user's **Applications** folder, or run `open "$HOME/Applications/Hand Mouse.app"` in Terminal. Quit it before reinstalling or updating.
 
 ## Use
 

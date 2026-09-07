@@ -2,11 +2,17 @@
 
 Requires macOS 13+ and Xcode Command Line Tools with Swift 5.7+ (or full Xcode).
 
+For a fresh checkout:
+
 ```sh
+git clone https://github.com/diegocp01/mac-hand-mouse.git
+cd mac-hand-mouse
 bash scripts/test.sh
 bash scripts/build.sh
 open "build/Hand Mouse.app"
 ```
+
+If you already have a checkout, run the last three commands from its root. To install in `~/Applications` instead, use `bash "Install Hand Mouse.command"`; see the README's [developer setup](../README.md#developer-setup) and [first-launch steps](../README.md#first-launch).
 
 Builds explicitly target the minimum macOS version in `Info.plist`. The default build targets the current Mac's architecture. To build a universal app, run `HAND_MOUSE_ARCHS="arm64 x86_64" bash scripts/build.sh`. Quit running copies before replacing them; ad-hoc rebuilding may invalidate Accessibility approval.
 
