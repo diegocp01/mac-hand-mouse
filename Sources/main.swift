@@ -92,6 +92,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var detector = PinchDetector()
     private var dwell = DwellDetector()
     private var clickMode: ClickMode = .pinch
+    private var previewPhase: PinchPhase {
+        if clickMode == .dwell {
+            switch dwell.phase {
+            case .arming: return .confirming
+            case .needMove: return .held
+            case .idle: return .waitingForOpen
+            }
+        }
+        return detector.phase
+    }
     private var filter = PointerFilter()
     private var lastHand = 0.0
     private var clickedUntil = 0.0
@@ -132,7 +142,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         toggle.target = self; toggle.action = #selector(toggleCamera)
         toggle.bezelStyle = .rounded
         control.state = .on; control.target = self; control.action = #selector(controlChanged)
-        let allowClicksSaved = UserDefaults.standard.object(forKey: "allowPinchClicks") as? Bool ?? false
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "allowClicks") == nil, let legacy = defaults.object(forKey: "allowPinchClicks") as? Bool {
+            defaults.set(legacy, forKey: "allowClicks")
+        }
+        let allowClicksSaved = defaults.object(forKey: "allowClicks") as? Bool ?? false
         allowClicks.state = allowClicksSaved ? .on : .off
         allowClicks.target = self; allowClicks.action = #selector(allowClicksChanged)
         let permissions = NSButton(title: "Enable Accessibility", target: self, action: #selector(enableAccessibility))
@@ -209,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc private func controlChanged() { detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0 }
     @objc private func allowClicksChanged() {
-        UserDefaults.standard.set(allowClicks.state == .on, forKey: "allowPinchClicks")
+        UserDefaults.standard.set(allowClicks.state == .on, forKey: "allowClicks")
         detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0
     }
     @objc private func clickModeChanged() {
@@ -278,7 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 _ = dwell.update(point: .zero, time: frame.timestamp, tracking: false)
             }
             if frame.timestamp - lastHand > GestureTuning.trackingGraceSeconds { filter.reset() }
-            preview.update(frame, phase: detector.phase)
+            preview.update(frame, phase: previewPhase)
             status.stringValue = "Looking for your index finger… Keep your hand visible."
             return
         }
@@ -310,7 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
             clickedUntil = frame.timestamp + 0.35
         }
-        preview.update(frame, phase: detector.phase, clicked: frame.timestamp < clickedUntil)
+        preview.update(frame, phase: previewPhase, clicked: frame.timestamp < clickedUntil)
         if frame.timestamp < clickedUntil {
             status.stringValue = clickMode == .dwell
                 ? "Click! Move slightly before the next dwell."
