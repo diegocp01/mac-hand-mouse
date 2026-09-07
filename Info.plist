@@ -7,8 +7,8 @@
     <key>CFBundleExecutable</key><string>HandMouse</string>
     <key>CFBundleIconFile</key><string>HandMouse.icns</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.7.0</string>
-    <key>CFBundleVersion</key><string>14</string>
+    <key>CFBundleShortVersionString</key><string>1.8.0</string>
+    <key>CFBundleVersion</key><string>15</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSCameraUsageDescription</key><string>Hand Mouse uses your camera to track your hand so you can move the pointer, click, and scroll. Video is processed on this Mac and is never recorded or uploaded.</string>
     <key>NSHighResolutionCapable</key><true/>

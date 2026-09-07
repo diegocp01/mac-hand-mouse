@@ -14,11 +14,57 @@ enum GestureTuning {
 }
 
 enum ClickMode: String, CaseIterable {
+    case twoFingerTap
     case pinch
     case forward
 
     static func restored(_ value: String?) -> ClickMode {
         value == "dwell" ? .forward : (value.flatMap(ClickMode.init(rawValue:)) ?? .pinch)
+    }
+}
+
+enum TapPose { case raised, bent, transition, uncertain }
+
+/// A visible raise -> bend -> raise cycle clicks once. Missing observations cancel it.
+struct TwoFingerTapDetector {
+    enum Phase { case waiting, ready, pressed }
+    private(set) var phase: Phase = .waiting
+    private var raisedSince: Double?
+    private var bentSince: Double?
+    private var lastTime: Double?
+    private var bendSamples = 0
+    var shouldFreeze: Bool { phase == .pressed }
+
+    mutating func reset() {
+        phase = .waiting; raisedSince = nil; bentSince = nil; lastTime = nil; bendSamples = 0
+    }
+
+    mutating func update(_ pose: TapPose?, time: Double) -> Bool {
+        guard time.isFinite else { reset(); return false }
+        if let lastTime, time <= lastTime || time - lastTime > GestureTuning.trackingGraceSeconds + 1e-9 { reset() }
+        lastTime = time
+        guard let pose, pose != .uncertain else { reset(); return false }
+        if pose == .transition {
+            if phase == .ready { phase = .pressed; bentSince = time; bendSamples = 0 }
+            if let bentSince, time - bentSince > 0.65 { reset() }
+            raisedSince = nil
+            return false
+        }
+        if phase == .pressed {
+            guard let bentSince, time - bentSince <= 0.65 else { reset(); return false }
+            if pose == .bent { bendSamples += 1; return false }
+            let clicked = bendSamples >= 2 && time - bentSince >= 0.05
+            reset(); lastTime = time; raisedSince = time
+            return clicked
+        }
+        if pose == .raised {
+            if raisedSince == nil { raisedSince = time }
+            if time - raisedSince! >= 0.15 { phase = .ready }
+        } else {
+            raisedSince = nil
+            if phase == .ready { phase = .pressed; bentSince = time; bendSamples = 1 }
+        }
+        return false
     }
 }
 

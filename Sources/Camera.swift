@@ -13,6 +13,7 @@ struct HandFrame {
     var dragPinchRatio: Double?
     var palm: CGPoint?
     var scrollPoint: CGPoint?
+    var tapPose: TapPose?
     var isL = false
     var lReleased = false
     var companionPresent = false
@@ -266,6 +267,14 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             guard [tip, pip, base].allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
                   let t = frame.points[tip], let p = frame.points[pip], let b = frame.points[base] else { return .uncertain }
             return ScrollPoseGeometry.shape(tip: t, pip: p, base: b, aspect: Double(aspect))
+        }
+        let tapJoints: [VNHumanHandPoseObservation.JointName] = [.indexTip, .indexPIP, .indexMCP, .middleTip, .middlePIP, .middleMCP]
+        if tapJoints.allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }) {
+            let indexShape = finger(.indexTip, .indexPIP, .indexMCP)
+            let middleShape = finger(.middleTip, .middlePIP, .middleMCP)
+            if indexShape == .extended && middleShape == .extended { frame.tapPose = .raised }
+            else if indexShape == .folded && middleShape == .folded { frame.tapPose = .bent }
+            else { frame.tapPose = .transition }
         }
         // Only clearly folded pointing fingers or unfolded remaining fingers prove release.
         // Low-confidence joints and marginal L angles never rearm a canceled drag.

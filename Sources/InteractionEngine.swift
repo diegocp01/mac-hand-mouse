@@ -44,6 +44,7 @@ struct InteractionStep {
 struct InteractionEngine {
     private(set) var settings = InteractionSettings()
     private(set) var pinch = PinchDetector()
+    private(set) var tap = TwoFingerTapDetector()
     private(set) var forward = ForwardClickDetector()
     private var forwardReference = AutomaticForwardReference()
     var forwardProfile: ForwardProfile? { forwardReference.profile }
@@ -67,6 +68,7 @@ struct InteractionEngine {
     }
 
     mutating func reset() {
+        tap.reset()
         drag.interrupt(); pinchDrag.reset()
         pinch.reset(); forward.reset(); forwardReference.reset(); filter.reset()
         lastTimestamp = nil
@@ -76,6 +78,7 @@ struct InteractionEngine {
 
     /// Stops an in-progress gesture when delivery stalls, retaining post-click rearm rules.
     mutating func trackingInterrupted() {
+        tap.reset()
         drag.interrupt(); pinchDrag.reset()
         pinch.reset(); forward.reset(); forwardReference.reset(); scroll.reset(); filter.reset()
         acquisition.interrupt(); lastLocation = nil
@@ -86,7 +89,8 @@ struct InteractionEngine {
                           destination: InteractionDestination = .system, cursorPosition: CGPoint? = nil,
                           handSide: String? = nil, scrollPoint: CGPoint? = nil,
                           primaryL: Bool = false, companionPresent: Bool = false, companionL: Bool = false,
-                          primaryReleased: Bool = false, companionReleased: Bool = false, palm: CGPoint? = nil) -> InteractionStep {
+                          primaryReleased: Bool = false, companionReleased: Bool = false, palm: CGPoint? = nil,
+                          tapPose: TapPose? = nil) -> InteractionStep {
         guard running else { reset(); return InteractionStep(blocked: .paused) }
         let inputAllowed = trusted || destination == .practice
         guard inputAllowed else { reset(); return InteractionStep(blocked: .permission) }
@@ -119,18 +123,22 @@ struct InteractionEngine {
         if let lastLocation, hypot(cursorPosition.x - lastLocation.x, cursorPosition.y - lastLocation.y) > 12 {
             trackingInterrupted()
         }
+        let scrollPoint = settings.mode == .twoFingerTap ? nil : scrollPoint
         if settings.mode == .forward {
             let canAdapt = (forward.phase == .needsNeutral || forward.phase == .ready) && scrollPoint == nil && !(settings.allowDragging && companionPresent)
             if forwardReference.update(forwardPose, time: timestamp, canAdapt: canAdapt) { forward.reset() }
         }
         let wasActive = acquisition.active
         let neutral: Bool
-        if settings.mode == .forward {
+        if settings.mode == .twoFingerTap {
+            neutral = tapPose == .raised
+        } else if settings.mode == .forward {
             if let profile = forwardProfile, let pose = forwardPose, let position = profile.position(of: pose) {
                 neutral = position.amount > -0.4 && position.amount < 0.25 && position.scaleDeviation < 0.5
             } else { neutral = false }
         } else { neutral = pinchRatio.map { $0.isFinite && $0 > settings.pinchThreshold + 0.18 } ?? false }
         guard acquisition.update(point: index, cursor: cursorPosition, side: handSide, neutral: neutral && scrollPoint == nil, time: timestamp) else {
+            tap.reset()
             pinch.reset(); forward.reset(); scroll.reset(); drag.interrupt(); pinchDrag.reset()
             return InteractionStep(blocked: .acquiring)
         }
@@ -164,6 +172,7 @@ struct InteractionEngine {
         // The second hand is a modifier only. Its appearance cancels single-hand
         // click/scroll intent, even before it forms an L. Only the owner's index moves.
         if settings.allowDragging && !oneHandDrag && (companionPresent || drag.phase != .idle) {
+            tap.reset()
             pinch.reset(); forward.reset(); scroll.reset()
             let previous = drag.phase
             if settings.allowClicks {
@@ -197,13 +206,21 @@ struct InteractionEngine {
         }
         let fired: Bool
         if !settings.allowClicks {
+            tap.reset()
             pinch.reset(); forward.reset(); fired = false
+        } else if settings.mode == .twoFingerTap {
+            let wasPressed = tap.shouldFreeze
+            fired = tap.update(tapPose, time: timestamp)
+            // Finger flexion is not pointer travel. Reanchor on release/cancellation.
+            if wasPressed && !tap.shouldFreeze {
+                filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
+            }
         } else if settings.mode == .forward {
             fired = forward.update(forwardPose, profile: forwardProfile, time: timestamp, bounds: bounds)
         } else {
             fired = pinch.update(ratio: pinchRatio, time: timestamp)
         }
-        let freeze = settings.allowClicks && (settings.mode == .forward ? forward.shouldFreeze : pinch.shouldFreeze)
+        let freeze = settings.allowClicks && (settings.mode == .twoFingerTap ? tap.shouldFreeze || fired : (settings.mode == .forward ? forward.shouldFreeze : pinch.shouldFreeze))
         let location = filter.update(point: index, bounds: bounds, time: timestamp, freeze: freeze)
         lastLocation = location
         return InteractionStep(location: location,

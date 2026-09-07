@@ -15,3 +15,5 @@ build/one-hand-drag-tests
 xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/SourceUpdate.swift Tests/SourceUpdateTests.swift -o build/source-update-tests
 build/source-update-tests
 bash Tests/update.sh
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Tests/TwoFingerTapTests.swift -o build/tap-tests
+build/tap-tests
