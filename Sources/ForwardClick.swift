@@ -32,7 +32,6 @@ struct ForwardPose: Equatable {
         return pose.isValid ? pose : nil
     }
 
-    fileprivate var feature: CGPoint { CGPoint(x: log(scale) / 0.15, y: reach / 0.5) }
 }
 
 /// Relative image-space reference; generated automatically from ordinary pointing.
@@ -42,19 +41,20 @@ struct ForwardProfile: Equatable {
 
     init?(neutral: ForwardPose, pressed: ForwardPose) {
         guard neutral.isValid, pressed.isValid, neutral.side == pressed.side,
-              pressed.scale / neutral.scale >= 1.12 || neutral.reach - pressed.reach >= 0.35 else { return nil }
+              neutral.reach - pressed.reach > 0.1 else { return nil }
         self.neutral = neutral; self.pressed = pressed
     }
 
-    func position(of pose: ForwardPose) -> (amount: Double, offAxis: Double)? {
+    func position(of pose: ForwardPose) -> (amount: Double, scaleDeviation: Double)? {
         guard pose.isValid, pose.side == neutral.side else { return nil }
-        let a = neutral.feature, b = pressed.feature, p = pose.feature
-        let dx = b.x - a.x, dy = b.y - a.y
-        let length = dx * dx + dy * dy
-        guard length > 0.1 else { return nil }
-        let amount = ((p.x - a.x) * dx + (p.y - a.y) * dy) / length
-        let offAxis = hypot(p.x - a.x - amount * dx, p.y - a.y - amount * dy)
-        return (Double(amount), Double(offAxis))
+        let shortening = neutral.reach - pressed.reach
+        guard shortening > 0.1 else { return nil }
+        // A finger can turn toward the lens without moving the whole palm forward.
+        // Extra foreshortening strengthens the same gesture instead of overshooting
+        // a learned line in scale/reach space. Palm size is only a plausibility gate.
+        let amount = min(1.25, (neutral.reach - pose.reach) / shortening)
+        let scaleDeviation = abs(log(pose.scale / neutral.scale)) / log(1.5) * 0.6
+        return (amount, scaleDeviation)
     }
 }
 
@@ -82,7 +82,7 @@ struct AutomaticForwardReference {
         if let lastTime, time <= lastTime || time - lastTime > GestureTuning.trackingGraceSeconds + 1e-9 { reset() }
         lastTime = time
         if let profile, profile.neutral.side != pose.side { reset(); lastTime = time }
-        let minimumReach = max(1.05, (profile?.neutral.reach ?? 0) * 0.9)
+        let minimumReach = max(0.75, (profile?.neutral.reach ?? 0) * 0.9)
         guard canAdapt, pose.reach >= minimumReach else { clearSamples(); return false }
         if let first, first.side != pose.side || abs(log(pose.scale / first.scale)) > 0.06 || abs(pose.reach - first.reach) > 0.12 {
             clearSamples()
@@ -96,9 +96,8 @@ struct AutomaticForwardReference {
         if let profile, abs(log(neutral.scale / profile.neutral.scale)) < 0.08,
            abs(neutral.reach - profile.neutral.reach) < 0.15 { return false }
         // Shared relative thresholds account for hand size and camera distance.
-        // Foreshortening must accompany the forward pose; enlargement alone is off-axis.
+        // Enlargement alone provides no click evidence.
         var pressed = neutral
-        pressed.scale = min(1.49, neutral.scale * 1.12)
         pressed.reach = neutral.reach * 0.55
         profile = ForwardProfile(neutral: neutral, pressed: pressed)
         return true
@@ -106,6 +105,34 @@ struct AutomaticForwardReference {
 }
 
 enum ForwardClickPhase { case needsNeutral, ready, confirming, holding, clicked }
+
+enum ForwardClickHint: Equatable {
+    case unclear, observingAim, returnToAim, distanceChanged
+
+    static func current(pose: ForwardPose?, profile: ForwardProfile?) -> Self {
+        guard let pose else { return .unclear }
+        guard let profile else { return .observingAim }
+        guard let evidence = profile.position(of: pose) else { return .unclear }
+        return evidence.scaleDeviation >= 0.6 ? .distanceChanged : .returnToAim
+    }
+
+    var title: String {
+        switch self {
+        case .unclear: return "Finger pose unclear"
+        case .observingAim: return "Looking for your aiming pose"
+        case .returnToAim: return "Pull back, then point forward"
+        case .distanceChanged: return "Hand distance changed"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .unclear: return "Keep your palm and index visible. No click is pending."
+        case .observingAim: return "Move with your index extended so the camera can see its length. This happens automatically."
+        case .returnToAim: return "Extend your index to aim again, then point toward the camera. No click is pending."
+        case .distanceChanged: return "Aim normally at this distance before pointing forward. No click is pending."
+        }
+    }
+}
 
 /// A fresh movement → forward pose transition authorizes exactly one countdown.
 /// Timer cancellation observes the palm independently of the frozen pointer.
@@ -140,7 +167,7 @@ struct ForwardClickDetector {
         if let previous = lastObserved,
            time <= previous || time - previous > GestureTuning.trackingGraceSeconds + 1e-9 { reset() }
         lastObserved = time
-        let neutral = evidence.amount < 0.25 && evidence.amount > -0.4 && evidence.offAxis < 0.5
+        let neutral = evidence.amount < 0.25 && evidence.amount > -0.4 && evidence.scaleDeviation < 0.5
         if neutral {
             if neutralSince == nil { neutralSince = time; neutralSamples = 0 }
             neutralSamples += 1
@@ -149,7 +176,7 @@ struct ForwardClickDetector {
             return false
         }
         neutralSince = nil; neutralSamples = 0
-        guard evidence.offAxis < 0.6, evidence.amount >= 0.25, evidence.amount <= 1.55 else { reset(); return false }
+        guard evidence.scaleDeviation < 0.6, evidence.amount >= 0.25 else { reset(); return false }
         switch phase {
         case .needsNeutral: return false
         case .ready:

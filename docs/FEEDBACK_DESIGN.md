@@ -15,3 +15,5 @@ These decisions were informed by Apple's [Dwell guide](https://support.apple.com
 Version 1.4 replaces automatic dwell activation with an experimental forward gesture. Version 1.4.1 removes required calibration and adapts the hand reference automatically while pointing. See [intent detection and testing limits](FORWARD_CLICK.md).
 
 The live-camera feel, VoiceOver experience, and overlay behavior in full-screen apps still need hands-on validation. Automated tests cover observed countdown timing, cancellation, rearming, and cursor-caption geometry across display arrangements.
+
+Blocked forward gestures now distinguish an unclear finger, an unavailable aiming reference, withdrawal needed, and excessive distance change. Green tracking alone does not imply click readiness. New installs allow clicks once the user starts the camera; an explicit saved off choice is preserved.

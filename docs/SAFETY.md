@@ -13,12 +13,14 @@ An accidental click is a real left-click at the current pointer location. That c
 dismiss dialogs, submit forms, toggle settings, or activate UI the user was only aiming
 at. Pointer motion alone is lower blast radius than click injection.
 
-## Safe defaults
+## Defaults and input gates
 
 - **Control mouse pointer** defaults **ON** — pointing helps aim and verify tracking.
-- **Allow clicks** defaults **OFF** — no `leftMouseDown`/`leftMouseUp` until the user
-  explicitly enables the checkbox (`UserDefaults` key `allowClicks`; older builds used
-  `allowPinchClicks` and are migrated on launch).
+- **Allow clicks** defaults **ON** for new installs. Starting the camera can therefore
+  enable real gesture clicks once Accessibility and pointer control are enabled.
+  A saved OFF choice stays off (`allowClicks`, with `allowPinchClicks` migration).
+  The camera still starts paused; optional practice sends no system input and exits
+  with real clicks off. Uncheck Allow clicks for movement-only use.
 - Injection is gated by `SafetyPolicy.shouldInjectClick` (gesture ∧ allowClicks ∧ AX ∧
   pointer control). White flash / `clickedUntil` only fire on a real inject.
 - **Pinch** is the default click mode. **Point forward** is experimental and requires

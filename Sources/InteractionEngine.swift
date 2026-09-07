@@ -3,10 +3,14 @@ import CoreGraphics
 
 struct InteractionSettings: Equatable {
     var mode: ClickMode = .pinch
-    var allowClicks = false
+    var allowClicks = true
     var pointerEnabled = true
     var pinchThreshold = 0.42
     var dwellSeconds = 0.65
+}
+
+enum ClickPreference {
+    static func restored(saved: Bool?, legacy: Bool?) -> Bool { saved ?? legacy ?? true }
 }
 
 enum InteractionBlock {

@@ -2,7 +2,7 @@
 
 # Hand Mouse
 
-**Control your Mac's mouse with your hand.** Move your **index fingertip** to move the pointer. Choose **Pinch** or the experimental **Point forward** gesture — no pose setup required. Clicks start **off**. Runs locally with your camera and Apple's hand tracking — no accounts, cloud, or model downloads.
+**Control your Mac's mouse with your hand.** Move your **index fingertip** to move the pointer. Choose **Pinch** or the experimental **Point forward** gesture — no pose setup required. Clicks default **on**; the camera starts paused. Runs locally with your camera and Apple's hand tracking — no accounts, cloud, or model downloads.
 
 ## First launch
 
@@ -51,9 +51,9 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | Action | How |
 | --- | --- |
 | Move the pointer | Move your **index fingertip** inside the dashed box. Soft edges — no hard wall at the crop. |
-| Practice without clicking | Leave **Allow clicks** unchecked (default). Aim freely; no mouse click is sent. |
+| Practice without clicking | Uncheck **Allow clicks**. Aim freely; no mouse click is sent. |
 | Practice without moving the system pointer | Uncheck **Move pointer**. |
-| Turn on clicks | Check **Allow clicks**. Your choice is saved. No pose capture or practice targets are required. |
+| Turn on clicks | Check **Allow clicks**. Enabled on new installs; an existing saved choice is preserved. No pose capture or practice targets are required. |
 | Left-click — Pinch | Select **Pinch**. Touch **thumb + index** together briefly, then separate before the next click. |
 | Left-click — Point forward (experimental) | Aim with your index extended, then point toward the camera as if touching the screen. Hold the forward pose until the ring fills. Pull back to cancel or rearm. |
 | Adjust forward hold time | Choose **0.65**, **1**, or **1.5 seconds** (saved). A confirmed forward gesture starts this timer; ordinary stillness does not. |
@@ -96,7 +96,7 @@ Dragging, scrolling, right-click, double-click, and tap-to-click are **not** inc
 - **Permission is on but the pointer still won't move:** confirm that Accessibility lists the exact running app. If its entry is stale, replace it; toggling the old entry may not help. See the [targeted repair](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the pane is called **Device Control and Data Access**.
 - **Tracking is intermittent:** improve lighting, keep your palm and fingertips visible, and show only one hand.
 - **Escape doesn't pause outside the app:** global Escape needs Accessibility permission; use the window or menu-bar pause button.
-- **Unexpected clicks:** turn **Allow clicks** off (default). See [safety notes](docs/SAFETY.md).
+- **Unexpected clicks:** turn **Allow clicks** off. See [safety notes](docs/SAFETY.md).
 
 ## Privacy
 

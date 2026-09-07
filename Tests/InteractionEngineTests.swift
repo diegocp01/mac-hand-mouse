@@ -168,6 +168,48 @@ import CoreGraphics
                 }
             }
         }
+        // These strong forward points used to overshoot the scale/reach projection.
+        for fps in [15.0, 30.0, 60.0] {
+            for reach in [0.85, 1.1, 1.8] {
+                for shortening in [0.60, 0.35, 0.15] {
+                    for enlargement in [1.0, 1.12, 1.30] {
+                        var s = Session(); s.setup()
+                        let aim = ForwardPose(scale: 0.14, reach: reach, center: CGPoint(x: 0.5, y: 0.5), side: "right")
+                        let press = ForwardPose(scale: aim.scale * enlargement, reach: aim.reach * shortening,
+                                                center: aim.center, side: aim.side)
+                        s.hold(a, pose: aim, seconds: 0.8, fps: fps)
+                        s.hold(a, pose: press, seconds: 0.4, fps: fps)
+                        check(s.engine.forward.progress > 0, "A stronger forward point starts a timer with or without palm enlargement")
+                        s.hold(a, pose: press, seconds: 2, fps: fps)
+                        check(s.clicks == 1, "Strong forward holds click once without overshooting the accepted gesture")
+                    }
+                }
+            }
+        }
+        for fps in [15.0, 30.0, 60.0] {
+            for scaleFactor in [1.0, 1.3, 1.6] {
+                var s = Session(); s.setup(); s.hold(a, seconds: 0.8, fps: fps)
+                var ordinary = neutral; ordinary.scale *= scaleFactor; ordinary.reach *= 0.85
+                var timerAppeared = false
+                for _ in 0..<Int(fps * 2) {
+                    s.frame(a, pose: ordinary, dt: 1 / fps)
+                    timerAppeared = timerAppeared || s.engine.forward.progress > 0
+                }
+                check(s.clicks == 0 && !timerAppeared, "Palm growth with minor finger shortening never starts a click timer")
+            }
+        }
+        let profile = ForwardProfile(neutral: neutral, pressed: pressed)!
+        check(ForwardClickHint.current(pose: nil, profile: profile) == .unclear, "Missing landmarks explain why clicking is blocked")
+        check(ForwardClickHint.current(pose: neutral, profile: nil) == .observingAim, "Missing automatic reference has specific feedback")
+        check(ForwardClickHint.current(pose: pressed, profile: profile) == .returnToAim, "Unarmed forward poses request a fresh aiming transition")
+        var distant = neutral; distant.scale *= 2
+        check(ForwardClickHint.current(pose: distant, profile: profile) == .distanceChanged, "Excessive distance change has specific feedback")
+        check(ClickPreference.restored(saved: nil, legacy: nil), "A new install enables clicks by default")
+        check(!ClickPreference.restored(saved: false, legacy: true), "An explicit clicks-off choice survives relaunch and upgrade")
+        check(ClickPreference.restored(saved: true, legacy: false), "The current saved setting wins over legacy preferences")
+        check(!ClickPreference.restored(saved: nil, legacy: false), "Legacy clicks-off is preserved")
+        check(InteractionSettings().allowClicks, "The engine default matches the new-install preference")
+
         var changingDistance = Session(); changingDistance.setup(); changingDistance.hold(a, seconds: 0.8)
         var enlarged = neutral; enlarged.scale *= 1.3
         changingDistance.hold(a, pose: enlarged, seconds: 2)
@@ -213,6 +255,22 @@ import CoreGraphics
             return ForwardPose.measure(index: p(0.4, folded ? 0.48 : 0.2), pip: p(0.4, 0.40),
                 dip: p(0.4, 0.30), base: p(0.4, 0.5), littleBase: p(0.6, 0.5),
                 middleBase: p(0.5, 0.5), wrist: p(0.5, 0.7), aspect: aspect, side: "left")
+        }
+        // Synthetic image landmarks, rather than prebuilt gesture features.
+        func straightIndex(reach: Double, aspect: Double) -> ForwardPose {
+            func p(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: x / aspect, y: y) }
+            let length = reach * 0.2
+            return ForwardPose.measure(index: p(0.4, 0.5 - length), pip: p(0.4, 0.5 - length * 0.35),
+                dip: p(0.4, 0.5 - length * 0.75), base: p(0.4, 0.5), littleBase: p(0.6, 0.5),
+                middleBase: p(0.5, 0.5), wrist: p(0.5, 0.7), aspect: aspect, side: "left")!
+        }
+        for aspect in [1.0, 16.0 / 9] {
+            for fps in [15.0, 30.0, 60.0] {
+                var s = Session(); s.setup()
+                s.hold(a, pose: straightIndex(reach: 1.4, aspect: aspect), seconds: 0.8, fps: fps)
+                s.hold(a, pose: straightIndex(reach: 0.25, aspect: aspect), seconds: 1.2, fps: fps)
+                check(s.clicks == 1, "Deeply foreshortened straight image landmarks can click through the production pipeline")
+            }
         }
         let square = measured(aspect: 1)!, wide = measured(aspect: 16.0 / 9)!
         check(abs(square.scale - wide.scale) < 1e-9 && abs(square.reach - wide.reach) < 1e-9,
