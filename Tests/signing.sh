@@ -10,6 +10,8 @@ cleanup() {
     rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
+ORIGINAL_KEYCHAINS=$(/usr/bin/security list-keychains -d user)
+ORIGINAL_DEFAULT=$(/usr/bin/security default-keychain -d user)
 
 fixture() {
     local app="$1" result="$2"
@@ -38,6 +40,11 @@ fixture "$TWO" 2
 fixture "$OTHER" 3
 fixture "$ADHOC" 4
 sign_local "$ONE" "$TEST_ROOT/state-a"
+CURRENT_KEYCHAINS=$(/usr/bin/security list-keychains -d user)
+while IFS= read -r keychain_line; do
+    [[ "$CURRENT_KEYCHAINS" == *"$keychain_line"* ]]
+done <<< "$ORIGINAL_KEYCHAINS"
+test "$ORIGINAL_DEFAULT" = "$(/usr/bin/security default-keychain -d user)"
 FIRST_ID=$(cat "$TEST_ROOT/state-a/identity.sha1")
 sign_local "$TWO" "$TEST_ROOT/state-a"
 test "$FIRST_ID" = "$(cat "$TEST_ROOT/state-a/identity.sha1")"
@@ -78,4 +85,4 @@ if sign_local "$TWO" "$TEST_ROOT/state-a" >/dev/null 2>&1; then
 fi
 test -d "$TEST_ROOT/state-a/.lock"
 rmdir "$TEST_ROOT/state-a/.lock"
-echo 'Passed signing persistence, cross-checkout update, signer isolation, legacy migration, downgrade refusal, private state, incomplete-state, and locking checks.'
+echo 'Passed signing persistence, keychain preservation, cross-checkout update, signer isolation, legacy migration, downgrade refusal, private state, incomplete-state, and locking checks.'

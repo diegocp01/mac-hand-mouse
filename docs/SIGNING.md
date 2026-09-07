@@ -16,7 +16,7 @@ Use the usual command from a checkout:
 bash "Install Hand Mouse.command"
 ```
 
-The first build creates a local signing key. Later builds reuse it; no Apple developer membership, root certificate installation, or change to system trust settings is needed. The certificate is used only for code signing, and its private key is imported as non-extractable with `/usr/bin/codesign` as the allowed signing tool. Temporary PEM/PKCS#12 files are removed immediately after import. This certificate does not make a downloaded app notarized or Developer ID signed.
+The first build creates a local signing key. Later builds reuse it; no Apple developer membership, root certificate installation, or change to system trust settings is needed. Its dedicated Keychain is added to the user's lookup list, preserving other keychains and the default keychain. This makes the identity discoverable by older macOS signing tools; it does not mark the certificate as trusted. The certificate is used only for code signing, and its private key is imported as non-extractable with `/usr/bin/codesign` as the allowed signing tool. Temporary PEM/PKCS#12 files are removed immediately after import. This certificate does not make a downloaded app notarized or Developer ID signed.
 
 Signing state lives outside the repository and build folder:
 

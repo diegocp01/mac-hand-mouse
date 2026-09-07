@@ -501,7 +501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 permissionStatus.stringValue = "Accessibility on · Pinch: touch thumb + index, then separate"
             }
         } else {
-            permissionStatus.stringValue = "Enable Accessibility for this copy. Already enabled? Remove the old Hand Mouse entry with −, then add this copy with +. Show in Finder locates it."
+            permissionStatus.stringValue = "Enable Accessibility for this copy. If the switch is already on, replace the old Hand Mouse entry using − and +. Show in Finder locates this app."
         }
         guard running else { return }
         let now = ProcessInfo.processInfo.systemUptime

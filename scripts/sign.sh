@@ -97,13 +97,14 @@ CONFIG
         # Preserve the user's other keychains; adding a lookup path does not trust a certificate.
         SEARCH_KEYCHAINS=()
         KEYCHAIN_LISTED=0
+        KEYCHAIN_SEARCH_LIST=$(/usr/bin/security list-keychains -d user)
         while IFS= read -r keychain_line; do
             search_keychain="${keychain_line#*\"}"
             search_keychain="${search_keychain%\"*}"
             [ -n "$search_keychain" ] || continue
             SEARCH_KEYCHAINS+=("$search_keychain")
             if [ "$search_keychain" = "$KEYCHAIN" ]; then KEYCHAIN_LISTED=1; fi
-        done < <(/usr/bin/security list-keychains -d user)
+        done <<< "$KEYCHAIN_SEARCH_LIST"
         if [ "$KEYCHAIN_LISTED" -ne 1 ]; then
             /usr/bin/security list-keychains -d user -s "${SEARCH_KEYCHAINS[@]}" "$KEYCHAIN"
         fi
