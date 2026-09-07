@@ -22,10 +22,10 @@ at. Pointer motion alone is lower blast radius than click injection.
 - Injection is gated by `SafetyPolicy.shouldInjectClick` (gesture ∧ allowClicks ∧ AX ∧
   pointer control). White flash / `clickedUntil` only fire on a real inject.
 - **Pinch** is the default click mode. **Point forward** is experimental and requires
-  two-pose calibration plus two successful simulated target clicks before enabling real clicks.
-  Existing Dwell selections migrate to Point forward with clicks off. Forward calibration
-  is session-only; relaunching requires setup again.
-- Setup returns before OS event dispatch; practice results additionally expose no system
+  a fresh pointing-to-forward transition before a countdown. Hand scale is estimated
+  automatically during ordinary pointing; no capture or practice gate is required.
+  Existing Dwell selections migrate to Point forward with clicks off once.
+- Optional practice returns before OS event dispatch; its results additionally expose no system
   location or click. Switching from practice to system output resets gesture intent.
 - Esc remains the panic kill-switch: pauses the camera and resets gesture/filter state.
 - Sleep, session deactivation, and display changes pause capture until Start camera is pressed again.
@@ -34,8 +34,9 @@ at. Pointer motion alone is lower blast radius than click injection.
   landmarks, invalid frames, and stale delivery cancel it. A sustained return to the
   movement pose is required before another click, including after tracking loss.
 - Forward intent is inferred from 2D features, so pose changes and rotations can still
-  produce false positives. Practice is a basic check, not a reliability guarantee.
-- A camera/format change or capture error invalidates forward calibration and turns clicks off.
+  produce false positives. Optional practice helps evaluate recognition but is not a reliability guarantee.
+- A camera/format change, capture error, tracking loss, or settings change discards
+  pending intent and the automatic reference. Normal pointing rebuilds it without setup.
 - Camera errors and disconnects stop the session and require an explicit retry. No recovery path automatically restarts mouse control.
 
 ## Later ideas (not shipped)

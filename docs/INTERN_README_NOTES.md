@@ -6,7 +6,7 @@
 
 ## What changed vs current README
 - Lead with ~10s first-run: AX → camera → index points → Allow clicks stays OFF until ready.
-- Gesture table matches shipped UI only: pointer, Allow clicks (default OFF), Pinch | Point forward (experimental), setup/practice, Pinch feel, pause.
+- Gesture table matches shipped UI only: pointer, Allow clicks (default OFF), Pinch | Point forward (experimental), optional practice, Pinch feel, pause.
 - Soft-edge pointing mentioned in plain language (no invented gestures).
 - Explicit “not yet” list: no drag / scroll / right-click / double-click / tap.
 - Link to `docs/SAFETY.md` for accidental-click guidance.

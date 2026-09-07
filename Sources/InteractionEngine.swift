@@ -32,7 +32,8 @@ struct InteractionEngine {
     private(set) var settings = InteractionSettings()
     private(set) var pinch = PinchDetector()
     private(set) var forward = ForwardClickDetector()
-    private(set) var forwardProfile: ForwardProfile?
+    private var forwardReference = AutomaticForwardReference()
+    var forwardProfile: ForwardProfile? { forwardReference.profile }
     private var filter = PointerFilter()
     private var lastTimestamp: Double?
     private var lastHand: Double?
@@ -47,19 +48,14 @@ struct InteractionEngine {
     }
 
     mutating func reset() {
-        pinch.reset(); forward.reset(); filter.reset()
+        pinch.reset(); forward.reset(); forwardReference.reset(); filter.reset()
         lastTimestamp = nil; lastHand = nil
         lastDestination = nil
     }
 
     /// Stops an in-progress gesture when delivery stalls, retaining post-click rearm rules.
     mutating func trackingInterrupted() {
-        pinch.reset(); forward.reset(); filter.reset(); lastHand = nil
-    }
-
-    mutating func setForwardProfile(_ profile: ForwardProfile?) {
-        forwardProfile = profile
-        reset()
+        pinch.reset(); forward.reset(); forwardReference.reset(); filter.reset(); lastHand = nil
     }
 
     mutating func process(index: CGPoint?, pinchRatio: Double?, forwardPose: ForwardPose? = nil, timestamp: Double, now: Double,
@@ -82,11 +78,15 @@ struct InteractionEngine {
         lastTimestamp = timestamp
         guard let index, index.x.isFinite, index.y.isFinite else {
             _ = pinch.update(ratio: nil, time: timestamp)
-            forward.reset()
+            forward.reset(); forwardReference.reset()
             if lastHand.map({ timestamp - $0 > GestureTuning.trackingGraceSeconds }) ?? true { filter.reset() }
             return InteractionStep(blocked: .missingHand)
         }
         lastHand = timestamp
+        if settings.mode == .forward {
+            let canAdapt = forward.phase == .needsNeutral || forward.phase == .ready
+            if forwardReference.update(forwardPose, time: timestamp, canAdapt: canAdapt) { forward.reset() }
+        }
         let fired: Bool
         if !settings.allowClicks {
             pinch.reset(); forward.reset(); fired = false
