@@ -17,6 +17,7 @@ trap cleanup EXIT
 FIXTURE_REPO="$TEST_ROOT/repo"
 INSTALL_DIR="$TEST_ROOT/Applications"
 mkdir -p "$FIXTURE_REPO/scripts"
+FIXTURE_REPO=$(cd "$FIXTURE_REPO" && pwd -P)
 cp "Install Hand Mouse.command" "$FIXTURE_REPO/Install Hand Mouse.command"
 cp scripts/verify-update-identity.sh "$FIXTURE_REPO/scripts/verify-update-identity.sh"
 
@@ -43,6 +44,7 @@ chmod +x "$FIXTURE_REPO/scripts/build.sh"
 
 run_installer() {
     HAND_MOUSE_INSTALL_DIR="$INSTALL_DIR" HAND_MOUSE_NO_OPEN=1 \
+        HAND_MOUSE_UPDATE_STATE_DIR="$TEST_ROOT/update-state" \
         FIXTURE_MARKER="$1" bash "$FIXTURE_REPO/Install Hand Mouse.command"
 }
 
@@ -50,6 +52,7 @@ run_installer first >/dev/null
 TARGET_APP="$INSTALL_DIR/Hand Mouse.app"
 test "$(cat "$TARGET_APP/Contents/Resources/build-marker")" = first
 codesign --verify --deep --strict "$TARGET_APP"
+test "$(cat "$TEST_ROOT/update-state/source-checkout")" = "$FIXTURE_REPO"
 
 touch "$TARGET_APP/Contents/Resources/stale-from-old-version"
 run_installer second >/dev/null
@@ -72,6 +75,7 @@ SCRIPT
 chmod +x "$TEST_ROOT/bin/codesign"
 if PATH="$TEST_ROOT/bin:$PATH" CODESIGN_COUNT_FILE="$TEST_ROOT/codesign-count" \
     HAND_MOUSE_INSTALL_DIR="$INSTALL_DIR" HAND_MOUSE_NO_OPEN=1 FIXTURE_MARKER=bad \
+    HAND_MOUSE_UPDATE_STATE_DIR="$TEST_ROOT/update-state" \
     bash "$FIXTURE_REPO/Install Hand Mouse.command" >/dev/null 2>&1; then
     echo "Installer unexpectedly kept an unverified published replacement" >&2
     exit 1
@@ -81,6 +85,7 @@ codesign --verify --deep --strict "$TARGET_APP"
 test -z "$(find "$INSTALL_DIR" -maxdepth 1 -name '.hand-mouse-install.*' -print -quit)"
 
 if HAND_MOUSE_INSTALL_DIR="$INSTALL_DIR" HAND_MOUSE_NO_OPEN=1 FIXTURE_FAIL_BUILD=1 \
+    HAND_MOUSE_UPDATE_STATE_DIR="$TEST_ROOT/update-state" \
     bash "$FIXTURE_REPO/Install Hand Mouse.command" >/dev/null 2>&1; then
     echo "Installer unexpectedly succeeded after a build failure" >&2
     exit 1
@@ -101,6 +106,7 @@ if ! /usr/sbin/lsof -t -- "$TARGET_APP/Contents/MacOS/HandMouse" >/dev/null 2>&1
     exit 1
 fi
 if HAND_MOUSE_INSTALL_DIR="$INSTALL_DIR" HAND_MOUSE_NO_OPEN=1 FIXTURE_MARKER=third \
+    HAND_MOUSE_UPDATE_STATE_DIR="$TEST_ROOT/update-state" \
     bash "$FIXTURE_REPO/Install Hand Mouse.command" >"$TEST_ROOT/running.log" 2>&1; then
     echo "Installer replaced a running destination" >&2
     exit 1

@@ -194,6 +194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var timer: Timer?
     private var globalKey: Any?
     private var localKey: Any?
+    private var updateMenuItem: NSMenuItem!
+    private var checkingForUpdate = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -205,6 +207,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let appMenu = NSMenu()
         let root = NSMenuItem(); appMenu.addItem(root)
         let submenu = NSMenu(); root.submenu = submenu
+        updateMenuItem = submenu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateMenuItem.target = self
+        submenu.addItem(NSMenuItem.separator())
         submenu.addItem(withTitle: "Quit Hand Mouse", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         NSApp.mainMenu = appMenu
 
@@ -440,6 +445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         shortcut.onRelease = { [weak self] in self?.activation.release() }
         shortcutChanged()
         configureInteraction(); refresh(); showWindow(); updateDisplayStatus()
+        DispatchQueue.main.async { [weak self] in self?.showCompletedUpdate() }
 
     }
 
@@ -734,6 +740,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+
+    @objc private func checkForUpdates() {
+        guard !checkingForUpdate else { return }
+        showWindow()
+        guard let checkout = SourceUpdate.checkoutURL() else {
+            showUpdateAlert(title: "Updates aren’t configured",
+                detail: "Install Hand Mouse from its GitHub source checkout once. The installer will connect this menu to that checkout.")
+            return
+        }
+        checkingForUpdate = true
+        updateMenuItem.isEnabled = false
+        updateMenuItem.title = "Checking for Updates…"
+        let installedCommit = Bundle.main.object(forInfoDictionaryKey: "HandMouseSourceCommit") as? String
+        let installedVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { try SourceUpdate.check(checkout: checkout,
+                installedCommit: installedCommit, installedVersion: installedVersion) }
+            DispatchQueue.main.async { self?.finishUpdateCheck(result, checkout: checkout) }
+        }
+    }
+
+    private func finishUpdateCheck(_ result: Result<UpdateCheck, Error>, checkout: URL) {
+        checkingForUpdate = false
+        updateMenuItem.isEnabled = true
+        updateMenuItem.title = "Check for Updates…"
+        switch result {
+        case .failure(let error):
+            showUpdateAlert(title: "Couldn’t check for updates", detail: error.localizedDescription)
+        case .success(let check):
+            switch check.comparison {
+            case .current:
+                let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "current"
+                showUpdateAlert(title: "Hand Mouse is up to date", detail: "Version \(version) matches the latest version on GitHub.")
+            case .unsafe(let reason):
+                showUpdateAlert(title: "Update stopped safely", detail: reason + " Your files and installed app were not changed.")
+            case .available:
+                let alert = NSAlert()
+                alert.alertStyle = .informational
+                alert.messageText = "A Hand Mouse update is available"
+                alert.informativeText = "Update to version \(check.remoteVersion ?? "the latest version") from GitHub? Hand Mouse will pause, update the source checkout, rebuild with its existing signing identity, and reopen."
+                alert.addButton(withTitle: "Update and Restart")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+                beginUpdate(checkout: checkout, expectedCommit: check.remoteCommit)
+            }
+        }
+    }
+
+    private func beginUpdate(checkout: URL, expectedCommit: String) {
+        guard let helper = Bundle.main.url(forResource: "update-and-relaunch", withExtension: "sh"),
+              let stateDirectory = SourceUpdate.stateDirectory() else {
+            showUpdateAlert(title: "Update helper unavailable", detail: "Reinstall Hand Mouse from the source checkout to repair the updater.")
+            return
+        }
+        if running { pause() }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [helper.path, checkout.path, Bundle.main.bundleURL.path,
+                             String(ProcessInfo.processInfo.processIdentifier), expectedCommit, stateDirectory.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            NSApp.terminate(nil)
+        } catch {
+            showUpdateAlert(title: "Update couldn’t start", detail: error.localizedDescription)
+        }
+    }
+
+    private func showCompletedUpdate() {
+        guard let result = SourceUpdate.takeResult() else { return }
+        showUpdateAlert(title: result.success ? "Hand Mouse updated" : "Update didn’t finish", detail: result.detail)
+    }
+
+    private func showUpdateAlert(title: String, detail: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = detail
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     @objc private func toggleCamera() {
         if running { pause(); return }
         guard activation.canResume else { return }

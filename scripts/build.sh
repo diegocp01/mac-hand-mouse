@@ -47,7 +47,7 @@ for ARCH in "${ARCHS[@]}"; do
     BINARY="$BUILD_DIR/bin/HandMouse-$ARCH"
     xcrun swiftc -swift-version 5 -O -target "$ARCH-apple-macosx$MIN_MACOS" \
         -module-cache-path "$BUILD_DIR/module-cache" \
-        Sources/Gesture.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/ResumeShortcut.swift Sources/InteractionEngine.swift Sources/FrameMailbox.swift Sources/Camera.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/StartupUI.swift Sources/main.swift \
+        Sources/Gesture.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/ResumeShortcut.swift Sources/SourceUpdate.swift Sources/InteractionEngine.swift Sources/FrameMailbox.swift Sources/Camera.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/StartupUI.swift Sources/main.swift \
         -framework AppKit -framework AVFoundation -framework Vision -framework ApplicationServices -framework Carbon \
         -o "$BINARY"
     BINARIES+=("$BINARY")
@@ -58,8 +58,14 @@ else
     xcrun lipo -create "${BINARIES[@]}" -output "$APP/Contents/MacOS/HandMouse"
 fi
 cp Info.plist "$APP/Contents/Info.plist"
+SOURCE_COMMIT=$(/usr/bin/git rev-parse HEAD 2>/dev/null || true)
+if [ -n "$SOURCE_COMMIT" ]; then
+    /usr/libexec/PlistBuddy -c "Add :HandMouseSourceCommit string $SOURCE_COMMIT" "$APP/Contents/Info.plist"
+fi
 bash scripts/build-icon.sh "$BUILD_DIR"
 cp "$BUILD_DIR/HandMouse.icns" "$APP/Contents/Resources/HandMouse.icns"
+cp scripts/update-and-relaunch.sh "$APP/Contents/Resources/update-and-relaunch.sh"
+chmod 755 "$APP/Contents/Resources/update-and-relaunch.sh"
 bash scripts/sign.sh "$APP"
 bash scripts/verify-update-identity.sh "$DEST_APP" "$APP"
 refuse_running_target
