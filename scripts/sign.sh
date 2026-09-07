@@ -93,6 +93,20 @@ CONFIG
         if [[ ! "$IDENTITY" =~ ^[[:xdigit:]]{40}$ ]]; then echo 'Invalid saved signing certificate fingerprint.' >&2; exit 1; fi
         PASSWORD=$(cat "$PASSWORD_FILE")
         /usr/bin/security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+        # Older macOS versions also consult the search list when resolving a signer.
+        # Preserve the user's other keychains; adding a lookup path does not trust a certificate.
+        SEARCH_KEYCHAINS=()
+        KEYCHAIN_LISTED=0
+        while IFS= read -r keychain_line; do
+            search_keychain="${keychain_line#*\"}"
+            search_keychain="${search_keychain%\"*}"
+            [ -n "$search_keychain" ] || continue
+            SEARCH_KEYCHAINS+=("$search_keychain")
+            if [ "$search_keychain" = "$KEYCHAIN" ]; then KEYCHAIN_LISTED=1; fi
+        done < <(/usr/bin/security list-keychains -d user)
+        if [ "$KEYCHAIN_LISTED" -ne 1 ]; then
+            /usr/bin/security list-keychains -d user -s "${SEARCH_KEYCHAINS[@]}" "$KEYCHAIN"
+        fi
         SIGN_ARGS+=(--sign "$IDENTITY" --keychain "$KEYCHAIN" --timestamp=none)
         ;;
     identity)
