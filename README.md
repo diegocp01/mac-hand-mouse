@@ -23,15 +23,19 @@ If the downloaded installer is blocked, you can build from the source you review
 | Move the pointer | Move your **index fingertip** inside the dashed box. |
 | Left-click | Touch **thumb + index fingertip** together briefly. Separate them before clicking again. |
 | Pause | Press **Esc**, click **Pause camera**, or use the menu-bar hand icon. |
+| Easier clicks | Select **Easy** under Click sensitivity; your choice is saved. |
+| Practice clicking | Aim at **Test click** and pinch; its count increases when the button receives a click. |
 | Practice without moving the mouse | Uncheck **Control mouse pointer**. |
 
 Show one hand, keep your palm visible, and use even lighting. Holding a pinch clicks only once. Closing the window pauses capture. For multiple monitors, put the app window on your chosen screen before starting.
+
+**Hand colors:** green means tracking, blue means a pinch is being confirmed or held, and a white flash with **Click!** means a mouse click was sent. A held pinch must be released before another click; the status line tells you when it is ready.
 
 ## Troubleshooting
 
 - **Camera blocked:** click **Camera Settings**, enable Hand Mouse, then restart if macOS requests it.
 - **Hand detected, but mouse won't move:** enable Accessibility for the installed app.
-- **Permission stopped working after an update:** remove the old Accessibility entry, add the current app, and enable it again. Locally signed builds can require this after changes.
+- **Permission stopped working after an update:** click **Show this app in Finder** to identify the exact running copy, then remove the old permission entry and add that copy again. If toggling still does not work, see the [targeted permission reset](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the permission pane is called **Device Control and Data Access**.
 - **Tracking is intermittent:** improve lighting, keep your palm and fingertips visible, and show only one hand.
 - **Escape doesn't pause outside the app:** global Escape needs Accessibility permission; use the window or menu-bar pause button.
 
@@ -49,7 +53,7 @@ bash scripts/build.sh
 bash scripts/package.sh
 ```
 
-Packaging creates a universal Mac ZIP and checksum in `dist/`. These archives are locally signed and **not notarized**; downloaded binaries may be blocked by macOS. The source installer above is the supported setup path. See [development notes](docs/DEVELOPMENT.md) for tuning, tests, and release details, and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
+Packaging creates a universal Mac ZIP and checksum in `dist/`. These archives are locally signed and **not notarized**; downloaded binaries may be blocked by macOS. The source installer above is the supported setup path. See the [v1.2 audit and fixes](docs/AUDIT.md) and [development notes](docs/DEVELOPMENT.md) for tuning, tests, and release details, and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
 
 ## License
 

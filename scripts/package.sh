@@ -4,9 +4,9 @@ cd "$(dirname "$0")/.."
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
 case "$VERSION" in ''|*[!0-9.]*) echo "Invalid app version" >&2; exit 1 ;; esac
 PACKAGE_NAME="Hand-Mouse-$VERSION-macos-universal"
-RELEASE_BUILD="$PWD/build/release"
 STAGING=$(mktemp -d "${TMPDIR:-/tmp}/hand-mouse-package.XXXXXX")
 trap 'rm -rf "$STAGING"' EXIT
+RELEASE_BUILD="$STAGING/build"
 HAND_MOUSE_BUILD_DIR="$RELEASE_BUILD" HAND_MOUSE_ARCHS="arm64 x86_64" bash scripts/build.sh
 APP="$RELEASE_BUILD/Hand Mouse.app"
 for ARCH in arm64 x86_64; do

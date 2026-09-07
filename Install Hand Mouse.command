@@ -8,10 +8,12 @@ if ! xcrun --find swiftc >/dev/null 2>&1; then
     exit 1
 fi
 echo "Building Hand Mouse. Quit any running copy before reinstalling."
-HAND_MOUSE_BUILD_DIR="$PWD/build/install" bash scripts/build.sh
+INSTALL_BUILD=$(mktemp -d "${TMPDIR:-/tmp}/hand-mouse-install.XXXXXX")
+trap 'rm -rf "$INSTALL_BUILD"' EXIT
+HAND_MOUSE_BUILD_DIR="$INSTALL_BUILD" bash scripts/build.sh
 INSTALL_DIR="${HAND_MOUSE_INSTALL_DIR:-$HOME/Applications}"
 mkdir -p "$INSTALL_DIR"
-ditto "$PWD/build/install/Hand Mouse.app" "$INSTALL_DIR/Hand Mouse.app"
+ditto "$INSTALL_BUILD/Hand Mouse.app" "$INSTALL_DIR/Hand Mouse.app"
 codesign --verify --deep --strict "$INSTALL_DIR/Hand Mouse.app"
 echo "Installed: $INSTALL_DIR/Hand Mouse.app"
 echo "Next: enable Accessibility in the app, then Start camera and allow camera access."
