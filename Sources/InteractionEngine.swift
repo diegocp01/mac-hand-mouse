@@ -10,6 +10,7 @@ struct InteractionSettings: Equatable {
     var allowScrolling = false
     var allowDragging = false
     var allowPinchDragging = false
+    var precisionMode = false
 }
 
 enum ClickPreference {
@@ -53,7 +54,8 @@ struct InteractionEngine {
     private(set) var drag = TwoHandDragDetector()
     private(set) var pinchDrag = OneHandDragDetector()
     private var filter = PointerFilter()
-    private var fingersTogether = false
+    private(set) var fingersTogether = false
+    private var scrollPinched = false
     var pointerControlRegion: CGRect { filter.controlRegion }
     private var lastTimestamp: Double?
     private var lastDestination: InteractionDestination?
@@ -71,6 +73,7 @@ struct InteractionEngine {
     mutating func reset() {
         tap.reset()
         fingersTogether = false
+        scrollPinched = false
         drag.interrupt(); pinchDrag.reset()
         pinch.reset(); forward.reset(); forwardReference.reset(); filter.reset()
         lastTimestamp = nil
@@ -82,6 +85,7 @@ struct InteractionEngine {
     mutating func trackingInterrupted() {
         tap.reset()
         fingersTogether = false
+        scrollPinched = false
         drag.interrupt(); pinchDrag.reset()
         pinch.reset(); forward.reset(); forwardReference.reset(); scroll.reset(); filter.reset()
         acquisition.interrupt(); lastLocation = nil
@@ -90,10 +94,10 @@ struct InteractionEngine {
     mutating func process(index: CGPoint?, pinchRatio: Double?, forwardPose: ForwardPose? = nil, timestamp: Double, now: Double,
                           bounds: CGRect, running: Bool, trusted: Bool,
                           destination: InteractionDestination = .system, cursorPosition: CGPoint? = nil,
-                          handSide: String? = nil, scrollPoint: CGPoint? = nil,
+                          handSide: String? = nil, scrollPoint scrollPointInput: CGPoint? = nil,
                           primaryL: Bool = false, companionPresent: Bool = false, companionL: Bool = false,
                           primaryReleased: Bool = false, companionReleased: Bool = false, palm: CGPoint? = nil,
-                          tapPose: TapPose? = nil, fingerSeparationRatio: Double? = nil) -> InteractionStep {
+                          tapPose: TapPose? = nil, fingerSeparationRatio: Double? = nil, scrollPinchRatio: Double? = nil) -> InteractionStep {
         guard running else { reset(); return InteractionStep(blocked: .paused) }
         let inputAllowed = trusted || destination == .practice
         guard inputAllowed else { reset(); return InteractionStep(blocked: .permission) }
@@ -126,7 +130,15 @@ struct InteractionEngine {
         if let lastLocation, hypot(cursorPosition.x - lastLocation.x, cursorPosition.y - lastLocation.y) > 12 {
             trackingInterrupted()
         }
-        let scrollPoint = settings.mode == .twoFingerTap ? nil : scrollPoint
+        let scrollPoint: CGPoint?
+        if settings.mode == .twoFingerTap {
+            if settings.allowScrolling, let ratio = scrollPinchRatio, ratio.isFinite, ratio >= 0, let palm,
+               palm.x.isFinite, palm.y.isFinite {
+                if ratio < settings.pinchThreshold { scrollPinched = true }
+                else if ratio > settings.pinchThreshold + 0.18 { scrollPinched = false }
+                scrollPoint = scrollPinched ? palm : nil
+            } else { scrollPinched = false; scrollPoint = nil }
+        } else { scrollPoint = scrollPointInput }
         if settings.mode == .forward {
             let canAdapt = (forward.phase == .needsNeutral || forward.phase == .ready) && scrollPoint == nil && !(settings.allowDragging && companionPresent)
             if forwardReference.update(forwardPose, time: timestamp, canAdapt: canAdapt) { forward.reset() }
@@ -166,7 +178,7 @@ struct InteractionEngine {
                 // Switch landmarks without jumping, including release back to the index.
                 filter.reanchor(point: motionPoint, cursor: cursorPosition, bounds: bounds, time: timestamp)
             }
-            let location = filter.update(point: motionPoint, bounds: bounds, time: timestamp,
+            let location = filter.update(point: motionPoint, bounds: bounds, time: timestamp, precision: settings.precisionMode,
                 freeze: pinchDrag.phase == .confirming || pinchDrag.phase == .pressed || beganDrag || ended || canceled)
             lastLocation = location
             return InteractionStep(location: location, click: pinchDrag.releasedClick && destination == .practice,
@@ -188,22 +200,29 @@ struct InteractionEngine {
                 // Start at the aim held during confirmation; discard hand motion while arming.
                 filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
             }
-            let location = filter.update(point: index, bounds: bounds, time: timestamp,
+            let location = filter.update(point: index, bounds: bounds, time: timestamp, precision: settings.precisionMode,
                 freeze: settings.allowClicks && (drag.phase == .confirming || began || ended))
             lastLocation = location
             return InteractionStep(location: location, destination: destination, dragging: drag.phase == .dragging)
         }
         if settings.allowScrolling && scrollPoint != nil {
+            tap.reset(); fingersTogether = false
             pinch.reset(); forward.reset(); pinchDrag.reset()
             let delta = scroll.update(point: scrollPoint, time: timestamp)
             if scroll.phase == .idle {
                 trackingInterrupted()
                 return InteractionStep(blocked: .acquiring)
             }
-            let location = filter.update(point: index, bounds: bounds, time: timestamp, freeze: true)
+            let location = filter.update(point: index, bounds: bounds, time: timestamp, precision: settings.precisionMode, freeze: true)
             lastLocation = location
             return InteractionStep(location: location, scrollY: delta, destination: destination)
         } else if scroll.phase != .idle {
+            if settings.mode == .twoFingerTap {
+                scroll.reset(); tap.reset(); fingersTogether = false
+                filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
+                lastLocation = cursorPosition
+                return InteractionStep(location: cursorPosition, destination: destination)
+            }
             trackingInterrupted()
             return InteractionStep(blocked: .acquiring)
         }
@@ -236,7 +255,7 @@ struct InteractionEngine {
             fired = pinch.update(ratio: pinchRatio, time: timestamp)
         }
         let freeze = settings.allowClicks && (settings.mode == .twoFingerTap ? fingersTogether || tap.shouldFreeze || fired : (settings.mode == .forward ? forward.shouldFreeze : pinch.shouldFreeze))
-        let location = filter.update(point: index, bounds: bounds, time: timestamp, freeze: freeze)
+        let location = filter.update(point: index, bounds: bounds, time: timestamp, precision: settings.precisionMode, freeze: freeze)
         lastLocation = location
         return InteractionStep(location: location,
                                click: SafetyPolicy.shouldInjectClick(gestureFired: fired,

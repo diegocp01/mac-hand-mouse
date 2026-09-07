@@ -352,7 +352,8 @@ struct PointerAxisMap {
         upper = min(1, max(1 - GestureTuning.softInset, self.hand + 0.12))
     }
 
-    func map(_ value: Double) -> Double {
+    func map(_ input: Double, gain: Double = 1) -> Double {
+        let value = hand + (input - hand) * gain
         if value == hand { return screen }
         let left = value < hand
         let span = left ? hand - lower : upper - hand
@@ -396,15 +397,15 @@ struct PointerFilter {
     }
 
     /// Soft-mapped screen target with no EMA / freeze — use for dwell cancel sampling.
-    func unfrozenTarget(point: CGPoint, bounds: CGRect) -> CGPoint {
-        let x = horizontal?.map(point.x) ?? SoftMargin.normalize(Double(point.x))
-        let y = vertical?.map(point.y) ?? SoftMargin.normalize(Double(point.y))
+    func unfrozenTarget(point: CGPoint, bounds: CGRect, precision: Bool = false) -> CGPoint {
+        let x = horizontal?.map(point.x, gain: precision ? 0.35 : 1) ?? SoftMargin.normalize(Double(point.x))
+        let y = vertical?.map(point.y, gain: precision ? 0.35 : 1) ?? SoftMargin.normalize(Double(point.y))
         return CGPoint(x: bounds.minX + x * (bounds.width - 1),
                        y: bounds.minY + y * (bounds.height - 1))
     }
 
-    mutating func update(point: CGPoint, bounds: CGRect, time: Double, freeze: Bool) -> CGPoint {
-        let target = unfrozenTarget(point: point, bounds: bounds)
+    mutating func update(point: CGPoint, bounds: CGRect, time: Double, precision: Bool = false, freeze: Bool) -> CGPoint {
+        let target = unfrozenTarget(point: point, bounds: bounds, precision: precision)
         let dt = max(0, min(0.1, time - (lastTime ?? time)))
         lastTime = time
         guard let previous = position else {

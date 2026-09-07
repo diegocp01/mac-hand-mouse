@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let practiceButton = NSButton(title: "Practice safely", target: nil, action: nil)
     private let allowPinchDragging = NSButton(checkboxWithTitle: "Pinch to drag (experimental)", target: nil, action: nil)
     private let allowDragging = NSButton(checkboxWithTitle: "Allow two-hand L dragging (experimental)", target: nil, action: nil)
-    private let allowScrolling = NSButton(checkboxWithTitle: "Two-finger scrolling unavailable with tap", target: nil, action: nil)
+    private let allowScrolling = NSButton(checkboxWithTitle: "Pinch to scroll", target: nil, action: nil)
     private let shortcutChoice = NSPopUpButton(frame: .zero, pullsDown: false)
     private let shortcutStatus = NSTextField(wrappingLabelWithString: "")
     private let shortcut = ResumeShortcut()
@@ -148,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let permissionStatus = NSTextField(wrappingLabelWithString: "")
     private let toggle = NSButton(title: "Start camera", target: nil, action: nil)
     private let control = NSButton(checkboxWithTitle: "Move pointer", target: nil, action: nil)
+    private let precisionMode = NSButton(checkboxWithTitle: "Precision mode · slower pointer", target: nil, action: nil)
     private let allowClicks = NSButton(checkboxWithTitle: "Allow clicks", target: nil, action: nil)
     private let clickModeControl = NSSegmentedControl(labels: ["Two-finger tap"], trackingMode: .selectOne, target: nil, action: nil)
     private let sensitivity = NSSegmentedControl(labels: ["Precise", "Balanced", "Easy"], trackingMode: .selectOne, target: nil, action: nil)
@@ -266,9 +267,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         allowDragging.state = defaults.bool(forKey: "allowDragging") ? .on : .off
         allowDragging.target = self; allowDragging.action = #selector(draggingChanged)
         allowDragging.toolTip = "Start with one hand. Make an L with both thumbs + index fingers; fold the other fingers. Hold briefly, then move your original hand to drag. Open either hand to release."
-        allowScrolling.state = defaults.bool(forKey: "allowScrolling") ? .on : .off
+        allowScrolling.state = (defaults.object(forKey: "allowScrolling") as? Bool ?? true) ? .on : .off
+        precisionMode.state = defaults.bool(forKey: "precisionMode") ? .on : .off
+        precisionMode.target = self; precisionMode.action = #selector(precisionChanged)
+        precisionMode.toolTip = "Reduce pointer travel for small targets. Lower and raise your hand to reposition."
         allowScrolling.target = self; allowScrolling.action = #selector(scrollingChanged)
-        allowScrolling.toolTip = "Hold index + middle extended with ring + little folded, then move up/down. Clicks pause during scrolling."
+        allowScrolling.toolTip = "Pinch thumb + index, hold briefly, then move your hand up/down. Release to stop scrolling."
         practiceButton.target = self; practiceButton.action = #selector(startPractice)
         practiceButton.bezelStyle = .rounded
         practiceButton.keyEquivalent = "t"; practiceButton.keyEquivalentModifierMask = [.command, .shift]
@@ -343,7 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         optionsToggle.target = self; optionsToggle.action = #selector(toggleOptions)
         optionsToggle.setAccessibilityLabel("Gesture settings")
         optionsToggle.state = clickMode == .forward ? .on : .off
-        optionsRows = StartupStyle.column([modeRow, tuningRow, allowScrolling, allowPinchDragging, allowDragging, forwardControls, displayStatus])
+        optionsRows = StartupStyle.column([modeRow, tuningRow, precisionMode, allowScrolling, allowPinchDragging, allowDragging, forwardControls, displayStatus])
         toggleOptions()
         let controls = NSStackView(views: [control, NSView(), allowClicks])
         controls.spacing = 12
@@ -489,7 +493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             pointerGuide.update(title: "Pointer works · Adjust your pose to click",
                 detail: issue.detail + "\nYou can also choose Pinch in Gesture settings.")
         } else if engine.scroll.phase != .idle {
-            pointerGuide.update(title: "Two-finger scrolling", detail: "Move index + middle up/down to scroll.\nLower your middle finger and return to the starting pose to aim again.")
+            pointerGuide.update(title: "Pinch scrolling", detail: "Keep thumb + index pinched and move your hand up/down.\nRelease to resume aiming.")
         } else {
             let next = !engine.settings.allowClicks ? "Clicks are off. Turn on Allow clicks when you want to click."
                 : (clickMode == .forward ? "Point toward the camera and hold to click. Pull back to cancel or click again."
@@ -504,8 +508,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             pointerEnabled: practicing || control.state == .on,
             pinchThreshold: [0.34, 0.42, 0.50][min(2, max(0, sensitivity.selectedSegment))],
             dwellSeconds: [0.65, 1.0, 1.5][min(2, max(0, dwellDuration.selectedSegment))],
-            allowScrolling: clickMode != .twoFingerTap && allowScrolling.state == .on, allowDragging: allowDragging.state == .on,
-            allowPinchDragging: clickMode == .pinch && allowPinchDragging.state == .on)
+            allowScrolling: allowScrolling.state == .on, allowDragging: allowDragging.state == .on,
+            allowPinchDragging: clickMode == .pinch && allowPinchDragging.state == .on, precisionMode: precisionMode.state == .on)
         if settings != engine.settings { releaseDrag() }
         engine.configure(settings)
     }
@@ -568,6 +572,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         configureInteraction(); resetInteraction(); clearClickFeedback(); readyFeedback()
     }
 
+    @objc private func precisionChanged() {
+        UserDefaults.standard.set(precisionMode.state == .on, forKey: "precisionMode")
+        configureInteraction()
+    }
+
     @objc private func scrollingChanged() {
         UserDefaults.standard.set(allowScrolling.state == .on, forKey: "allowScrolling")
         configureInteraction(); resetInteraction(); clearClickFeedback(); readyFeedback()
@@ -623,8 +632,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func refreshClickChrome() {
-        allowScrolling.isEnabled = false
-        allowScrolling.toolTip = "Two-finger scrolling is unavailable while the same fingers are used for tapping."
+        allowScrolling.isEnabled = true
+        allowScrolling.toolTip = "Pinch thumb + index and move your hand vertically. Release to resume aiming."
         let clicksOn = allowClicks.state == .on
         configureInteraction()
         clickModeControl.isEnabled = true
@@ -639,7 +648,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         allowPinchDragging.isHidden = clickMode != .pinch
         allowPinchDragging.title = learning ? "Try pinch dragging" : "Pinch to drag (experimental)"
         allowDragging.title = learning ? "Try two-hand L dragging in practice" : "Allow two-hand L dragging (experimental)"
-        allowScrolling.title = "Two-finger scrolling unavailable with tap"
+        allowScrolling.title = "Pinch to scroll"
         clickTest.isEnabled = clicksOn && !learning
         allowClicks.isEnabled = !learning
         control.isEnabled = !learning
@@ -710,7 +719,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             cursorPosition: practiceCursor ?? CGPoint(x: screen.midX, y: screen.midY),
             handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
-            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio)
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio, scrollPinchRatio: frame.dragPinchRatio)
         preview.controlRegion = engine.pointerControlRegion
         if let location = step.location { practiceCursor = location }
         let simulatedPoint = step.location.map {
@@ -726,7 +735,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let instruction = step.blocked == .differentHand ? "Use the same hand, or finish and restart practice to switch hands."
             : (step.blocked != nil ? "Raise index + middle, palm toward camera. Hold still briefly."
-                : (engine.scroll.phase != .idle ? "Move two fingers up/down to change the counter. Lower the middle finger to return to pointing."
+                : (engine.scroll.phase != .idle ? "Keep thumb + index pinched and move your hand up/down to change the counter. Release to stop."
                     : (clickMode == .forward ? "Move onto green. Point forward to start the timer; pull back to cancel."
                        : "Move onto green, bend index + middle together, then lift. No pointer, clicks, or scroll events go to other apps.")))
         let dragInstruction = engine.drag.phase == .needsRelease ? "Open either hand briefly to reset dragging, then make both L poses again." : step.dragging
@@ -734,6 +743,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             : "For dragging: make an L with both thumbs + index fingers, other fingers folded. The original hand moves the selection."
         if engine.settings.allowPinchDragging && step.blocked == nil && engine.scroll.phase == .idle {
             showFeedback("Practice only · No system input", now < practiceMessageUntil ? practiceMessage : pinchDragInstruction)
+            return
+        }
+        if engine.fingersTogether && engine.scroll.phase == .idle && engine.drag.phase == .idle {
+            showFeedback("🔒 Pointer locked · Practice", "Bend and lift to click here. Separate index + middle to move again.")
             return
         }
         showFeedback("Practice only · No system input", engine.settings.allowDragging && (frame.companionPresent || engine.drag.phase != .idle)
@@ -987,7 +1000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                   running: running, trusted: AXIsProcessTrusted(), cursorPosition: CGEvent(source: nil)?.location,
                                   handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
-            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio)
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio, scrollPinchRatio: frame.dragPinchRatio)
         preview.controlRegion = engine.pointerControlRegion
         guard dragOutput.dispatch(step, post: postDragEvents) else { interruptInteraction(); return }
         if let blocked = step.blocked {
@@ -1081,10 +1094,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 remaining: confirming ? 0.25 * (1 - engine.drag.progress) : 0, clicked: false, caption: caption)
         } else if engine.scroll.phase != .idle {
             let active = engine.scroll.phase == .scrolling
-            showFeedback(active ? "Scrolling ↑↓" : "Hold two fingers briefly",
-                "Move index + middle up/down to scroll. Lower the middle finger to return to pointing. Clicks are paused.")
+            showFeedback(active ? "Scrolling ↑↓" : "Hold pinch briefly",
+                "Keep thumb + index pinched and move your hand up/down. Release to resume aiming.")
             cursorFeedback.show(at: location, displayID: targetDisplay, progress: 0, remaining: 0, clicked: false,
-                caption: active ? "Scrolling ↑↓" : "Two fingers…")
+                caption: active ? "Scrolling ↑↓" : "Pinch…")
         } else if !clicksAllowed {
             cursorFeedback.hide()
             showFeedback("Clicks off", "Point to move.")
@@ -1095,6 +1108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if engine.tap.shouldFreeze {
                 showFeedback("Tap started", "Lift index + middle together to click. Esc cancels.")
                 cursorFeedback.show(at: location, displayID: targetDisplay, progress: 0, remaining: 0, clicked: false, caption: "Lift to click")
+            } else if engine.fingersTogether {
+                showFeedback("Pointer locked", "Bend and lift to click here. Separate index + middle to move again.")
+                cursorFeedback.show(at: location, displayID: targetDisplay, progress: 0, remaining: 0, clicked: false, caption: "🔒 Pointer locked")
             } else {
                 cursorFeedback.hide()
                 showFeedback("Two-finger tap", "Raise index + middle, bend both down together, then lift to click. Keep both fingers visible.")
