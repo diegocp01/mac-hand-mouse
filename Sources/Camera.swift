@@ -8,6 +8,8 @@ struct HandFrame {
     var aspect: CGFloat
     var forwardPose: ForwardPose? = nil
     var source = ""
+    var handSide: String?
+    var scrollPoint: CGPoint?
 }
 
 final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
@@ -217,6 +219,7 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 return
             }
             let all = try hand.recognizedPoints(.all)
+            frame.handSide = hand.chirality == .left ? "left" : (hand.chirality == .right ? "right" : nil)
             consecutiveVisionFailures = 0
             for (joint, point) in all where point.confidence >= 0.35 {
                 frame.points[joint] = CGPoint(x: 1 - point.location.x, y: 1 - point.location.y)
@@ -224,6 +227,19 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             // A hidden thumb or pinky must not prevent index-finger movement.
             guard (all[.indexTip]?.confidence ?? 0) >= 0.45 else {
                 frame.points.removeValue(forKey: .indexTip); return
+            }
+            func finger(_ tip: VNHumanHandPoseObservation.JointName, _ pip: VNHumanHandPoseObservation.JointName,
+                        _ base: VNHumanHandPoseObservation.JointName) -> FingerShape {
+                guard [tip, pip, base].allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
+                      let t = frame.points[tip], let p = frame.points[pip], let b = frame.points[base] else { return .uncertain }
+                return ScrollPoseGeometry.shape(tip: t, pip: p, base: b, aspect: Double(aspect))
+            }
+            if finger(.indexTip, .indexPIP, .indexMCP) == .extended,
+               finger(.middleTip, .middlePIP, .middleMCP) == .extended,
+               finger(.ringTip, .ringPIP, .ringMCP) == .folded,
+               finger(.littleTip, .littlePIP, .littleMCP) == .folded,
+               let index = frame.points[.indexTip], let middle = frame.points[.middleTip] {
+                frame.scrollPoint = CGPoint(x: (index.x + middle.x) / 2, y: (index.y + middle.y) / 2)
             }
             let required: [VNHumanHandPoseObservation.JointName] = [.indexTip, .indexPIP, .indexDIP, .indexMCP, .littleMCP, .middleMCP, .wrist]
             if required.allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),

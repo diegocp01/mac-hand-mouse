@@ -300,8 +300,16 @@ struct PointerFilter {
     private var position: CGPoint?
     private var lastTime: Double?
     private var lastTarget: CGPoint?
+    private var offset = CGPoint.zero
 
-    mutating func reset() { position = nil; lastTime = nil; lastTarget = nil }
+    mutating func reset() { position = nil; lastTime = nil; lastTarget = nil; offset = .zero }
+
+    mutating func reanchor(point: CGPoint, cursor: CGPoint, bounds: CGRect, time: Double) {
+        reset()
+        let target = unfrozenTarget(point: point, bounds: bounds)
+        offset = CGPoint(x: cursor.x - target.x, y: cursor.y - target.y)
+        position = cursor; lastTarget = cursor; lastTime = time
+    }
 
     /// Soft-mapped screen target with no EMA / freeze — use for dwell cancel sampling.
     func unfrozenTarget(point: CGPoint, bounds: CGRect) -> CGPoint {
@@ -312,7 +320,9 @@ struct PointerFilter {
     }
 
     mutating func update(point: CGPoint, bounds: CGRect, time: Double, freeze: Bool) -> CGPoint {
-        let target = unfrozenTarget(point: point, bounds: bounds)
+        let raw = unfrozenTarget(point: point, bounds: bounds)
+        let target = CGPoint(x: min(bounds.maxX - 1, max(bounds.minX, raw.x + offset.x)),
+                             y: min(bounds.maxY - 1, max(bounds.minY, raw.y + offset.y)))
         let dt = max(0, min(0.1, time - (lastTime ?? time)))
         lastTime = time
         guard let previous = position else {
@@ -321,6 +331,8 @@ struct PointerFilter {
             return target
         }
         if freeze { return previous }
+        // Rebase at display edges so reversing direction has no hidden dead zone.
+        offset = CGPoint(x: target.x - raw.x, y: target.y - raw.y)
         let diag = max(hypot(bounds.width, bounds.height), 1)
         let rawSpeed: Double
         if let lastTarget, dt > 1e-6 {
