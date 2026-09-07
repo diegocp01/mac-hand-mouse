@@ -678,7 +678,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func startPractice() {
         if practicing { finishPractice(); return }
         guard activation.canResume else { return }
-        allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
+        // Practice changes this session's output, not the user's saved click preference.
+        allowClicks.state = .off
         disableScrolling(); disablePinchDragging()
         allowDragging.state = .off; UserDefaults.standard.set(false, forKey: "allowDragging")
         practicing = true
@@ -693,7 +694,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         resetInteraction(); clearClickFeedback(); practice.reset(); practiceCursor = nil
         disableScrolling(); disablePinchDragging()
         allowDragging.state = .off; UserDefaults.standard.set(false, forKey: "allowDragging")
-        allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
+        allowClicks.state = .off
         refreshClickChrome()
         showFeedback("Practice finished", "Clicks, scrolling, and dragging are off. Enable them when you want to control other apps.")
     }

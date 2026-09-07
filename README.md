@@ -73,7 +73,7 @@ The pointer stays on your target while you bend and lift. **Lift to click** appe
 - **Pointer lock:** optionally bring index + middle together to hold the target. **Bend to click** appears beside the cursor; separate them to move again. A normal bend also holds the target automatically.
 - **Precision:** enable **Precision** for roughly 35% of normal hand-to-pointer travel. Lower and raise your hand to reposition when needed. The setting is saved.
 - **Scroll:** enable **Scroll**, touch thumb + index and hold steady for about a quarter second, then move your hand up/down. The cursor stays put and clicks are suppressed. Release the pinch to stop immediately and resume aiming without a jump. Scrolling also works with Click off.
-- **Click:** turn it off to aim without clicking.
+- **Click:** enabled by default. Turn it off to aim without clicking; your manual choice is saved. Practice leaves clicks off for the current session without changing that preference, so the next launch restores your saved choice or the default on.
 - **Rest/reposition:** lower your hand, then raise index + middle centrally and hold briefly. The pointer resumes where you left it.
 - **Pause:** Esc, **Pause**, or the menu-bar hand icon. **⌃⌥⌘H** pauses/resumes from another app (configurable in Permissions).
 - **Select text:** enable it, acquire one hand first, then form an L with thumb + index on both hands. Move the original hand to drag or select; open either hand to release. Clicks pause while the second hand acts as a modifier.
