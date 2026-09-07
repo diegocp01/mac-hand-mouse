@@ -6,7 +6,8 @@ struct HandFrame {
     var pinchRatio: Double?
     var timestamp: Double
     var aspect: CGFloat
-    var forwardPose: ForwardPose? = nil
+    var forwardPose: ForwardPose?
+    var forwardIssue: ForwardPoseIssue? = nil
     var source = ""
     var handSide: String?
     var scrollPoint: CGPoint?
@@ -286,15 +287,17 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
            let index = frame.points[.indexTip], let middle = frame.points[.middleTip] {
             frame.scrollPoint = CGPoint(x: (index.x + middle.x) / 2, y: (index.y + middle.y) / 2)
         }
-        let required: [VNHumanHandPoseObservation.JointName] = [.indexTip, .indexPIP, .indexDIP, .indexMCP, .littleMCP, .middleMCP, .wrist]
-        if required.allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
-           let index = frame.points[.indexTip], let pip = frame.points[.indexPIP], let dip = frame.points[.indexDIP],
-           let base = frame.points[.indexMCP], let little = frame.points[.littleMCP],
-           let middle = frame.points[.middleMCP], let wrist = frame.points[.wrist] {
-            let side = hand.chirality == .left ? "left" : (hand.chirality == .right ? "right" : "unknown")
-            frame.forwardPose = ForwardPose.measure(index: index, pip: pip, dip: dip, base: base,
-                littleBase: little, middleBase: middle, wrist: wrist, aspect: Double(aspect), side: side)
+        func forwardJoint(_ name: VNHumanHandPoseObservation.JointName) -> ForwardJoint? {
+            guard let point = all[name] else { return nil }
+            return ForwardJoint(point: CGPoint(x: 1 - point.location.x, y: 1 - point.location.y),
+                                confidence: Double(point.confidence))
         }
+        let forward = ForwardPose.assess(index: forwardJoint(.indexTip), pip: forwardJoint(.indexPIP),
+            dip: forwardJoint(.indexDIP), base: forwardJoint(.indexMCP), littleBase: forwardJoint(.littleMCP),
+            middleBase: forwardJoint(.middleMCP), wrist: forwardJoint(.wrist),
+            aspect: Double(aspect), side: frame.handSide ?? "unknown")
+        frame.forwardPose = forward.pose
+        frame.forwardIssue = forward.issue
         guard let thumb = frame.points[.thumbTip], let index = frame.points[.indexTip] else { return frame }
         frame.pinchRatio = HandGeometry.pinchRatio(thumb: thumb, index: index,
             indexBase: frame.points[.indexMCP], littleBase: frame.points[.littleMCP],

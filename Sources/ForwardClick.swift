@@ -1,6 +1,43 @@
 import Foundation
 import CoreGraphics
 
+/// Landmark quality is checked separately from finger shape. Projected middle
+/// joints can be less certain as a straight index turns toward the lens.
+struct ForwardJoint {
+    let point: CGPoint
+    let confidence: Double
+
+    func reliable(at minimum: Double) -> Bool {
+        confidence.isFinite && (minimum...1).contains(confidence)
+            && point.x.isFinite && point.y.isFinite
+            && (0...1).contains(point.x) && (0...1).contains(point.y)
+    }
+}
+
+enum ForwardPoseIssue: Equatable {
+    case indexHidden, palmHidden, ambiguousShape
+
+    var title: String {
+        switch self {
+        case .indexHidden: return "Show the side of your index finger"
+        case .palmHidden: return "Turn your palm toward the camera"
+        case .ambiguousShape: return "Angle your index slightly sideways"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .indexHidden: return "The camera needs to see your fingertip and joints. Turn your finger slightly sideways, aim, then point forward again."
+        case .palmHidden: return "Keep your palm and knuckles visible while pointing. Move your hand away from your face if they overlap."
+        case .ambiguousShape: return "Keep your index straight with its tip and joints visible; pointing directly into the lens can hide them. Aim again, then point forward at a slight angle."
+        }
+    }
+}
+
+struct ForwardPoseAssessment {
+    var pose: ForwardPose?
+    var issue: ForwardPoseIssue?
+}
+
 /// Image-space evidence, not a depth measurement or a claim about user intent.
 struct ForwardPose: Equatable {
     var scale: Double
@@ -12,6 +49,24 @@ struct ForwardPose: Equatable {
         scale.isFinite && scale > 0.035 && scale < 1.5 && reach.isFinite && reach > 0.12 && reach < 3 &&
         center.x.isFinite && center.y.isFinite && (0...1).contains(center.x) && (0...1).contains(center.y) &&
         (side == "left" || side == "right")
+    }
+
+    /// Keep the fingertip and palm anchors at 0.6 confidence. Only the two
+    /// internal index joints use 0.45; all original geometry checks still apply.
+    static func assess(index: ForwardJoint?, pip: ForwardJoint?, dip: ForwardJoint?, base: ForwardJoint?,
+                       littleBase: ForwardJoint?, middleBase: ForwardJoint?, wrist: ForwardJoint?,
+                       aspect: Double, side: String) -> ForwardPoseAssessment {
+        guard let index, index.reliable(at: 0.6),
+              let pip, pip.reliable(at: 0.45), let dip, dip.reliable(at: 0.45) else {
+            return ForwardPoseAssessment(issue: .indexHidden)
+        }
+        guard let base, base.reliable(at: 0.6), let littleBase, littleBase.reliable(at: 0.6),
+              let middleBase, middleBase.reliable(at: 0.6), let wrist, wrist.reliable(at: 0.6) else {
+            return ForwardPoseAssessment(issue: .palmHidden)
+        }
+        let pose = measure(index: index.point, pip: pip.point, dip: dip.point, base: base.point,
+            littleBase: littleBase.point, middleBase: middleBase.point, wrist: wrist.point, aspect: aspect, side: side)
+        return ForwardPoseAssessment(pose: pose, issue: pose == nil ? .ambiguousShape : nil)
     }
 
     static func measure(index: CGPoint, pip: CGPoint, dip: CGPoint, base: CGPoint,
@@ -126,7 +181,7 @@ enum ForwardClickHint: Equatable {
     }
     var detail: String {
         switch self {
-        case .unclear: return "Keep your palm and index visible. No click is pending."
+        case .unclear: return "Turn your index slightly sideways so its tip and joints stay visible, then aim and point forward again. No click is pending."
         case .observingAim: return "Move with your index extended so the camera can see its length. This happens automatically."
         case .returnToAim: return "Extend your index to aim again, then point toward the camera. No click is pending."
         case .distanceChanged: return "Aim normally at this distance before pointing forward. No click is pending."
