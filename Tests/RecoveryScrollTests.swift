@@ -174,6 +174,67 @@ import CoreGraphics
         check(!keyboard.press(), "A held key does not become a new resume request after wake")
         keyboard.release(); check(keyboard.press(), "A fresh press in an active session can resume")
 
+        // Corner reach after off-center acquisition: the previous translated,
+        // clamped map could never reach the opposite edge from these anchors.
+        for fps in [15.0, 30.0, 60.0] {
+            for bounds in [CGRect(x: 0, y: 0, width: 1440, height: 900),
+                           CGRect(x: -2560, y: -100, width: 2560, height: 1440)] {
+                for hand in [CGPoint(x: 0.3, y: 0.7), CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.7, y: 0.3)] {
+                    for fraction in [0.1, 0.5, 0.9] {
+                        for corner in [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0), CGPoint(x: 0, y: 1), CGPoint(x: 1, y: 1)] {
+                            var s = Session(); s.setup(); s.fps = fps; s.bounds = bounds
+                            s.cursor = CGPoint(x: bounds.minX + fraction * (bounds.width - 1),
+                                               y: bounds.minY + (1 - fraction) * (bounds.height - 1))
+                            let original = s.cursor
+                            s.hold(hand)
+                            check(s.cursor == original, "An off-center hand does not move the cursor during acquisition")
+                            let region = s.engine.pointerControlRegion
+                            check(region.minX >= 0.17 && region.maxX <= 0.83 && region.minY >= 0.17 && region.maxY <= 0.83,
+                                  "Normal return poses keep fingertip travel away from camera boundaries")
+                            let destination = CGPoint(x: corner.x == 0 ? region.minX : region.maxX,
+                                                      y: corner.y == 0 ? region.minY : region.maxY)
+                            s.hold(destination, seconds: 0.7)
+                            let expected = CGPoint(x: corner.x == 0 ? bounds.minX : bounds.maxX - 1,
+                                                   y: corner.y == 0 ? bounds.minY : bounds.maxY - 1)
+                            check(s.cursor == expected && s.clicks == 0,
+                                  "Every corner is reachable inside the guide after no-jump acquisition")
+                            let inside = CGPoint(x: destination.x + (corner.x == 0 ? 0.01 : -0.01),
+                                                 y: destination.y + (corner.y == 0 ? 0.01 : -0.01))
+                            s.frame(inside)
+                            check(s.cursor.x != expected.x && s.cursor.y != expected.y,
+                                  "Reversing at a corner moves immediately without a hidden dead zone")
+                            s.frame(nil); let resting = s.cursor
+                            s.hold(hand)
+                            check(s.cursor == resting && s.clicks == 0, "Corner return still preserves the cursor and cannot click")
+                        }
+                    }
+                }
+            }
+        }
+        var frozen = PointerFilter()
+        let display = CGRect(x: -1440, y: 0, width: 1440, height: 900)
+        let target = CGPoint(x: -900, y: 400)
+        frozen.reanchor(point: aim, cursor: target, bounds: display, time: 0)
+        let frozenRegion = frozen.controlRegion
+        for i in 1...10 {
+            check(frozen.update(point: CGPoint(x: 0.98, y: 0.98), bounds: display, time: Double(i) / 30, freeze: true) == target,
+                  "Click freeze ignores motion even beyond the smaller region")
+            check(frozen.controlRegion == frozenRegion, "A frozen click cannot silently rebase the travel guide")
+        }
+        for hand in [0.0, 0.01, 0.22, 0.5, 0.78, 0.99, 1.0] {
+            for cursor in [0.0, 0.5, 1.0] {
+                let axis = PointerAxisMap(hand: hand, screen: cursor)
+                check(axis.map(hand) == cursor, "Boundary anchors are finite and retain their cursor position")
+                var previous = 0.0
+                for i in 0...100 {
+                    let current = axis.map(Double(i) / 100)
+                    check(current.isFinite && current >= previous && current >= 0 && current <= 1,
+                          "Axis mapping stays monotone and bounded, including camera-boundary anchors")
+                    previous = current
+                }
+            }
+        }
+
         let base = CGPoint(x: 0.5, y: 0.6), pip = CGPoint(x: 0.5, y: 0.5)
         check(ScrollPoseGeometry.shape(tip: CGPoint(x: 0.5, y: 0.35), pip: pip, base: base, aspect: 1.5) == .extended,
               "An extended finger is recognized")
