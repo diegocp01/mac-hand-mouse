@@ -48,6 +48,7 @@ struct InteractionEngine {
     private(set) var scroll = ScrollDetector()
     private(set) var drag = TwoHandDragDetector()
     private var filter = PointerFilter()
+    var pointerControlRegion: CGRect { filter.controlRegion }
     private var lastTimestamp: Double?
     private var lastDestination: InteractionDestination?
     private var lastLocation: CGPoint?

@@ -52,7 +52,7 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 
 | Action | How |
 | --- | --- |
-| Move the pointer | Show a steady, open hand briefly, then move your **index fingertip** inside the dashed box. |
+| Move the pointer | Show a steady, open hand briefly, then move your **index fingertip** inside the dashed box. Its edges map to the screen edges; your palm may extend outside it. |
 | Rest and reposition your hand | Lower your hand, then return with thumb + index separated (or ordinary extended pointing in Forward mode). After a brief steady hold, movement resumes from the current cursor without jumping. |
 | Aim with clicks off | Uncheck **Allow clicks**. Aim freely; no mouse click is sent. |
 | Preview only | Uncheck **Move pointer**. |
@@ -69,6 +69,19 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | Scroll (opt-in) | In **Gesture settings**, enable **Allow two-finger scrolling**. Hold index + middle extended with ring + little folded, then move up/down. Lower the middle finger to return to pointing. |
 
 **Tips:** start with one hand, palm visible, even lighting. Add the other hand only as the drag modifier; it never becomes a second pointer. Closing the window pauses capture. For multiple monitors, put the app window on the screen you want before starting; the header names the display being controlled. Sleep, switching away from your Mac session, or a display configuration change pauses the camera. Start it again when ready.
+
+### Reaching corners comfortably
+
+The dashed box marks **fingertip travel**, not a boundary for your whole hand. The
+smaller central region reaches all screen edges while leaving room for your palm
+in the camera view. Keep the whole hand visible to the camera; the palm can extend
+outside the dashed box. After you lower and return your hand, the cursor stays
+where you left it and the guide adjusts to the new pointing position. Reverse
+direction to leave an edge without moving through an invisible dead zone.
+
+Start with your hand near the camera's center for comfortable travel in every
+direction. If tracking is lost, lower the hand and return centrally with index up,
+palm toward the camera, and thumb apart; wait briefly for **Pointer ready**.
 
 ### Two-hand dragging and text selection (experimental)
 

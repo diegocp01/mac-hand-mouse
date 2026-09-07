@@ -7,6 +7,7 @@ final class PreviewView: NSView {
     let preview: AVCaptureVideoPreviewLayer
     private let skeleton = CAShapeLayer()
     private let guide = CAShapeLayer()
+    var controlRegion = PointerFilter().controlRegion { didSet { drawHand() } }
     private var points: [VNHumanHandPoseObservation.JointName: CGPoint] = [:]
     private var aspect: CGFloat = 4 / 3
     private let placeholder = NSTextField(wrappingLabelWithString: "")
@@ -98,8 +99,10 @@ final class PreviewView: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         skeleton.path = path
         guide.isHidden = !placeholder.isHidden
-        guide.path = CGPath(roundedRect: rect.insetBy(dx: rect.width * GestureTuning.softInset, dy: rect.height * GestureTuning.softInset),
-                            cornerWidth: 10, cornerHeight: 10, transform: nil)
+        let travelRect = CGRect(x: rect.minX + controlRegion.minX * rect.width,
+            y: rect.minY + controlRegion.minY * rect.height,
+            width: controlRegion.width * rect.width, height: controlRegion.height * rect.height)
+        guide.path = CGPath(roundedRect: travelRect, cornerWidth: 10, cornerHeight: 10, transform: nil)
         CATransaction.commit()
     }
 }
@@ -311,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         modeRow.spacing = 12
         let tuningRow = NSStackView(views: [pinchFeelLabel, sensitivity, dwellDurationLabel, dwellDuration])
         tuningRow.spacing = 10
-        let hint = NSTextField(wrappingLabelWithString: "Esc pauses · On-device")
+        let hint = NSTextField(wrappingLabelWithString: "Dashed box = fingertip travel · Esc pauses · On-device")
         hint.font = .systemFont(ofSize: 11); hint.textColor = StartupStyle.muted
         displayStatus.font = .systemFont(ofSize: 11)
         displayStatus.textColor = StartupStyle.muted
@@ -472,7 +475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 : (clickMode == .forward ? "Point toward the camera and hold to click. Pull back to cancel or click again."
                     : "Touch thumb + index to click, then separate them before the next click.")
             pointerGuide.update(title: practicing ? "Practice pointer ready · Move to aim" : "Pointer ready · Move to aim",
-                detail: "Move your index finger to aim at the target.\n" + next + (engine.settings.allowDragging ? " Two L-shaped hands drag/select; open either hand to release." : ""))
+                detail: "Move your fingertip within the dashed box to reach screen edges. Your palm can extend outside the box.\n" + next + (engine.settings.allowDragging ? " Two L-shaped hands drag/select; open either hand to release." : ""))
         }
     }
 
@@ -658,6 +661,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
             primaryReleased: frame.lReleased, companionReleased: frame.companionReleased)
+        preview.controlRegion = engine.pointerControlRegion
         if let location = step.location { practiceCursor = location }
         let simulatedPoint = step.location.map {
             CGPoint(x: ($0.x - screen.minX) / screen.width * practice.bounds.width,
@@ -846,6 +850,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                   handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
             primaryReleased: frame.lReleased, companionReleased: frame.companionReleased)
+        preview.controlRegion = engine.pointerControlRegion
         guard dragOutput.dispatch(step, post: postDragEvents) else { interruptInteraction(); return }
         if let blocked = step.blocked {
             clearClickFeedback()
@@ -985,6 +990,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         lastForwardIssue = nil
         releaseDrag()
         engine.reset()
+        preview.controlRegion = engine.pointerControlRegion
     }
 
     private func interruptInteraction() {

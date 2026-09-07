@@ -120,15 +120,12 @@ check(pointer.update(point: .zero, bounds: bounds, time: 0.06, freeze: true) == 
 pointer.reset()
 check(pointer.update(point: CGPoint(x: 1, y: 1), bounds: bounds, time: 1, freeze: false) == CGPoint(x: -1, y: 1179), "Clamp bottom right inside display")
 
-// Soft margins: continuous through the old hard 0.15 wall; hard crop is flat outside.
-let softAtWall = SoftMargin.normalize(0.15)
-let softInside = SoftMargin.normalize(0.16)
-let hardAtWall = SoftMargin.hardCrop(0.15)
-let hardOutside = SoftMargin.hardCrop(0.14)
-check(hardOutside == 0 && hardAtWall == 0, "Hard crop is flat at the old wall")
-check(softInside > softAtWall, "Soft map keeps moving through the old 0.15 boundary")
-check(SoftMargin.normalize(0.10) == 0 && SoftMargin.normalize(0.90) == 1, "Soft inset endpoints map to screen edges")
-check(abs(SoftMargin.normalize(0.5) - 0.5) < 1e-9, "Soft map is centered")
+// The smaller fingertip region covers the display before the hand leaves view.
+let inset = GestureTuning.softInset
+check(inset >= 0.2, "Fingertip travel leaves room for the palm at camera edges")
+check(SoftMargin.normalize(inset) == 0 && SoftMargin.normalize(1 - inset) == 1, "Guide endpoints map to screen edges")
+check(SoftMargin.normalize(inset + 0.01) > SoftMargin.normalize(inset), "Motion inside the guide remains responsive")
+check(abs(SoftMargin.normalize(0.5) - 0.5) < 1e-9, "Default mapping is centered")
 
 for fps in [30.0, 60.0] {
     var response = PointerFilter()

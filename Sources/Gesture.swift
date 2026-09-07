@@ -7,8 +7,8 @@ enum GestureTuning {
     static let maxSmoothingSeconds = 0.050
     /// Screen-diagonals/sec at which smoothing reaches the minimum.
     static let velocityRefDiagonalsPerSecond = 1.4
-    /// Soft usable inset (was hard crop at 0.15). Wider FOV + tanh softclamp.
-    static let softInset = 0.10
+    /// Comfortable fingertip travel leaves room for the rest of the hand in view.
+    static let softInset = 0.22
     static let softClampK = 1.20
     static let trackingGraceSeconds = 0.12
 }
@@ -276,9 +276,7 @@ struct HandGeometry {
     }
 }
 
-/// Soft camera→[0,1] map. Replaces hard `clamp((t-0.15)/0.70)`.
-/// Same idea as a mild 1D softclamp: mid-band nearly linear, gain falls off toward
-/// the edges, and the old hard wall at 0.15 is gone (C∞ through the old boundary).
+/// Smooth, bounded mapping for the default fingertip travel region.
 enum SoftMargin {
     static func normalize(_ t: Double) -> Double {
         guard t.isFinite else { return 0.5 }
@@ -290,39 +288,77 @@ enum SoftMargin {
         return min(1, max(0, 0.5 + 0.5 * y))
     }
 
-    /// Hard crop baseline (for synthetic proofs only).
-    static func hardCrop(_ t: Double) -> Double {
-        min(1, max(0, (t - 0.15) / 0.70))
+}
+
+/// A no-jump anchor with reachable endpoints on both sides. A translated,
+/// already-clamped absolute map can otherwise make one display edge unreachable.
+struct PointerAxisMap {
+    let hand: Double
+    let screen: Double
+    let lower: Double
+    let upper: Double
+
+    init(hand: Double, screen: Double) {
+        self.hand = min(1, max(0, hand))
+        self.screen = min(1, max(0, screen))
+        // Keep useful travel on each side when resuming off-center.
+        lower = max(0, min(GestureTuning.softInset, self.hand - 0.12))
+        upper = min(1, max(1 - GestureTuning.softInset, self.hand + 0.12))
     }
+
+    func map(_ value: Double) -> Double {
+        if value == hand { return screen }
+        let left = value < hand
+        let span = left ? hand - lower : upper - hand
+        let distance = left ? screen : 1 - screen
+        guard span > 0, distance > 0 else { return left ? 0 : 1 }
+        let u = min(1, max(0, abs(value - hand) / span))
+        // Preserve fine aiming near the resume position, then smoothly increase
+        // gain if more screen distance remains than the available hand travel.
+        let linear = min(1, span / ((1 - 2 * GestureTuning.softInset) * distance))
+        let travel = distance * (linear * u + (1 - linear) * u * u)
+        return min(1, max(0, screen + (left ? -travel : travel)))
+    }
+
+    var visibleLower: Double { screen == 0 ? hand : lower }
+    var visibleUpper: Double { screen == 1 ? hand : upper }
 }
 
 struct PointerFilter {
     private var position: CGPoint?
     private var lastTime: Double?
     private var lastTarget: CGPoint?
-    private var offset = CGPoint.zero
+    private var horizontal: PointerAxisMap?
+    private var vertical: PointerAxisMap?
 
-    mutating func reset() { position = nil; lastTime = nil; lastTarget = nil; offset = .zero }
+    var controlRegion: CGRect {
+        let inset = GestureTuning.softInset
+        let left = horizontal?.visibleLower ?? inset
+        let right = horizontal?.visibleUpper ?? (1 - inset)
+        let top = vertical?.visibleLower ?? inset
+        let bottom = vertical?.visibleUpper ?? (1 - inset)
+        return CGRect(x: left, y: top, width: right - left, height: bottom - top)
+    }
+
+    mutating func reset() { position = nil; lastTime = nil; lastTarget = nil; horizontal = nil; vertical = nil }
 
     mutating func reanchor(point: CGPoint, cursor: CGPoint, bounds: CGRect, time: Double) {
         reset()
-        let target = unfrozenTarget(point: point, bounds: bounds)
-        offset = CGPoint(x: cursor.x - target.x, y: cursor.y - target.y)
+        horizontal = PointerAxisMap(hand: point.x, screen: (cursor.x - bounds.minX) / (bounds.width - 1))
+        vertical = PointerAxisMap(hand: point.y, screen: (cursor.y - bounds.minY) / (bounds.height - 1))
         position = cursor; lastTarget = cursor; lastTime = time
     }
 
     /// Soft-mapped screen target with no EMA / freeze — use for dwell cancel sampling.
     func unfrozenTarget(point: CGPoint, bounds: CGRect) -> CGPoint {
-        let x = SoftMargin.normalize(Double(point.x))
-        let y = SoftMargin.normalize(Double(point.y))
+        let x = horizontal?.map(point.x) ?? SoftMargin.normalize(Double(point.x))
+        let y = vertical?.map(point.y) ?? SoftMargin.normalize(Double(point.y))
         return CGPoint(x: bounds.minX + x * (bounds.width - 1),
                        y: bounds.minY + y * (bounds.height - 1))
     }
 
     mutating func update(point: CGPoint, bounds: CGRect, time: Double, freeze: Bool) -> CGPoint {
-        let raw = unfrozenTarget(point: point, bounds: bounds)
-        let target = CGPoint(x: min(bounds.maxX - 1, max(bounds.minX, raw.x + offset.x)),
-                             y: min(bounds.maxY - 1, max(bounds.minY, raw.y + offset.y)))
+        let target = unfrozenTarget(point: point, bounds: bounds)
         let dt = max(0, min(0.1, time - (lastTime ?? time)))
         lastTime = time
         guard let previous = position else {
@@ -332,7 +368,12 @@ struct PointerFilter {
         }
         if freeze { return previous }
         // Rebase at display edges so reversing direction has no hidden dead zone.
-        offset = CGPoint(x: target.x - raw.x, y: target.y - raw.y)
+        if target.x <= bounds.minX || target.x >= bounds.maxX - 1 {
+            horizontal = PointerAxisMap(hand: point.x, screen: target.x <= bounds.minX ? 0 : 1)
+        }
+        if target.y <= bounds.minY || target.y >= bounds.maxY - 1 {
+            vertical = PointerAxisMap(hand: point.y, screen: target.y <= bounds.minY ? 0 : 1)
+        }
         let diag = max(hypot(bounds.width, bounds.height), 1)
         let rawSpeed: Double
         if let lastTarget, dt > 1e-6 {
@@ -346,8 +387,16 @@ struct PointerFilter {
         let tau = GestureTuning.maxSmoothingSeconds * (1 - blend)
             + GestureTuning.minSmoothingSeconds * blend
         let alpha = 1 - exp(-dt / max(tau, 1e-4))
-        let result = CGPoint(x: previous.x + (target.x - previous.x) * alpha,
-                             y: previous.y + (target.y - previous.y) * alpha)
+        func settle(_ old: Double, _ target: Double, _ low: Double, _ high: Double) -> Double {
+            // Normalizing an exact resume position can introduce roundoff only.
+            if abs(target - old) < 1e-9 { return old }
+            let next = old + (target - old) * alpha
+            // Reach actual corner pixels instead of approaching them forever.
+            if (target == low || target == high) && abs(target - next) < 0.5 { return target }
+            return next
+        }
+        let result = CGPoint(x: settle(previous.x, target.x, bounds.minX, bounds.maxX - 1),
+                             y: settle(previous.y, target.y, bounds.minY, bounds.maxY - 1))
         position = result
         return result
     }
