@@ -109,6 +109,13 @@ esac
 
 /usr/libexec/PlistBuddy -c 'Delete :HandMouseSigningMode' "$APP/Contents/Info.plist" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :HandMouseSigningMode string $MODE" "$APP/Contents/Info.plist"
-/usr/bin/codesign "${SIGN_ARGS[@]}" "$APP"
+if ! /usr/bin/codesign "${SIGN_ARGS[@]}" "$APP"; then
+    echo 'Signing failed. The existing app and saved identity have not been replaced.' >&2
+    if [ "$MODE" = local ]; then
+        # Public certificate status helps diagnose OS/keychain failures; never trace secrets.
+        /usr/bin/security find-identity -p codesigning "$KEYCHAIN" >&2 || true
+    fi
+    exit 1
+fi
 /usr/bin/codesign --verify --deep --strict "$APP"
 echo "Signed Hand Mouse ($MODE)."
