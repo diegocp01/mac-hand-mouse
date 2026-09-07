@@ -10,6 +10,8 @@ struct HandFrame {
     var forwardIssue: ForwardPoseIssue? = nil
     var source = ""
     var handSide: String?
+    var dragPinchRatio: Double?
+    var palm: CGPoint?
     var scrollPoint: CGPoint?
     var isL = false
     var lReleased = false
@@ -252,6 +254,9 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         for (joint, point) in all where point.confidence >= 0.35 {
             frame.points[joint] = CGPoint(x: 1 - point.location.x, y: 1 - point.location.y)
         }
+        let palmJoints: [VNHumanHandPoseObservation.JointName] = [.wrist, .indexMCP, .middleMCP, .littleMCP]
+        frame.palm = PinchDragPalm.measure(points: palmJoints.map { frame.points[$0] },
+            confidences: palmJoints.map { Double(all[$0]?.confidence ?? 0) })
         // A hidden thumb or pinky must not prevent index-finger movement.
         guard (all[.indexTip]?.confidence ?? 0) >= 0.45 else {
             frame.points.removeValue(forKey: .indexTip); return frame
@@ -302,6 +307,10 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         frame.pinchRatio = HandGeometry.pinchRatio(thumb: thumb, index: index,
             indexBase: frame.points[.indexMCP], littleBase: frame.points[.littleMCP],
             wrist: frame.points[.wrist], middleBase: frame.points[.middleMCP], aspect: Double(aspect))
+        if frame.palm != nil, (all[.thumbTip]?.confidence ?? 0) >= 0.6,
+           (all[.indexTip]?.confidence ?? 0) >= 0.6 {
+            frame.dragPinchRatio = frame.pinchRatio
+        }
         return frame
     }
 }

@@ -108,8 +108,9 @@ struct DragOutput {
     }
 
     mutating func update(_ step: InteractionStep) -> [DragEvent] {
-        guard step.systemDragging, step.blocked == nil, let location = step.systemLocation,
+        guard step.systemButtonHeld, step.blocked == nil, let location = step.systemLocation,
               location.x.isFinite, location.y.isFinite else { return release() }
+        if heldLocation != nil && !step.systemDragging { return [] }
         let kind: DragEventKind = heldLocation == nil ? .down : .moved
         heldLocation = location
         return [DragEvent(kind: kind, location: location)]

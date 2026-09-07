@@ -9,6 +9,7 @@ struct InteractionSettings: Equatable {
     var dwellSeconds = 0.65
     var allowScrolling = false
     var allowDragging = false
+    var allowPinchDragging = false
 }
 
 enum ClickPreference {
@@ -28,11 +29,13 @@ struct InteractionStep {
     var blocked: InteractionBlock?
     var destination: InteractionDestination = .system
     var dragging = false
+    var buttonHeld = false
 
     // Simulation results are never eligible for the OS event dispatch path.
     var systemLocation: CGPoint? { destination == .system ? location : nil }
     var systemClick: Bool { destination == .system && click }
     var systemScrollY: Int32 { destination == .system ? scrollY : 0 }
+    var systemButtonHeld: Bool { destination == .system && (buttonHeld || dragging) }
     var systemDragging: Bool { destination == .system && dragging }
 }
 
@@ -47,6 +50,7 @@ struct InteractionEngine {
     private(set) var acquisition = PointerAcquisition()
     private(set) var scroll = ScrollDetector()
     private(set) var drag = TwoHandDragDetector()
+    private(set) var pinchDrag = OneHandDragDetector()
     private var filter = PointerFilter()
     var pointerControlRegion: CGRect { filter.controlRegion }
     private var lastTimestamp: Double?
@@ -63,7 +67,7 @@ struct InteractionEngine {
     }
 
     mutating func reset() {
-        drag.interrupt()
+        drag.interrupt(); pinchDrag.reset()
         pinch.reset(); forward.reset(); forwardReference.reset(); filter.reset()
         lastTimestamp = nil
         lastDestination = nil
@@ -72,7 +76,7 @@ struct InteractionEngine {
 
     /// Stops an in-progress gesture when delivery stalls, retaining post-click rearm rules.
     mutating func trackingInterrupted() {
-        drag.interrupt()
+        drag.interrupt(); pinchDrag.reset()
         pinch.reset(); forward.reset(); forwardReference.reset(); scroll.reset(); filter.reset()
         acquisition.interrupt(); lastLocation = nil
     }
@@ -82,7 +86,7 @@ struct InteractionEngine {
                           destination: InteractionDestination = .system, cursorPosition: CGPoint? = nil,
                           handSide: String? = nil, scrollPoint: CGPoint? = nil,
                           primaryL: Bool = false, companionPresent: Bool = false, companionL: Bool = false,
-                          primaryReleased: Bool = false, companionReleased: Bool = false) -> InteractionStep {
+                          primaryReleased: Bool = false, companionReleased: Bool = false, palm: CGPoint? = nil) -> InteractionStep {
         guard running else { reset(); return InteractionStep(blocked: .paused) }
         let inputAllowed = trusted || destination == .practice
         guard inputAllowed else { reset(); return InteractionStep(blocked: .permission) }
@@ -127,7 +131,7 @@ struct InteractionEngine {
             } else { neutral = false }
         } else { neutral = pinchRatio.map { $0.isFinite && $0 > settings.pinchThreshold + 0.18 } ?? false }
         guard acquisition.update(point: index, cursor: cursorPosition, side: handSide, neutral: neutral && scrollPoint == nil, time: timestamp) else {
-            pinch.reset(); forward.reset(); scroll.reset(); drag.interrupt()
+            pinch.reset(); forward.reset(); scroll.reset(); drag.interrupt(); pinchDrag.reset()
             return InteractionStep(blocked: .acquiring)
         }
         if !wasActive {
@@ -135,9 +139,31 @@ struct InteractionEngine {
             lastLocation = cursorPosition
             return InteractionStep(location: cursorPosition, destination: destination)
         }
+        let oneHandDrag = settings.allowPinchDragging && settings.mode == .pinch
+        if oneHandDrag && settings.allowClicks && scroll.phase == .idle && (!settings.allowScrolling || scrollPoint == nil || pinchDrag.engaged) {
+            pinch.reset(); forward.reset(); drag.interrupt()
+            let previous = pinchDrag.phase
+            guard pinchDrag.update(ratio: pinchRatio, palm: palm, time: timestamp,
+                                   bounds: bounds, threshold: settings.pinchThreshold), let palm else {
+                trackingInterrupted(); return InteractionStep(blocked: .acquiring)
+            }
+            let beganDrag = previous != .dragging && pinchDrag.phase == .dragging
+            let ended = (previous == .pressed || previous == .dragging) && !pinchDrag.held
+            let canceled = previous == .confirming && !pinchDrag.engaged
+            let motionPoint = pinchDrag.phase == .dragging ? palm : index
+            if beganDrag || ended || canceled {
+                // Switch landmarks without jumping, including release back to the index.
+                filter.reanchor(point: motionPoint, cursor: cursorPosition, bounds: bounds, time: timestamp)
+            }
+            let location = filter.update(point: motionPoint, bounds: bounds, time: timestamp,
+                freeze: pinchDrag.phase == .confirming || pinchDrag.phase == .pressed || beganDrag || ended || canceled)
+            lastLocation = location
+            return InteractionStep(location: location, click: pinchDrag.releasedClick && destination == .practice,
+                destination: destination, dragging: pinchDrag.phase == .dragging, buttonHeld: pinchDrag.held)
+        }
         // The second hand is a modifier only. Its appearance cancels single-hand
         // click/scroll intent, even before it forms an L. Only the owner's index moves.
-        if settings.allowDragging && (companionPresent || drag.phase != .idle) {
+        if settings.allowDragging && !oneHandDrag && (companionPresent || drag.phase != .idle) {
             pinch.reset(); forward.reset(); scroll.reset()
             let previous = drag.phase
             if settings.allowClicks {
@@ -156,7 +182,7 @@ struct InteractionEngine {
             return InteractionStep(location: location, destination: destination, dragging: drag.phase == .dragging)
         }
         if settings.allowScrolling && scrollPoint != nil {
-            pinch.reset(); forward.reset()
+            pinch.reset(); forward.reset(); pinchDrag.reset()
             let delta = scroll.update(point: scrollPoint, time: timestamp)
             if scroll.phase == .idle {
                 trackingInterrupted()

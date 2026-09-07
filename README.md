@@ -58,7 +58,8 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | Preview only | Uncheck **Move pointer**. |
 | Practice safely | Try simulated Pinch or Point forward targets and a scroll counter. No system pointer, click, or scroll input is sent. |
 | Turn on clicks | Check **Allow clicks**. Enabled on new installs; an existing saved choice is preserved. No pose capture or practice targets are required. |
-| Drag / select text (opt-in, experimental) | Enable **Allow two-hand L dragging** in **Gesture settings**. Aim with one hand first. Make an **L with thumb + index on both hands**, other fingers folded. Hold briefly, then move your **original pointer hand** to drag. Open either hand to release. Requires **Allow clicks**. |
+| Drag / select with one hand (opt-in, experimental) | Choose **Pinch**, enable **Pinch to drag** and **Allow clicks**. Pinch + release to click; hold + move your hand to drag or select text; release to finish. |
+| Drag / select with two hands (opt-in, experimental) | Enable **Allow two-hand L dragging** in **Gesture settings**. Aim with one hand first. Make an **L with thumb + index on both hands**, other fingers folded. Hold briefly, then move your **original pointer hand** to drag. Open either hand to release. Requires **Allow clicks**. |
 | Left-click — Pinch | Select **Pinch**. Touch **thumb + index** together briefly, then separate before the next click. |
 | Left-click — Point forward (experimental) | Aim with your index extended, then point toward the camera as if touching the screen. Hold the forward pose until the ring fills. Pull back to cancel or rearm. |
 | Adjust forward hold time | Choose **0.65**, **1**, or **1.5 seconds** (saved). A confirmed forward gesture starts this timer; ordinary stillness does not. |
@@ -82,6 +83,14 @@ direction to leave an edge without moving through an invisible dead zone.
 Start with your hand near the camera's center for comfortable travel in every
 direction. If tracking is lost, lower the hand and return centrally with index up,
 palm toward the camera, and thumb apart; wait briefly for **Pointer ready**.
+
+### One-hand pinch dragging (experimental)
+
+In **Gesture settings**, choose **Pinch** and enable **Pinch to drag**. It starts off and requires **Allow clicks**. Aim with your index finger, then pinch thumb + index. Release for a click; keep pinching and move your whole hand to drag or select text. Open the pinch to finish. The pointer stays still during finger closure and follows the palm during dragging.
+
+Choose one drag method at a time; enabling either disables the other. Switching to **Point forward** turns pinch dragging off. In **Practice safely**, enable **Try pinch dragging** to rehearse without controlling other apps. Finishing practice turns clicks, scrolling, and both drag methods off.
+
+Keep your palm and fingertips visible. Uncertain tracking releases an existing press; open your pinch to reacquire before continuing. A release can complete the click or drop already in progress in the target app. Physical camera testing is still needed; see [one-hand design and checks](docs/ONE_HAND_DRAG.md).
 
 ### Two-hand dragging and text selection (experimental)
 
@@ -128,7 +137,7 @@ Camera status stays separate from click instructions: **Starting camera**, **Han
 
 ## What it does *not* do (yet)
 
-Right-click, double-click, and tap-to-click are **not** included. Two-hand dragging and text selection are available with the L gesture above. Keep your physical mouse/trackpad available.
+Right-click, double-click, and tap-to-click are **not** included. Dragging and text selection are available with the optional one-hand pinch or two-hand L gestures above. Keep your physical mouse/trackpad available.
 
 ## Troubleshooting
 
