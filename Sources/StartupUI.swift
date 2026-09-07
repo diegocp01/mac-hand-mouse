@@ -70,11 +70,19 @@ final class SetupStepView: NSView {
     }
 }
 
+enum TapGuideStage: String {
+    case aim = "Aim"
+    case bend = "Bend"
+    case lift = "Lift"
+}
+
 /// Always visible beside the camera controls, including when the settings scroll away.
 final class PointerGuideView: NSView {
     private let heading = NSTextField(wrappingLabelWithString: "")
     private let detail = NSTextField(wrappingLabelWithString: "")
     private let hand = NSImageView()
+    private let tapSteps = NSStackView()
+    private var tapLabels: [(stage: TapGuideStage, label: NSTextField)] = []
     private var presentation = ""
 
     override init(frame: NSRect) {
@@ -89,7 +97,38 @@ final class PointerGuideView: NSView {
         heading.font = .systemFont(ofSize: 14, weight: .semibold)
         detail.font = .systemFont(ofSize: 12)
         detail.textColor = StartupStyle.muted
-        let text = StartupStyle.column([heading, detail], spacing: 4)
+        tapSteps.orientation = .horizontal
+        tapSteps.alignment = .centerY
+        tapSteps.distribution = .fillEqually
+        tapSteps.spacing = 6
+        tapSteps.isHidden = true
+        tapSteps.setAccessibilityElement(true)
+        tapSteps.setAccessibilityRole(.staticText)
+        for (index, stage) in [TapGuideStage.aim, .bend, .lift].enumerated() {
+            let label = NSTextField(labelWithString: "\(index + 1)  \(stage.rawValue)")
+            label.alignment = .center
+            label.font = .systemFont(ofSize: 11, weight: .medium)
+            label.setAccessibilityElement(false)
+            label.setContentHuggingPriority(.required, for: .vertical)
+            label.setContentCompressionResistancePriority(.required, for: .vertical)
+            let step = NSView()
+            step.wantsLayer = true
+            step.layer?.cornerRadius = 6
+            step.layer?.borderWidth = 1
+            label.translatesAutoresizingMaskIntoConstraints = false
+            step.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: step.leadingAnchor, constant: 8),
+                label.trailingAnchor.constraint(equalTo: step.trailingAnchor, constant: -8),
+                label.topAnchor.constraint(equalTo: step.topAnchor, constant: 5),
+                label.bottomAnchor.constraint(equalTo: step.bottomAnchor, constant: -5)
+            ])
+            tapSteps.addArrangedSubview(step)
+            tapLabels.append((stage, label))
+        }
+        let text = StartupStyle.column([heading, detail, tapSteps], spacing: 4)
+        text.detachesHiddenViews = true
+        text.setCustomSpacing(8, after: detail)
         for view in [hand, text] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
             hand.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
@@ -101,17 +140,29 @@ final class PointerGuideView: NSView {
             text.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
             heading.widthAnchor.constraint(equalTo: text.widthAnchor),
             detail.widthAnchor.constraint(equalTo: text.widthAnchor),
+            tapSteps.widthAnchor.constraint(equalTo: text.widthAnchor),
             heightAnchor.constraint(greaterThanOrEqualToConstant: 90)
         ])
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    func update(title: String, detail: String) {
-        let next = title + "\n" + detail
+    func update(title: String, detail: String, tapStage: TapGuideStage? = nil) {
+        let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let next = title + "\n" + detail + "\n\(tapStage?.rawValue ?? "")|\(contrast)"
         guard next != presentation else { return }
         presentation = next
         heading.stringValue = title
         self.detail.stringValue = detail
+        tapSteps.isHidden = tapStage == nil
+        guard let tapStage else { return }
+        tapSteps.setAccessibilityLabel("Tap to click: 1 Aim, 2 Bend, 3 Lift. Current step: \(tapStage.rawValue).")
+        for (stage, label) in tapLabels {
+            let active = stage == tapStage
+            label.font = .systemFont(ofSize: 11, weight: active ? .bold : .medium)
+            label.textColor = active ? StartupStyle.accent : StartupStyle.muted
+            label.superview?.layer?.backgroundColor = StartupStyle.accent.withAlphaComponent(active ? 0.14 : 0.035).cgColor
+            label.superview?.layer?.borderColor = (active ? StartupStyle.accent : StartupStyle.muted.withAlphaComponent(contrast ? 0.8 : 0.18)).cgColor
+        }
     }
 }
 

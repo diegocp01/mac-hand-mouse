@@ -17,3 +17,7 @@ build/source-update-tests
 bash Tests/update.sh
 xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Tests/TwoFingerTapTests.swift -o build/tap-tests
 build/tap-tests
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Tests/TapTimingTests.swift -o build/tap-timing-tests
+build/tap-timing-tests
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/TapGuidance.swift Tests/TapGuidanceTests.swift -o build/tap-guidance-tests
+build/tap-guidance-tests

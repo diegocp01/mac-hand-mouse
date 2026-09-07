@@ -55,6 +55,7 @@ struct InteractionEngine {
     private(set) var pinchDrag = OneHandDragDetector()
     private var filter = PointerFilter()
     private(set) var fingersTogether = false
+    private(set) var dragModifierPresent = false
     private var scrollPinched = false
     var pointerControlRegion: CGRect { filter.controlRegion }
     private var lastTimestamp: Double?
@@ -72,6 +73,7 @@ struct InteractionEngine {
 
     mutating func reset() {
         tap.reset()
+        dragModifierPresent = false
         fingersTogether = false
         scrollPinched = false
         drag.interrupt(); pinchDrag.reset()
@@ -84,6 +86,7 @@ struct InteractionEngine {
     /// Stops an in-progress gesture when delivery stalls, retaining post-click rearm rules.
     mutating func trackingInterrupted() {
         tap.reset()
+        dragModifierPresent = false
         fingersTogether = false
         scrollPinched = false
         drag.interrupt(); pinchDrag.reset()
@@ -98,6 +101,7 @@ struct InteractionEngine {
                           primaryL: Bool = false, companionPresent: Bool = false, companionL: Bool = false,
                           primaryReleased: Bool = false, companionReleased: Bool = false, palm: CGPoint? = nil,
                           tapPose: TapPose? = nil, fingerSeparationRatio: Double? = nil, scrollPinchRatio: Double? = nil) -> InteractionStep {
+        dragModifierPresent = false
         guard running else { reset(); return InteractionStep(blocked: .paused) }
         let inputAllowed = trusted || destination == .practice
         guard inputAllowed else { reset(); return InteractionStep(blocked: .permission) }
@@ -187,6 +191,7 @@ struct InteractionEngine {
         // The second hand is a modifier only. Its appearance cancels single-hand
         // click/scroll intent, even before it forms an L. Only the owner's index moves.
         if settings.allowDragging && !oneHandDrag && (companionPresent || drag.phase != .idle) {
+            dragModifierPresent = companionPresent
             tap.reset()
             pinch.reset(); forward.reset(); scroll.reset()
             let previous = drag.phase
