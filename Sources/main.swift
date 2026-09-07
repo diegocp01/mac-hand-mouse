@@ -9,13 +9,16 @@ final class PreviewView: NSView {
     private let guide = CAShapeLayer()
     private var points: [VNHumanHandPoseObservation.JointName: CGPoint] = [:]
     private var aspect: CGFloat = 4 / 3
-    private let placeholder = NSTextField(wrappingLabelWithString: "Camera paused\nStart camera to see your hand here.")
+    private let placeholder = NSTextField(wrappingLabelWithString: "Your space, ready.\nStart the camera to bring your hand into view.")
+    private let reticle = StandbyReticleView(frame: .zero)
 
     init(session: AVCaptureSession) {
         preview = AVCaptureVideoPreviewLayer(session: session)
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = StartupStyle.background.cgColor
+        layer?.borderColor = StartupStyle.accent.withAlphaComponent(0.2).cgColor
+        layer?.borderWidth = 1
         layer?.cornerRadius = 16
         layer?.masksToBounds = true
         preview.videoGravity = .resizeAspect
@@ -29,13 +32,19 @@ final class PreviewView: NSView {
         guide.lineDashPattern = [6, 6]
         layer?.addSublayer(guide)
         placeholder.textColor = .white
-        placeholder.font = .systemFont(ofSize: 18, weight: .medium)
+        placeholder.font = .systemFont(ofSize: 15, weight: .medium)
         placeholder.alignment = .center
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         addSubview(placeholder)
+        reticle.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(reticle)
         NSLayoutConstraint.activate([
             placeholder.centerXAnchor.constraint(equalTo: centerXAnchor),
-            placeholder.centerYAnchor.constraint(equalTo: centerYAnchor),
+            reticle.centerXAnchor.constraint(equalTo: centerXAnchor),
+            reticle.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -30),
+            reticle.widthAnchor.constraint(equalToConstant: 140),
+            reticle.heightAnchor.constraint(equalToConstant: 140),
+            placeholder.topAnchor.constraint(equalTo: reticle.bottomAnchor, constant: 10),
             placeholder.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.8)
         ])
     }
@@ -61,6 +70,8 @@ final class PreviewView: NSView {
     func showPlaceholder(_ text: String?) {
         placeholder.stringValue = text ?? ""
         placeholder.isHidden = text == nil
+        reticle.isHidden = text == nil
+        guide.isHidden = text != nil
     }
     private func drawHand() {
         // Match the actual capture format, including cameras that deliver 16:9.
@@ -86,6 +97,7 @@ final class PreviewView: NSView {
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         skeleton.path = path
+        guide.isHidden = !placeholder.isHidden
         guide.path = CGPath(roundedRect: rect.insetBy(dx: rect.width * GestureTuning.softInset, dy: rect.height * GestureTuning.softInset),
                             cornerWidth: 10, cornerHeight: 10, transform: nil)
         CATransaction.commit()
@@ -110,7 +122,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
     private var preview: PreviewView!
     private let titleLabel = NSTextField(labelWithString: "Your hand. Your cursor.")
-    private let subtitle = NSTextField(wrappingLabelWithString: "1) Enable Accessibility  2) Start camera  3) Point with your index  4) Turn on Allow clicks when ready")
+    private let subtitle = NSTextField(wrappingLabelWithString: "Move naturally. Start with a little practice.")
+    private let permissionStep = SetupStepView(number: "01", title: "Allow control")
+    private let cameraStep = SetupStepView(number: "02", title: "Start camera")
+    private let practiceStep = SetupStepView(number: "03", title: "Point & practice")
+    private let optionsToggle = NSButton(title: "Gesture settings", target: nil, action: nil)
+    private var optionsRows: NSStackView!
     private let feedback = ClickFeedbackView(frame: .zero)
     private let cursorFeedback = CursorFeedback()
     private let cameraStatus = NSTextField(labelWithString: "Camera off")
@@ -122,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var cameraMenuItem: NSMenuItem!
     private let permissionStatus = NSTextField(wrappingLabelWithString: "")
     private let toggle = NSButton(title: "Start camera", target: nil, action: nil)
-    private let control = NSButton(checkboxWithTitle: "Move the system pointer with my index finger", target: nil, action: nil)
+    private let control = NSButton(checkboxWithTitle: "Move pointer with index finger", target: nil, action: nil)
     private let allowClicks = NSButton(checkboxWithTitle: "Allow clicks", target: nil, action: nil)
     private let clickModeControl = NSSegmentedControl(labels: ["Pinch", "Point forward"], trackingMode: .selectOne, target: nil, action: nil)
     private let sensitivity = NSSegmentedControl(labels: ["Precise", "Balanced", "Easy"], trackingMode: .selectOne, target: nil, action: nil)
@@ -170,31 +187,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         submenu.addItem(withTitle: "Quit Hand Mouse", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         NSApp.mainMenu = appMenu
 
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 800),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 860),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Hand Mouse"
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = StartupStyle.background
+        window.titlebarAppearsTransparent = true
+        window.toolbarStyle = .unified
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 620, height: 540)
         window.center()
         let content = NSView(); window.contentView = content
+        content.wantsLayer = true
+        content.layer?.backgroundColor = StartupStyle.background.cgColor
 
-        titleLabel.font = .systemFont(ofSize: 26, weight: .bold)
+        titleLabel.font = .systemFont(ofSize: 30, weight: .medium)
         subtitle.font = .systemFont(ofSize: 13)
-        subtitle.textColor = .secondaryLabelColor
+        subtitle.textColor = StartupStyle.muted
         subtitle.maximumNumberOfLines = 2
         preview = PreviewView(session: camera.session)
         preview.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            preview.heightAnchor.constraint(equalTo: preview.widthAnchor, multiplier: 0.60)
+            preview.heightAnchor.constraint(equalTo: preview.widthAnchor, multiplier: 0.43)
         ])
         cameraStatus.font = .systemFont(ofSize: 12, weight: .semibold)
-        cameraStatus.textColor = .secondaryLabelColor
+        cameraStatus.textColor = StartupStyle.accent
         permissionStatus.font = .systemFont(ofSize: 11)
         permissionStatus.textColor = .secondaryLabelColor
 
         toggle.target = self; toggle.action = #selector(toggleCamera)
         toggle.bezelStyle = .rounded
+        toggle.bezelColor = StartupStyle.accent
+        toggle.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+        toggle.imagePosition = .imageLeading
         if #available(macOS 11.0, *) { toggle.controlSize = .large }
         toggle.keyEquivalent = "\r"
 
@@ -239,82 +265,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let setupRow = NSStackView(views: [permissions, cameraSettings, reveal])
         setupRow.spacing = 10
-        setupRows = NSStackView(views: [permissionStatus, setupRow])
-        setupRows.orientation = .vertical; setupRows.alignment = .leading; setupRows.spacing = 8
+        setupRows = StartupStyle.column([permissionStatus, setupRow], spacing: 8)
         setupToggle.setButtonType(.pushOnPushOff)
         setupToggle.bezelStyle = .disclosure
         setupToggle.setAccessibilityLabel("Permissions and setup")
         setupToggle.target = self; setupToggle.action = #selector(toggleSetup)
-        setupToggle.state = AXIsProcessTrusted() ? .off : .on
+        let cameraPermission = AVCaptureDevice.authorizationStatus(for: .video)
+        setupToggle.state = AXIsProcessTrusted() && cameraPermission != .denied && cameraPermission != .restricted ? .off : .on
         toggleSetup()
         let setupLabel = NSTextField(labelWithString: "Permissions & setup")
+        setupLabel.font = .systemFont(ofSize: 12, weight: .medium)
         setupLabel.setAccessibilityElement(false)
         let setupDisclosure = NSStackView(views: [setupToggle, setupLabel])
         setupDisclosure.spacing = 6
-        let spacer = NSView()
-        let primaryRow = NSStackView(views: [cameraStatus, spacer, toggle])
+        let primaryRow = NSStackView(views: [cameraStatus, NSView(), toggle])
         primaryRow.spacing = 12
-        let modeRow = NSStackView(views: [allowClicks, clickModeLabel, clickModeControl, clickTest])
+        let steps = NSStackView(views: [permissionStep, cameraStep, practiceStep])
+        steps.distribution = .fillEqually; steps.spacing = 10
+        let modeRow = NSStackView(views: [clickModeLabel, clickModeControl])
         modeRow.spacing = 12
         let tuningRow = NSStackView(views: [pinchFeelLabel, sensitivity, dwellDurationLabel, dwellDuration])
         tuningRow.spacing = 10
-        let hint = NSTextField(wrappingLabelWithString: "Esc pauses at any time · Camera frames stay on this Mac")
-        hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
+        let hint = NSTextField(wrappingLabelWithString: "Esc to pause · Video stays on your Mac")
+        hint.font = .systemFont(ofSize: 11); hint.textColor = StartupStyle.muted
         displayStatus.font = .systemFont(ofSize: 11)
-        displayStatus.textColor = .secondaryLabelColor
+        displayStatus.textColor = StartupStyle.muted
         setupForward.target = self; setupForward.action = #selector(forwardSetupPressed)
         setupForward.bezelStyle = .rounded
         setupForward.keyEquivalent = "p"; setupForward.keyEquivalentModifierMask = [.command, .shift]
         cancelForward.target = self; cancelForward.action = #selector(cancelForwardSetup)
         cancelForward.bezelStyle = .rounded
         forwardInstructions.font = .systemFont(ofSize: 12)
-        forwardInstructions.textColor = .secondaryLabelColor
+        forwardInstructions.textColor = StartupStyle.muted
         let setupActions = NSStackView(views: [setupForward, cancelForward])
         setupActions.spacing = 10
-        forwardControls = NSStackView(views: [forwardInstructions, setupActions])
-        forwardControls.orientation = .vertical; forwardControls.alignment = .leading; forwardControls.spacing = 6
-        let header = NSStackView(views: [titleLabel, subtitle, primaryRow, displayStatus, forwardControls])
-        header.orientation = .vertical; header.alignment = .leading; header.spacing = 10
+        forwardControls = StartupStyle.column([forwardInstructions, setupActions], spacing: 6)
+        optionsToggle.setButtonType(.pushOnPushOff)
+        optionsToggle.bezelStyle = .inline
+        optionsToggle.target = self; optionsToggle.action = #selector(toggleOptions)
+        optionsToggle.setAccessibilityLabel("Gesture settings")
+        optionsToggle.state = clickMode == .forward ? .on : .off
+        optionsRows = StartupStyle.column([modeRow, tuningRow, forwardControls])
+        toggleOptions()
+        let controls = NSStackView(views: [control, NSView(), allowClicks])
+        controls.spacing = 12
+        let actions = NSStackView(views: [optionsToggle, NSView(), clickTest])
+        actions.spacing = 12
+        let header = StartupStyle.column([
+            StartupStyle.caption("HAND MOUSE  /  SPATIAL CONTROL"), titleLabel, subtitle, primaryRow
+        ], spacing: 8)
         header.translatesAutoresizingMaskIntoConstraints = false
-        let stack = NSStackView(views: [
-            preview, feedback, practice,
-            control, modeRow, tuningRow, setupDisclosure, setupRows, hint
-        ])
-        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
+        let stack = StartupStyle.column([
+            steps, setupDisclosure, setupRows, preview, feedback, practice,
+            controls, actions, optionsRows, displayStatus
+        ], spacing: 12)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        // A scrollable document keeps controls reachable on smaller laptop displays.
+        // Keep Start/Pause and the escape hint visible while the rest scrolls on small displays.
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true; scroll.drawsBackground = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
         let document = TopAlignedDocumentView()
         document.translatesAutoresizingMaskIntoConstraints = false
         scroll.documentView = document
-        content.addSubview(header); content.addSubview(scroll); document.addSubview(stack)
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(header); content.addSubview(scroll); content.addSubview(hint)
+        document.addSubview(stack)
         NSLayoutConstraint.activate([
-            header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
-            header.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
-            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
+            header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 28),
+            header.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
+            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 16),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
-            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 16),
+            scroll.bottomAnchor.constraint(equalTo: hint.topAnchor, constant: -10),
+            hint.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            hint.trailingAnchor.constraint(equalTo: header.trailingAnchor),
+            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14),
             document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 0),
-            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -20),
-            preview.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            feedback.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -28),
+            stack.topAnchor.constraint(equalTo: document.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -12),
             primaryRow.widthAnchor.constraint(equalTo: header.widthAnchor),
-            subtitle.widthAnchor.constraint(equalTo: header.widthAnchor),
-            permissionStatus.widthAnchor.constraint(equalTo: stack.widthAnchor)
+            subtitle.widthAnchor.constraint(equalTo: header.widthAnchor)
         ])
-        practice.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            practice.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            practice.heightAnchor.constraint(equalToConstant: 180),
-            forwardInstructions.widthAnchor.constraint(equalTo: header.widthAnchor)
-        ])
+        for view in [steps, setupRows!, permissionStatus, preview!, feedback, practice, controls, actions,
+                     optionsRows!, forwardControls!, forwardInstructions] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+        practice.heightAnchor.constraint(equalToConstant: 180).isActive = true
 
         refreshClickChrome()
 
@@ -364,6 +404,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func toggleSetup() {
         setupRows.isHidden = setupToggle.state == .off
         setupToggle.setAccessibilityExpanded(setupToggle.state == .on)
+    }
+
+    @objc private func toggleOptions() {
+        optionsRows.isHidden = optionsToggle.state == .off
+        optionsToggle.title = optionsToggle.state == .on ? "▾ Gesture settings" : "▸ Gesture settings"
+        optionsToggle.setAccessibilityExpanded(optionsToggle.state == .on)
+    }
+
+    private func refreshSetupSteps(trusted: Bool) {
+        let authorization = AVCaptureDevice.authorizationStatus(for: .video)
+        permissionStep.update(complete: trusted, active: !trusted,
+                              detail: trusted ? "Accessibility enabled" : "Enable Accessibility below")
+        cameraStep.update(complete: running && cameraReady, active: trusted && !cameraReady,
+                          detail: authorization == .denied || authorization == .restricted
+                            ? "Open Camera Settings below"
+                            : (running ? (cameraReady ? "Camera is on" : "Starting camera…") : "Use Start camera above"))
+        practiceStep.update(complete: false, active: cameraReady,
+                            detail: !cameraReady ? "Show one hand to begin"
+                                : (allowClicks.state == .on ? "Clicks on · Aim, then click" : "Move your index · Clicks off"))
     }
 
     private func configureInteraction() {
@@ -457,7 +516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 ? String(format: "Move to aim. Point toward the camera and hold %.2g seconds to click.", engine.settings.dwellSeconds)
                 : "Point with your index, then pinch thumb + index to click."
         } else {
-            subtitle.stringValue = "Practice pointing first. Turn on Allow clicks only when you want real mouse clicks."
+            subtitle.stringValue = "Practice pointing first. Enable Allow clicks when you’re ready."
         }
     }
 
@@ -590,6 +649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         configureInteraction(); updateDisplayStatus()
         toggle.title = "Pause camera"
+        toggle.image = NSImage(systemSymbolName: "pause.fill", accessibilityDescription: nil)
         cameraMenuItem.title = "Pause camera"
         cameraStatus.stringValue = "Starting camera…"
         preview.showPlaceholder("Starting camera…\nAllow camera access if macOS asks.")
@@ -602,6 +662,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cameraStatus.stringValue = "Camera off · Paused"
         preview.showPlaceholder("Camera paused\nStart camera to see your hand here.")
         toggle.title = "Start camera"
+        toggle.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
         cameraMenuItem.title = "Start camera"
         showFeedback("Paused", "Use your mouse normally. Start the camera when you are ready.")
         updateDisplayStatus()
@@ -654,6 +715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             engine.reset(); clearClickFeedback()
         }
         previouslyTrusted = trusted
+        refreshSetupSteps(trusted: trusted)
         if running && forwardSetup != .inactive {
             // Setup and practice need no Accessibility access and have no OS output path.
             if cameraReady && ProcessInfo.processInfo.systemUptime - lastFrameTime > GestureTuning.trackingGraceSeconds {
@@ -673,7 +735,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 permissionStatus.stringValue = "Accessibility on · Pinch: touch thumb + index, then separate"
             }
         } else {
-            permissionStatus.stringValue = "Enable Accessibility for this copy. If the switch is already on, replace the old Hand Mouse entry using − and +. Show in Finder locates this app."
+            permissionStatus.stringValue = "Allow Hand Mouse in System Settings → Privacy & Security → Accessibility. Use Show in Finder to add this copy if needed."
         }
         guard running else { return }
         let now = ProcessInfo.processInfo.systemUptime

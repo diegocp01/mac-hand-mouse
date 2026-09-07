@@ -43,6 +43,7 @@ final class ClickFeedbackView: NSView {
     let detail = NSTextField(wrappingLabelWithString: "Start the camera, then show one hand with your palm visible.")
     private let progress = NSProgressIndicator()
     private let ring = DwellRingView()
+    private var textInset: NSLayoutConstraint!
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -52,7 +53,7 @@ final class ClickFeedbackView: NSView {
         updateColors()
         title.font = .systemFont(ofSize: 17, weight: .semibold)
         detail.font = .systemFont(ofSize: 12)
-        detail.textColor = .secondaryLabelColor
+        detail.textColor = StartupStyle.muted
         detail.maximumNumberOfLines = 2
         progress.isIndeterminate = false
         progress.minValue = 0; progress.maxValue = 1
@@ -61,11 +62,12 @@ final class ClickFeedbackView: NSView {
         let text = NSStackView(views: [title, detail, progress])
         text.orientation = .vertical; text.alignment = .leading; text.spacing = 5
         for view in [ring, text] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+        textInset = text.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
         NSLayoutConstraint.activate([
+            textInset,
             ring.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             ring.centerYAnchor.constraint(equalTo: centerYAnchor),
             ring.widthAnchor.constraint(equalToConstant: 48), ring.heightAnchor.constraint(equalToConstant: 48),
-            text.leadingAnchor.constraint(equalTo: ring.trailingAnchor, constant: 12),
             text.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             text.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             text.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
@@ -82,8 +84,8 @@ final class ClickFeedbackView: NSView {
     }
     private func updateColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-            layer?.borderColor = NSColor.separatorColor.cgColor
+            layer?.backgroundColor = StartupStyle.surface.cgColor
+            layer?.borderColor = StartupStyle.accent.withAlphaComponent(NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.8 : 0.2).cgColor
         }
     }
 
@@ -96,6 +98,7 @@ final class ClickFeedbackView: NSView {
         progress.isHidden = fraction == nil
         progress.setAccessibilityValueDescription(clamped.map { "\(Int(($0 * 100).rounded())) percent" })
         ring.isHidden = fraction == nil && !clicked
+        textInset.constant = ring.isHidden ? 16 : 74
         setAccessibilityLabel(title + ". " + detail)
     }
 }
