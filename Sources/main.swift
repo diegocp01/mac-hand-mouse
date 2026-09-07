@@ -71,7 +71,7 @@ final class PreviewView: NSView {
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         skeleton.path = path
-        guide.path = CGPath(roundedRect: rect.insetBy(dx: rect.width * 0.15, dy: rect.height * 0.15),
+        guide.path = CGPath(roundedRect: rect.insetBy(dx: rect.width * GestureTuning.softInset, dy: rect.height * GestureTuning.softInset),
                             cornerWidth: 10, cornerHeight: 10, transform: nil)
         CATransaction.commit()
     }
@@ -81,19 +81,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let camera = HandCamera()
     private var window: NSWindow!
     private var preview: PreviewView!
+    private let titleLabel = NSTextField(labelWithString: "Your hand. Your cursor.")
+    private let subtitle = NSTextField(wrappingLabelWithString: "1) Enable Accessibility  2) Start camera  3) Point with your index  4) Turn on Allow clicks when ready")
     private let status = NSTextField(wrappingLabelWithString: "Ready when you are. Start the camera to begin.")
     private let permissionStatus = NSTextField(labelWithString: "")
     private let toggle = NSButton(title: "Start camera", target: nil, action: nil)
-    private let control = NSButton(checkboxWithTitle: "Control mouse pointer", target: nil, action: nil)
+    private let control = NSButton(checkboxWithTitle: "Move the system pointer with my index finger", target: nil, action: nil)
+    private let allowClicks = NSButton(checkboxWithTitle: "Allow clicks (off until you turn this on)", target: nil, action: nil)
+    private let clickModeControl = NSSegmentedControl(labels: ["Pinch", "Dwell"], trackingMode: .selectOne, target: nil, action: nil)
+    private let sensitivity = NSSegmentedControl(labels: ["Precise", "Balanced", "Easy"], trackingMode: .selectOne, target: nil, action: nil)
+    private let clickTest = NSButton(title: "Test click: 0", target: nil, action: nil)
+    private let pinchFeelLabel = NSTextField(labelWithString: "Pinch feel")
+    private let clickModeLabel = NSTextField(labelWithString: "How to click")
     private var statusItem: NSStatusItem!
     private var running = false
     private var detector = PinchDetector()
+    private var dwell = DwellDetector()
+    private var clickMode: ClickMode = .pinch
+    private var previewPhase: PinchPhase {
+        if clickMode == .dwell {
+            switch dwell.phase {
+            case .arming: return .confirming
+            case .needMove: return .held
+            case .idle: return .waitingForOpen
+            }
+        }
+        return detector.phase
+    }
     private var filter = PointerFilter()
     private var lastHand = 0.0
     private var clickedUntil = 0.0
     private var testClicks = 0
-    private let clickTest = NSButton(title: "Test click: 0", target: nil, action: nil)
-    private let sensitivity = NSSegmentedControl(labels: ["Precise", "Balanced", "Easy"], trackingMode: .selectOne, target: nil, action: nil)
     private var targetDisplay = CGMainDisplayID()
     private var timer: Timer?
     private var globalKey: Any?
@@ -112,52 +130,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         submenu.addItem(withTitle: "Quit Hand Mouse", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         NSApp.mainMenu = appMenu
 
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 830),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 920),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Hand Mouse"
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.center()
         let content = NSView(); window.contentView = content
-        let title = NSTextField(labelWithString: "Your hand. Your cursor.")
-        title.font = .systemFont(ofSize: 28, weight: .bold)
-        let subtitle = NSTextField(labelWithString: "Point to move. Touch thumb + index finger to click.")
+
+        titleLabel.font = .systemFont(ofSize: 26, weight: .bold)
+        subtitle.font = .systemFont(ofSize: 13)
         subtitle.textColor = .secondaryLabelColor
+        subtitle.maximumNumberOfLines = 2
         preview = PreviewView(session: camera.session)
         preview.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([preview.widthAnchor.constraint(equalToConstant: 640), preview.heightAnchor.constraint(equalToConstant: 480)])
-        status.font = .systemFont(ofSize: 14, weight: .medium)
+        NSLayoutConstraint.activate([
+            preview.widthAnchor.constraint(equalToConstant: 640),
+            preview.heightAnchor.constraint(equalToConstant: 420)
+        ])
+        status.font = .systemFont(ofSize: 14, weight: .semibold)
         status.maximumNumberOfLines = 2
         permissionStatus.font = .systemFont(ofSize: 11)
         permissionStatus.textColor = .secondaryLabelColor
+
         toggle.target = self; toggle.action = #selector(toggleCamera)
         toggle.bezelStyle = .rounded
+        if #available(macOS 11.0, *) { toggle.controlSize = .large }
+        toggle.keyEquivalent = "\r"
+
         control.state = .on; control.target = self; control.action = #selector(controlChanged)
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "allowClicks") == nil, let legacy = defaults.object(forKey: "allowPinchClicks") as? Bool {
+            defaults.set(legacy, forKey: "allowClicks")
+        }
+        allowClicks.state = (defaults.object(forKey: "allowClicks") as? Bool ?? false) ? .on : .off
+        allowClicks.target = self; allowClicks.action = #selector(allowClicksChanged)
+
         let permissions = NSButton(title: "Enable Accessibility", target: self, action: #selector(enableAccessibility))
         permissions.bezelStyle = .rounded
         let cameraSettings = NSButton(title: "Camera Settings", target: self, action: #selector(openCameraSettings))
         cameraSettings.bezelStyle = .rounded
-        let buttons = NSStackView(views: [toggle, control, permissions, cameraSettings])
-        buttons.spacing = 10
-        let savedSensitivity = UserDefaults.standard.object(forKey: "clickSensitivity") as? Int ?? 1
+        let reveal = NSButton(title: "Show in Finder", target: self, action: #selector(revealApp))
+        reveal.bezelStyle = .rounded
+
+        let savedSensitivity = defaults.object(forKey: "clickSensitivity") as? Int ?? 1
         sensitivity.selectedSegment = min(2, max(0, savedSensitivity))
         sensitivity.target = self; sensitivity.action = #selector(sensitivityChanged)
         sensitivityChanged()
+        let savedMode = defaults.string(forKey: "clickMode") ?? ClickMode.pinch.rawValue
+        clickMode = ClickMode(rawValue: savedMode) ?? .pinch
+        clickModeControl.selectedSegment = clickMode == .dwell ? 1 : 0
+        clickModeControl.target = self; clickModeControl.action = #selector(clickModeChanged)
         clickTest.target = self; clickTest.action = #selector(testClick)
         clickTest.bezelStyle = .rounded
-        let tuning = NSStackView(views: [NSTextField(labelWithString: "Click sensitivity"), sensitivity, clickTest])
-        tuning.spacing = 12
-        let reveal = NSButton(title: "Show this app in Finder", target: self, action: #selector(revealApp))
-        reveal.bezelStyle = .rounded
-        let hint = NSTextField(labelWithString: "Green: tracking • Blue: pinch held • White flash + Click!: click sent • Esc: pause")
-        hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
-        let stack = NSStackView(views: [title, subtitle, preview, status, permissionStatus, buttons, tuning, reveal, hint])
-        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
+        for label in [pinchFeelLabel, clickModeLabel] {
+            label.font = .systemFont(ofSize: 12, weight: .medium)
+            label.textColor = .secondaryLabelColor
+        }
+
+        let setupRow = NSStackView(views: [permissions, cameraSettings, reveal])
+        setupRow.spacing = 10
+        let primaryRow = NSStackView(views: [toggle])
+        let modeRow = NSStackView(views: [clickModeLabel, clickModeControl, pinchFeelLabel, sensitivity, clickTest])
+        modeRow.spacing = 10
+        modeRow.alignment = .centerY
+
+        let hint = NSTextField(wrappingLabelWithString: "Green = tracking · Blue = armed · White flash = click sent · Esc pauses · Clicks stay off until you allow them")
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.maximumNumberOfLines = 2
+
+        let stack = NSStackView(views: [
+            titleLabel,
+            subtitle,
+            preview,
+            status,
+            permissionStatus,
+            section("Camera"),
+            primaryRow,
+            section("Setup"),
+            setupRow,
+            section("Pointing"),
+            control,
+            section("Clicking"),
+            allowClicks,
+            modeRow,
+            hint
+        ])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 30),
-                                     stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 24),
-                                     stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -30)])
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 28),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor, constant: -20)
+        ])
+
+        refreshClickChrome()
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "hand.point.up.left", accessibilityDescription: "Hand Mouse")
         let menu = NSMenu()
@@ -182,10 +255,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refresh(); showWindow()
     }
 
+    private func section(_ title: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title.uppercased())
+        label.font = .systemFont(ofSize: 11, weight: .semibold)
+        label.textColor = .tertiaryLabelColor
+        return label
+    }
+
+    private func refreshClickChrome() {
+        let clicksOn = allowClicks.state == .on
+        clickModeControl.isEnabled = clicksOn
+        clickModeLabel.textColor = clicksOn ? .secondaryLabelColor : .tertiaryLabelColor
+        sensitivity.isEnabled = clicksOn && clickMode == .pinch
+        pinchFeelLabel.isHidden = clickMode != .pinch
+        sensitivity.isHidden = clickMode != .pinch
+        pinchFeelLabel.textColor = sensitivity.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor
+        clickTest.isEnabled = clicksOn
+        if clicksOn {
+            subtitle.stringValue = clickMode == .dwell
+                ? "Point with your index, then hold still ~0.65s to click. Move to cancel."
+                : "Point with your index, then pinch thumb + index to click."
+        } else {
+            subtitle.stringValue = "Practice pointing first. Turn on Allow clicks only when you want real mouse clicks."
+        }
+    }
+
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc private func toggleCamera() {
         if running { pause(); return }
-        running = true; detector.reset(); filter.reset(); clickedUntil = 0
+        running = true; detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0
         lastHand = ProcessInfo.processInfo.systemUptime
         // Lock to the display containing this window for the duration of this session.
         if let number = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
@@ -196,15 +294,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         camera.start()
     }
     @objc private func pause() {
-        running = false; camera.stop(); detector.reset(); filter.reset(); clickedUntil = 0; preview.update(nil)
+        running = false; camera.stop(); detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0; preview.update(nil)
         toggle.title = "Start camera"; status.stringValue = "Paused. Use your mouse normally, or start again."
     }
-    @objc private func controlChanged() { detector.reset(); filter.reset(); clickedUntil = 0 }
+    @objc private func controlChanged() { detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0 }
+    @objc private func allowClicksChanged() {
+        UserDefaults.standard.set(allowClicks.state == .on, forKey: "allowClicks")
+        detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0
+        refreshClickChrome(); refresh()
+    }
+    @objc private func clickModeChanged() {
+        clickMode = clickModeControl.selectedSegment == 1 ? .dwell : .pinch
+        UserDefaults.standard.set(clickMode.rawValue, forKey: "clickMode")
+        detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0
+        refreshClickChrome(); refresh()
+    }
     @objc private func sensitivityChanged() {
         let selected = min(2, max(0, sensitivity.selectedSegment))
         detector.settings.closeRatio = [0.34, 0.42, 0.50][selected]
         UserDefaults.standard.set(selected, forKey: "clickSensitivity")
-        detector.reset(); clickedUntil = 0
+        detector.reset(); dwell.reset(); clickedUntil = 0
     }
     @objc private func testClick() {
         testClicks += 1
@@ -223,43 +332,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     private func refresh() {
         let trusted = AXIsProcessTrusted()
-        permissionStatus.stringValue = trusted ? "Accessibility enabled • Pinch once, then separate your fingers before the next click."
-            : "Mouse control needs permission: Enable Accessibility → turn on Hand Mouse."
+        if trusted {
+            if allowClicks.state != .on {
+                permissionStatus.stringValue = "Accessibility on · Pointer OK · Clicks off until you allow them"
+            } else if clickMode == .dwell {
+                permissionStatus.stringValue = "Accessibility on · Dwell: hold still to click · Move after each click"
+            } else {
+                permissionStatus.stringValue = "Accessibility on · Pinch: touch thumb + index, then separate"
+            }
+        } else {
+            permissionStatus.stringValue = "Needs Accessibility: tap Enable Accessibility → turn on Hand Mouse"
+        }
         if running && ProcessInfo.processInfo.systemUptime - lastHand > 2 {
-            detector.reset(); filter.reset(); preview.update(nil)
+            detector.reset(); dwell.reset(); filter.reset(); preview.update(nil)
         }
     }
     private func handle(_ frame: HandFrame) {
         guard running else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard now - frame.timestamp < 0.20 else {
-            detector.reset(); filter.reset(); preview.update(nil)
+            detector.reset(); dwell.reset(); filter.reset(); preview.update(nil)
             status.stringValue = "Tracking delayed. Hold still briefly to reacquire your hand."
             return
         }
-        guard control.state == .on && AXIsProcessTrusted() else {
-            detector.reset(); filter.reset(); preview.update(frame)
-            status.stringValue = control.state == .on ? "Enable permission for this copy of Hand Mouse. Use Show this app in Finder."
-                : "Preview only — mouse control is off."
+        let trusted = AXIsProcessTrusted()
+        guard control.state == .on && trusted else {
+            detector.reset(); dwell.reset(); filter.reset(); preview.update(frame)
+            status.stringValue = control.state == .on ? "Enable permission for this copy of Hand Mouse. Use Show in Finder."
+                : "Preview only — pointer control is off."
             return
         }
         guard let index = frame.points[.indexTip] else {
-            _ = detector.update(ratio: nil, time: frame.timestamp)
+            if clickMode == .pinch {
+                _ = detector.update(ratio: nil, time: frame.timestamp)
+            } else {
+                _ = dwell.update(point: .zero, time: frame.timestamp, tracking: false)
+            }
             if frame.timestamp - lastHand > GestureTuning.trackingGraceSeconds { filter.reset() }
-            preview.update(frame, phase: detector.phase)
+            preview.update(frame, phase: previewPhase)
             status.stringValue = "Looking for your index finger… Keep your hand visible."
             return
         }
         lastHand = frame.timestamp
-        let click = detector.update(ratio: frame.pinchRatio, time: frame.timestamp)
-        let location = filter.update(point: index, bounds: CGDisplayBounds(targetDisplay),
-                                     time: frame.timestamp, freeze: detector.shouldFreeze)
+        let bounds = CGDisplayBounds(targetDisplay)
+        // Order-of-ops (Olympiad):
+        // 1) Unfrozen sample for dwell cancel / proofs.
+        // 2) Gesture detect BEFORE pointer update so pinch freeze holds pre-pinch aim.
+        // 3) Filter with post-gesture freeze; inject at frozen aim only.
+        let sample = filter.unfrozenTarget(point: index, bounds: bounds)
+        let gestureFired: Bool
+        if clickMode == .dwell {
+            gestureFired = dwell.update(point: sample, time: frame.timestamp, tracking: true)
+        } else {
+            gestureFired = detector.update(ratio: frame.pinchRatio, time: frame.timestamp)
+        }
+        let freeze = clickMode == .dwell ? dwell.shouldFreeze : detector.shouldFreeze
+        let location = filter.update(point: index, bounds: bounds,
+                                     time: frame.timestamp, freeze: freeze)
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left)?.post(tap: .cghidEventTap)
-        if click {
+        let inject = SafetyPolicy.shouldInjectClick(
+            gestureFired: gestureFired,
+            allowClicks: allowClicks.state == .on,
+            axTrusted: trusted,
+            pointerControlEnabled: control.state == .on)
+        if inject {
             // Create both events before posting either, so every press has a release.
             guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: location, mouseButton: .left),
                   let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: location, mouseButton: .left) else {
-                status.stringValue = "Could not create a mouse click. Separate your fingers and try again."
+                status.stringValue = "Could not create a mouse click. Try again."
                 return
             }
             down.setIntegerValueField(.mouseEventClickState, value: 1)
@@ -267,20 +407,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
             clickedUntil = frame.timestamp + 0.35
         }
-        preview.update(frame, phase: detector.phase, clicked: frame.timestamp < clickedUntil)
+        preview.update(frame, phase: previewPhase, clicked: frame.timestamp < clickedUntil)
         if frame.timestamp < clickedUntil {
-            status.stringValue = "Click! Separate thumb + index before the next click."
+            status.stringValue = clickMode == .dwell
+                ? "Click! Move slightly before the next dwell."
+                : "Click! Separate thumb + index before the next click."
+        } else if gestureFired && allowClicks.state != .on {
+            status.stringValue = "Gesture recognized · Turn on Allow clicks to send a real click."
+        } else if clickMode == .dwell {
+            switch dwell.phase {
+            case .idle: status.stringValue = "Dwell · Hold the pointer still to click."
+            case .arming: status.stringValue = "Dwelling… Keep still. Move to cancel."
+            case .needMove: status.stringValue = "Move a little, then hold still to click again."
+            }
         } else if frame.pinchRatio == nil {
-            status.stringValue = "Pointer tracking • Show your thumb and palm to enable a pinch click."
+            status.stringValue = "Pointing · Show your thumb and palm to enable a pinch."
         } else {
             switch detector.phase {
-            case .waitingForOpen: status.stringValue = "Separate thumb + index to get ready to click."
-            case .ready: status.stringValue = "Ready to click • Aim, then pinch thumb + index. Try the Test click button."
-            case .confirming: status.stringValue = "Pinch detected… Keep fingertips together briefly."
-            case .held: status.stringValue = "Release the pinch • Separate thumb + index to click again."
+            case .waitingForOpen: status.stringValue = "Separate thumb + index to get ready."
+            case .ready: status.stringValue = "Ready · Aim, then pinch. Try Test click."
+            case .confirming: status.stringValue = "Pinch detected… Hold briefly."
+            case .held: status.stringValue = "Release the pinch to click again."
             }
         }
     }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool { pause(); return true }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showWindow(); return true }
     func applicationWillTerminate(_ notification: Notification) {

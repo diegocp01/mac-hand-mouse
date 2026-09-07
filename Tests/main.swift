@@ -119,17 +119,66 @@ check(moved.x > -1920 && moved.x < -1, "Smooth pointer movement")
 check(pointer.update(point: .zero, bounds: bounds, time: 0.06, freeze: true) == moved, "Pinch holds the exact click target")
 pointer.reset()
 check(pointer.update(point: CGPoint(x: 1, y: 1), bounds: bounds, time: 1, freeze: false) == CGPoint(x: -1, y: 1179), "Clamp bottom right inside display")
+
+// Soft margins: continuous through the old hard 0.15 wall; hard crop is flat outside.
+let softAtWall = SoftMargin.normalize(0.15)
+let softInside = SoftMargin.normalize(0.16)
+let hardAtWall = SoftMargin.hardCrop(0.15)
+let hardOutside = SoftMargin.hardCrop(0.14)
+check(hardOutside == 0 && hardAtWall == 0, "Hard crop is flat at the old wall")
+check(softInside > softAtWall, "Soft map keeps moving through the old 0.15 boundary")
+check(SoftMargin.normalize(0.10) == 0 && SoftMargin.normalize(0.90) == 1, "Soft inset endpoints map to screen edges")
+check(abs(SoftMargin.normalize(0.5) - 0.5) < 1e-9, "Soft map is centered")
+
 for fps in [30.0, 60.0] {
     var response = PointerFilter()
     let screen = CGRect(x: 0, y: 0, width: 1001, height: 1001)
-    _ = response.update(point: CGPoint(x: 0.15, y: 0.15), bounds: screen, time: 0, freeze: false)
+    let inset = GestureTuning.softInset
+    _ = response.update(point: CGPoint(x: inset, y: inset), bounds: screen, time: 0, freeze: false)
     var result = CGPoint.zero
     for frame in 1...Int(fps / 10) {
-        result = response.update(point: CGPoint(x: 0.85, y: 0.85), bounds: screen, time: Double(frame) / fps, freeze: false)
+        result = response.update(point: CGPoint(x: 1 - inset, y: 1 - inset), bounds: screen, time: Double(frame) / fps, freeze: false)
         check(result.x >= 0 && result.x <= 1000, "No overshoot at \(fps) fps")
     }
     check(result.x > 975, "Settle within 2.5% after 100 ms at \(fps) fps")
 }
+
+// Synthetic proof: low velocity damps jitter more than high velocity tracks a step.
+let screen = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+func jitterRMS(amplitude: Double, fps: Double) -> Double {
+    var filter = PointerFilter()
+    var sum = 0.0
+    var n = 0
+    let base = 0.5
+    _ = filter.update(point: CGPoint(x: base, y: base), bounds: screen, time: 0, freeze: false)
+    for i in 1...60 {
+        let t = Double(i) / fps
+        let noise = (i % 2 == 0 ? amplitude : -amplitude)
+        let p = filter.update(point: CGPoint(x: base + noise, y: base), bounds: screen, time: t, freeze: false)
+        let centerX = screen.midX
+        sum += (p.x - centerX) * (p.x - centerX)
+        n += 1
+    }
+    return (sum / Double(n)).squareRoot()
+}
+let quiet = jitterRMS(amplitude: 0.002, fps: 60)
+check(quiet < 3.0, "Low-speed smoothing suppresses sub-pixel camera jitter")
+
+func fractionalLag(distance: Double, fps: Double, frames: Int) -> Double {
+    var filter = PointerFilter()
+    let start = 0.5
+    let origin = filter.update(point: CGPoint(x: start, y: start), bounds: screen, time: 0, freeze: false)
+    var last = origin
+    for i in 1...frames {
+        last = filter.update(point: CGPoint(x: start + distance, y: start), bounds: screen, time: Double(i) / fps, freeze: false)
+    }
+    let targetX = screen.minX + SoftMargin.normalize(start + distance) * (screen.width - 1)
+    let span = abs(targetX - origin.x)
+    return span < 1e-6 ? 0 : abs(targetX - last.x) / span
+}
+let slowFrac = fractionalLag(distance: 0.012, fps: 60, frames: 3)
+let fastFrac = fractionalLag(distance: 0.35, fps: 60, frames: 3)
+check(fastFrac < slowFrac * 0.9, "High-velocity path closes a larger fraction of the step (less lag)")
 
 // Integrate the actual gesture freeze decision with pointer movement.
 var aim = Simulation(); aim.ready()
@@ -170,4 +219,291 @@ check(buffer.take() == 100, "Main thread receives the newest frame, not the back
 check(buffer.take() == nil, "Delivered results cannot replay")
 check(buffer.offer(101), "Next frame schedules a new delivery")
 check(buffer.take() == 101, "Next delivery is current")
-print("Passed \(checks) gesture, pointer, geometry, and frame-delivery checks.")
+
+
+// --- DwellDetector: separate physics from pinch's 25ms hold ---
+check(ClickMode.pinch.rawValue == "pinch" && ClickMode.dwell.rawValue == "dwell", "ClickMode cases exist")
+check(DwellSettings().dwellSeconds >= 0.5 && DwellSettings().dwellSeconds <= 0.8, "Default dwell in CTO 0.5–0.8s band")
+
+struct DwellSim {
+    var detector = DwellDetector()
+    var now = 0.0
+    var clicks = 0
+    init() {
+        detector.settings.dwellSeconds = 0.55
+        detector.settings.cooldownSeconds = 0.40
+        detector.settings.moveCancelPoints = 18
+    }
+    @discardableResult mutating func step(_ point: CGPoint, after interval: Double = 1.0 / 30, tracking: Bool = true) -> Bool {
+        now += interval
+        let click = detector.update(point: point, time: now, tracking: tracking)
+        if click { clicks += 1 }
+        return click
+    }
+    mutating func hold(_ point: CGPoint, seconds: Double, fps: Double = 30) {
+        let frames = Int((seconds * fps).rounded(.up))
+        for _ in 0..<frames { step(point, after: 1 / fps) }
+    }
+}
+
+let dwellAim = CGPoint(x: 100, y: 100)
+var d = DwellSim()
+d.hold(dwellAim, seconds: 0.40)
+check(d.clicks == 0 && d.detector.phase == .arming, "Sub-threshold dwell does not fire")
+check(d.detector.shouldFreeze, "Arming freezes the aim point")
+d.hold(dwellAim, seconds: 0.30)
+check(d.clicks == 1 && d.detector.phase == .needMove, "Dwell fires once after threshold")
+d.hold(dwellAim, seconds: 1.0)
+check(d.clicks == 1, "No auto-repeat while still after fire")
+
+d = DwellSim()
+d.hold(dwellAim, seconds: 0.70)
+check(d.clicks == 1, "Fresh dwell session clicks")
+d.step(CGPoint(x: 200, y: 100), after: 0.45)  // move + clear cooldown
+d.hold(CGPoint(x: 200, y: 100), seconds: 0.70)
+check(d.clicks == 2, "Second dwell after move + settle")
+
+var cancel = DwellSim()
+cancel.hold(dwellAim, seconds: 0.30)
+check(cancel.detector.phase == .arming, "Arming before cancel")
+check(cancel.detector.shouldFreeze, "Arming freezes before cancel")
+cancel.step(CGPoint(x: 130, y: 100), after: 1.0 / 30)
+check(cancel.clicks == 0 && cancel.detector.phase == .idle, "Cancel-on-move releases freeze (idle), no click")
+check(!cancel.detector.shouldFreeze, "Freeze released on cancel so aim can track")
+cancel.hold(CGPoint(x: 130, y: 100), seconds: 0.30)
+check(cancel.detector.phase == .arming && cancel.clicks == 0, "Partial re-arm after cancel does not inherit old time")
+cancel.hold(CGPoint(x: 130, y: 100), seconds: 0.40)
+check(cancel.clicks == 1, "Full dwell after cancel-on-move fires once")
+
+var dwellLost = DwellSim()
+dwellLost.hold(dwellAim, seconds: 0.30)
+dwellLost.step(dwellAim, after: 1.0 / 30, tracking: false)
+check(dwellLost.detector.phase == .idle, "Tracking loss disarms dwell")
+dwellLost.detector.reset()
+check(dwellLost.detector.phase == .idle && !dwellLost.detector.shouldFreeze, "Esc/pause reset clears armed dwell")
+
+var cool = DwellSim()
+cool.detector.settings.dwellSeconds = 0.50
+cool.detector.settings.cooldownSeconds = 0.45
+cool.hold(dwellAim, seconds: 0.60)
+check(cool.clicks == 1, "Configured 0.5s dwell fires")
+cool.step(CGPoint(x: 200, y: 100), after: 0.10)
+cool.hold(CGPoint(x: 200, y: 100), seconds: 0.60)
+check(cool.clicks == 1, "Cooldown blocks a queued late click")
+cool.step(CGPoint(x: 260, y: 100), after: 0.50)
+cool.hold(CGPoint(x: 260, y: 100), seconds: 0.60)
+check(cool.clicks == 2, "After cooldown + move, dwell can fire again")
+
+// SafetyPolicy: all four latches required; any single false blocks click injection.
+check(SafetyPolicy.shouldInjectClick(gestureFired: true, allowClicks: true, axTrusted: true, pointerControlEnabled: true),
+      "Inject only when every latch is closed")
+check(!SafetyPolicy.shouldInjectClick(gestureFired: false, allowClicks: true, axTrusted: true, pointerControlEnabled: true),
+      "No gesture means no inject")
+check(!SafetyPolicy.shouldInjectClick(gestureFired: true, allowClicks: false, axTrusted: true, pointerControlEnabled: true),
+      "allowClicks off blocks inject")
+check(!SafetyPolicy.shouldInjectClick(gestureFired: true, allowClicks: true, axTrusted: false, pointerControlEnabled: true),
+      "AX untrusted blocks inject")
+check(!SafetyPolicy.shouldInjectClick(gestureFired: true, allowClicks: true, axTrusted: true, pointerControlEnabled: false),
+      "Pointer control off blocks inject")
+
+
+
+// --- Order-of-ops integration (PR review bugs) ---
+// Bug A: pointer update before pinch detect → freeze engages one frame late → click drift.
+// Bug B: dwell samples frozen aim → cancel-on-move never sees motion.
+let pipelineBounds = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+
+struct BuggyPinchLoop {
+    var detector = PinchDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    var lastAim = CGPoint.zero
+    mutating func ready() {
+        for _ in 0..<5 {
+            now += 1.0 / 30
+            _ = detector.update(ratio: 0.9, time: now)
+        }
+    }
+    /// Historical (broken) order: freeze from *previous* phase, then detect.
+    mutating func step(index: CGPoint, ratio: Double) -> (aim: CGPoint, fired: Bool) {
+        now += 1.0 / 30
+        let freeze = detector.shouldFreeze
+        let aim = filter.update(point: index, bounds: pipelineBounds, time: now, freeze: freeze)
+        let fired = detector.update(ratio: ratio, time: now)
+        lastAim = aim
+        return (aim, fired)
+    }
+}
+
+struct FixedPinchLoop {
+    var detector = PinchDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    mutating func ready() {
+        for _ in 0..<5 {
+            now += 1.0 / 30
+            _ = detector.update(ratio: 0.9, time: now)
+        }
+    }
+    /// Correct order: detect first, then filter with post-gesture freeze.
+    mutating func step(index: CGPoint, ratio: Double) -> (aim: CGPoint, fired: Bool) {
+        now += 1.0 / 30
+        let fired = detector.update(ratio: ratio, time: now)
+        let aim = filter.update(point: index, bounds: pipelineBounds, time: now, freeze: detector.shouldFreeze)
+        return (aim, fired)
+    }
+}
+
+var buggyPinch = BuggyPinchLoop(); buggyPinch.ready()
+let pinchAim = CGPoint(x: 0.50, y: 0.50)
+_ = buggyPinch.step(index: pinchAim, ratio: 0.9)
+let preClose = buggyPinch.lastAim
+// Closing fingers + hand drifts toward camera edge while pinch confirms.
+var buggyClick = CGPoint.zero
+var buggyFired = false
+for (i, ratio) in [0.40, 0.40, 0.40].enumerated() {
+    let drifted = CGPoint(x: 0.50 - Double(i + 1) * 0.08, y: 0.50)
+    let r = buggyPinch.step(index: drifted, ratio: ratio)
+    if r.fired { buggyFired = true; buggyClick = r.aim }
+}
+check(buggyFired, "Buggy loop still fires a pinch (repro harness)")
+let buggyDrift = hypot(buggyClick.x - preClose.x, buggyClick.y - preClose.y)
+check(buggyDrift > 40, "Repro: buggy order lets pinch aim drift (was ~126px class)")
+
+var fixedPinch = FixedPinchLoop(); fixedPinch.ready()
+_ = fixedPinch.step(index: pinchAim, ratio: 0.9)
+var fixedPre = CGPoint.zero
+var fixedClick = CGPoint.zero
+var fixedFired = false
+for (i, ratio) in [0.40, 0.40, 0.40].enumerated() {
+    let drifted = CGPoint(x: 0.50 - Double(i + 1) * 0.08, y: 0.50)
+    // Capture aim entering confirm: after first close, freeze must hold.
+    let r = fixedPinch.step(index: drifted, ratio: ratio)
+    if i == 0 { fixedPre = r.aim }
+    if r.fired { fixedFired = true; fixedClick = r.aim }
+}
+check(fixedFired, "Fixed loop fires pinch")
+let fixedDrift = hypot(fixedClick.x - fixedPre.x, fixedClick.y - fixedPre.y)
+check(fixedDrift < 1.0, "Fixed order: click aim equals pre-pinch freeze (no drift)")
+check(fixedDrift < buggyDrift * 0.05, "Fixed drift << buggy drift")
+
+struct BuggyDwellLoop {
+    var dwell = DwellDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    mutating func step(index: CGPoint) -> (aim: CGPoint, fired: Bool, phase: DwellPhase) {
+        now += 1.0 / 30
+        let freeze = dwell.shouldFreeze
+        let aim = filter.update(point: index, bounds: pipelineBounds, time: now, freeze: freeze)
+        // Bug: feed frozen aim into dwell — motion is invisible while arming.
+        let fired = dwell.update(point: aim, time: now, tracking: true)
+        return (aim, fired, dwell.phase)
+    }
+}
+
+struct FixedDwellLoop {
+    var dwell = DwellDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    mutating func step(index: CGPoint) -> (aim: CGPoint, fired: Bool, phase: DwellPhase) {
+        now += 1.0 / 30
+        let sample = filter.unfrozenTarget(point: index, bounds: pipelineBounds)
+        let fired = dwell.update(point: sample, time: now, tracking: true)
+        let aim = filter.update(point: index, bounds: pipelineBounds, time: now, freeze: dwell.shouldFreeze)
+        return (aim, fired, dwell.phase)
+    }
+}
+
+let dwellStart = CGPoint(x: 0.50, y: 0.50)
+let movedFinger = CGPoint(x: 0.62, y: 0.50) // >> 18pt on 1000pt screen after soft map
+
+// Arm 0.40s, move far, hold 0.30s more. Wall-clock 0.70s ≥ dwell, but cancel must reset.
+var buggyDwell = BuggyDwellLoop()
+buggyDwell.dwell.settings.dwellSeconds = 0.65
+buggyDwell.dwell.settings.moveCancelPoints = 18
+for _ in 0..<12 { _ = buggyDwell.step(index: dwellStart) }
+check(buggyDwell.dwell.shouldFreeze, "Dwell arming freezes aim")
+for _ in 0..<3 { _ = buggyDwell.step(index: movedFinger) }
+var earlyFire = false
+for _ in 0..<9 {
+    if buggyDwell.step(index: movedFinger).fired { earlyFire = true }
+}
+check(earlyFire, "Repro: buggy dwell ignores move and fires on pre-move arm time")
+
+var fixedDwell = FixedDwellLoop()
+fixedDwell.dwell.settings.dwellSeconds = 0.65
+fixedDwell.dwell.settings.moveCancelPoints = 18
+for _ in 0..<12 { _ = fixedDwell.step(index: dwellStart) }
+for _ in 0..<3 { _ = fixedDwell.step(index: movedFinger) }
+var fixedEarly = false
+for _ in 0..<9 {
+    if fixedDwell.step(index: movedFinger).fired { fixedEarly = true }
+}
+check(!fixedEarly, "Fixed dwell: move cancels arm; 0.30s post-move hold does not fire")
+var fixedLate = false
+for _ in 0..<25 {
+    if fixedDwell.step(index: movedFinger).fired { fixedLate = true }
+}
+check(fixedLate, "Fixed dwell: full re-arm after cancel still fires once")
+
+
+// --- Dwell freeze-release: click must land at B after A→B re-aim ---
+// Bug: cancel reset the timer but stayed `.arming` → freeze held aim at A.
+struct DwellAimLoop {
+    var dwell = DwellDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    let bounds = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+    init() {
+        dwell.settings.dwellSeconds = 0.55
+        dwell.settings.moveCancelPoints = 18
+        dwell.settings.cooldownSeconds = 0.40
+    }
+    mutating func step(index: CGPoint) -> (aim: CGPoint, fired: Bool, freeze: Bool) {
+        now += 1.0 / 30
+        let sample = filter.unfrozenTarget(point: index, bounds: bounds)
+        let fired = dwell.update(point: sample, time: now, tracking: true)
+        let freeze = dwell.shouldFreeze
+        let aim = filter.update(point: index, bounds: bounds, time: now, freeze: freeze)
+        return (aim, fired, freeze)
+    }
+}
+
+let indexA = CGPoint(x: 0.35, y: 0.50)
+let indexB = CGPoint(x: 0.65, y: 0.50)
+var abLoop = DwellAimLoop()
+var aimAtA = CGPoint.zero
+for _ in 0..<10 { // ~0.33s arm at A (> armFreezeDelay)
+    let r = abLoop.step(index: indexA)
+    aimAtA = r.aim
+}
+check(abLoop.dwell.shouldFreeze, "Arming at A freezes after settle delay")
+// Move to B — cancel must unfreeze so filter tracks.
+var sawUnfreeze = false
+var aimAfterMove = CGPoint.zero
+for _ in 0..<5 {
+    let r = abLoop.step(index: indexB)
+    if !r.freeze { sawUnfreeze = true }
+    aimAfterMove = r.aim
+}
+check(sawUnfreeze, "Cancel-on-move releases freeze so aim can leave A")
+check(hypot(aimAfterMove.x - aimAtA.x, aimAfterMove.y - aimAtA.y) > 40, "Aim tracks toward B after cancel")
+// Settle at B and fire — click aim must be near B, not A.
+var clickAim = CGPoint.zero
+var fired = false
+for _ in 0..<25 {
+    let r = abLoop.step(index: indexB)
+    if r.fired {
+        fired = true
+        clickAim = r.aim
+        break
+    }
+}
+check(fired, "Dwell fires after re-aim settle at B")
+let targetB = abLoop.filter.unfrozenTarget(point: indexB, bounds: abLoop.bounds)
+let distB = hypot(clickAim.x - targetB.x, clickAim.y - targetB.y)
+let distA = hypot(clickAim.x - aimAtA.x, clickAim.y - aimAtA.y)
+check(distB < 25, "Click aim is at B after A→B re-aim")
+check(distA > 80, "Click aim is not stuck at old A")
+
+print("Passed \(checks) gesture, pointer, geometry, frame-delivery, safety, dwell, order-of-ops, and freeze-release checks.")
