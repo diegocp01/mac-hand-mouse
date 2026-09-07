@@ -112,6 +112,8 @@ struct DwellSettings {
     /// Screen points from arm origin; move past this cancels and restarts.
     var moveCancelPoints: Double = 18
     var cooldownSeconds: Double = 0.45
+    /// After (re)arm, keep freeze off briefly so aim can track onto the stable target.
+    var armFreezeDelaySeconds: Double = 0.08
 }
 
 enum DwellPhase { case idle, arming, needMove }
@@ -126,7 +128,13 @@ struct DwellDetector {
     private var lastFire = -Double.infinity
     private var lastTimestamp: Double?
 
-    var shouldFreeze: Bool { phase == .arming || phase == .needMove }
+    /// Freeze only while arming on a stable target (or post-fire needMove).
+    /// Cancel-on-move returns `.idle` (freeze off). Fresh arm waits `armFreezeDelaySeconds` before latching.
+    var shouldFreeze: Bool {
+        if phase == .needMove { return true }
+        guard phase == .arming, let started = armingSince, let t = lastTimestamp else { return false }
+        return t - started >= settings.armFreezeDelaySeconds
+    }
 
     mutating func reset() {
         phase = .idle
@@ -171,9 +179,11 @@ struct DwellDetector {
         if let origin {
             let moved = hypot(point.x - origin.x, point.y - origin.y)
             if moved > settings.moveCancelPoints {
-                self.origin = point
-                armingSince = time
-                phase = .arming
+                // Freeze-release invariant: cancel drops to idle so the pointer
+                // can track to the new target. Re-arm only after the next still sample.
+                self.origin = nil
+                armingSince = nil
+                phase = .idle
                 return false
             }
         } else {

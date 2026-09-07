@@ -266,10 +266,12 @@ check(d.clicks == 2, "Second dwell after move + settle")
 var cancel = DwellSim()
 cancel.hold(dwellAim, seconds: 0.30)
 check(cancel.detector.phase == .arming, "Arming before cancel")
+check(cancel.detector.shouldFreeze, "Arming freezes before cancel")
 cancel.step(CGPoint(x: 130, y: 100), after: 1.0 / 30)
-check(cancel.clicks == 0 && cancel.detector.phase == .arming, "Cancel-on-move restarts arm, no click")
+check(cancel.clicks == 0 && cancel.detector.phase == .idle, "Cancel-on-move releases freeze (idle), no click")
+check(!cancel.detector.shouldFreeze, "Freeze released on cancel so aim can track")
 cancel.hold(CGPoint(x: 130, y: 100), seconds: 0.30)
-check(cancel.clicks == 0, "Partial re-arm after cancel does not inherit old time")
+check(cancel.detector.phase == .arming && cancel.clicks == 0, "Partial re-arm after cancel does not inherit old time")
 cancel.hold(CGPoint(x: 130, y: 100), seconds: 0.40)
 check(cancel.clicks == 1, "Full dwell after cancel-on-move fires once")
 
@@ -444,4 +446,64 @@ for _ in 0..<25 {
 }
 check(fixedLate, "Fixed dwell: full re-arm after cancel still fires once")
 
-print("Passed \(checks) gesture, pointer, geometry, frame-delivery, safety, dwell, and order-of-ops checks.")
+
+// --- Dwell freeze-release: click must land at B after A→B re-aim ---
+// Bug: cancel reset the timer but stayed `.arming` → freeze held aim at A.
+struct DwellAimLoop {
+    var dwell = DwellDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    let bounds = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+    init() {
+        dwell.settings.dwellSeconds = 0.55
+        dwell.settings.moveCancelPoints = 18
+        dwell.settings.cooldownSeconds = 0.40
+    }
+    mutating func step(index: CGPoint) -> (aim: CGPoint, fired: Bool, freeze: Bool) {
+        now += 1.0 / 30
+        let sample = filter.unfrozenTarget(point: index, bounds: bounds)
+        let fired = dwell.update(point: sample, time: now, tracking: true)
+        let freeze = dwell.shouldFreeze
+        let aim = filter.update(point: index, bounds: bounds, time: now, freeze: freeze)
+        return (aim, fired, freeze)
+    }
+}
+
+let indexA = CGPoint(x: 0.35, y: 0.50)
+let indexB = CGPoint(x: 0.65, y: 0.50)
+var abLoop = DwellAimLoop()
+var aimAtA = CGPoint.zero
+for _ in 0..<10 { // ~0.33s arm at A (> armFreezeDelay)
+    let r = abLoop.step(index: indexA)
+    aimAtA = r.aim
+}
+check(abLoop.dwell.shouldFreeze, "Arming at A freezes after settle delay")
+// Move to B — cancel must unfreeze so filter tracks.
+var sawUnfreeze = false
+var aimAfterMove = CGPoint.zero
+for _ in 0..<5 {
+    let r = abLoop.step(index: indexB)
+    if !r.freeze { sawUnfreeze = true }
+    aimAfterMove = r.aim
+}
+check(sawUnfreeze, "Cancel-on-move releases freeze so aim can leave A")
+check(hypot(aimAfterMove.x - aimAtA.x, aimAfterMove.y - aimAtA.y) > 40, "Aim tracks toward B after cancel")
+// Settle at B and fire — click aim must be near B, not A.
+var clickAim = CGPoint.zero
+var fired = false
+for _ in 0..<25 {
+    let r = abLoop.step(index: indexB)
+    if r.fired {
+        fired = true
+        clickAim = r.aim
+        break
+    }
+}
+check(fired, "Dwell fires after re-aim settle at B")
+let targetB = abLoop.filter.unfrozenTarget(point: indexB, bounds: abLoop.bounds)
+let distB = hypot(clickAim.x - targetB.x, clickAim.y - targetB.y)
+let distA = hypot(clickAim.x - aimAtA.x, clickAim.y - aimAtA.y)
+check(distB < 25, "Click aim is at B after A→B re-aim")
+check(distA > 80, "Click aim is not stuck at old A")
+
+print("Passed \(checks) gesture, pointer, geometry, frame-delivery, safety, dwell, order-of-ops, and freeze-release checks.")
