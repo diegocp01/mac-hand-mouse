@@ -2,16 +2,16 @@
 
 # Hand Mouse
 
-**Control your Mac's mouse with your hand.** Move your **index fingertip** to move the pointer. Choose **Pinch**, or teach the experimental **Point forward** gesture. Clicks start **off**. Runs locally with your camera and Apple's hand tracking — no accounts, cloud, or model downloads.
+**Control your Mac's mouse with your hand.** Move your **index fingertip** to move the pointer. Choose **Pinch** or the experimental **Point forward** gesture — no pose setup required. Clicks start **off**. Runs locally with your camera and Apple's hand tracking — no accounts, cloud, or model downloads.
 
 ## First launch
 
-The dark startup panel walks you through **Permissions → Camera → Practice**. Each step reflects the current permission and camera state. **Start / Pause camera** stays visible while you scroll; **Gesture settings** keeps extra controls out of the way until you need them.
+The dark startup panel walks you through **Permissions → Camera → Pointer**. Each step reflects the current permission and camera state. **Start / Pause camera** stays visible while you scroll; **Gesture settings** keeps extra controls out of the way until you need them.
 
 1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. **Start camera** → allow camera access.
 3. Show **one hand**, palm visible; **index fingertip** moves the pointer inside the dashed guide.
-4. Leave **Allow clicks** off while you practice. Expand **Gesture settings** to choose **Pinch**, or complete **Set up forward click** and its practice targets. Enable **Allow clicks** when ready.
+4. Expand **Gesture settings** to choose **Pinch** or **Point forward**, then enable **Allow clicks** when ready. Forward clicking adapts automatically as you aim; **Practice (optional)** lets you try it without sending system clicks.
 
 Keep a trackpad or mouse nearby. **Esc** (or **Pause camera** / menu-bar hand) pauses capture.
 
@@ -53,9 +53,9 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | Move the pointer | Move your **index fingertip** inside the dashed box. Soft edges — no hard wall at the crop. |
 | Practice without clicking | Leave **Allow clicks** unchecked (default). Aim freely; no mouse click is sent. |
 | Practice without moving the system pointer | Uncheck **Move pointer**. |
-| Turn on clicks | Check **Allow clicks**. Forward clicking requires setup and practice first; its clicks reset to off when the app relaunches. |
+| Turn on clicks | Check **Allow clicks**. Your choice is saved. No pose capture or practice targets are required. |
 | Left-click — Pinch | Select **Pinch**. Touch **thumb + index** together briefly, then separate before the next click. |
-| Left-click — Point forward (experimental) | Set up your two poses, aim, then point toward the camera as if touching the screen. Hold the forward pose until the ring fills. Pull back to cancel or rearm. |
+| Left-click — Point forward (experimental) | Aim with your index extended, then point toward the camera as if touching the screen. Hold the forward pose until the ring fills. Pull back to cancel or rearm. |
 | Adjust forward hold time | Choose **0.65**, **1**, or **1.5 seconds** (saved). A confirmed forward gesture starts this timer; ordinary stillness does not. |
 | Easier pinches | Under **Pinch feel**, choose **Easy** (Pinch mode only; saved). |
 | Practice a click target | Aim at **Test click** and fire a click; the count rises when the button receives it. |
@@ -63,17 +63,15 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 
 **Tips:** one hand, palm visible, even lighting. Closing the window pauses capture. For multiple monitors, put the app window on the screen you want before starting; the header names the display being controlled. Sleep, switching away from your Mac session, or a display configuration change pauses the camera. Start it again when ready.
 
-### Set up Point forward
+### Point forward — no pose setup
 
-1. Expand **Gesture settings**, then select **Point forward** → **Set up forward click**. System pointer movement and clicks pause during setup.
-2. Hold your usual pointing pose and press **Capture movement pose**. Keep it steady briefly. You can use **⌘⇧P** with your other hand to activate the capture button.
-3. Point your index toward the camera as if touching the screen, with a small forward reach. Keep the finger and palm visible, then press **Capture forward pose** and hold it steady.
-4. In the practice canvas, move the dot onto each green target, point forward, and hold. Pull back before trying the next target. These are simulated clicks, with no input sent to other apps.
-5. Hit both targets, press **Finish practice**, then turn on **Allow clicks** when ready.
+Expand **Gesture settings**, select **Point forward**, start the camera, and enable **Allow clicks**. Move your index to aim, then point it toward the camera as if touching the screen. The app automatically accounts for your hand's size and visible finger length while you aim. There are no capture buttons, saved poses, or required practice clicks, and you do not need to stop the pointer for it to adapt.
 
-This mode uses **2D pose changes**, not measured depth. It may confuse a hand rotation or change in seating distance with the taught gesture, and pointing directly at the lens can hide your finger joints. If the two poses cannot be distinguished reliably in practice, choose **Pinch**. Calibration stays in memory for this app session; repeat it after relaunching, changing cameras, or changing your hand/camera position. [How it works and testing limits](docs/FORWARD_CLICK.md).
+**Practice (optional)** opens a canvas with simulated targets and pauses system input. Use **Finish practice** at any time, including before hitting a target. Finishing leaves real clicks off until you enable them again. **⌘⇧P** toggles practice while Hand Mouse is focused.
 
-Upgrading from **Dwell** selects **Point forward** with clicks off and setup required. Automatic hold-still clicking has been removed.
+Forward clicking still uses **2D pose changes**, not measured depth. Hand rotation can resemble a forward point, and pointing directly into the lens can hide joints. Keep your palm and index visible; use Pinch if recognition is inconsistent. [Detection and testing limits](docs/FORWARD_CLICK.md).
+
+Upgrading from the old **Dwell** mode selects **Point forward** with clicks off once. Automatic hold-still clicking remains removed.
 
 ### See the click coming
 

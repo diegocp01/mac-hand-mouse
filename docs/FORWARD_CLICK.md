@@ -1,87 +1,78 @@
-# Intentional forward clicking (experimental)
+# Forward clicking without pose setup (experimental)
 
-## Interaction contract
+## User flow
 
-Moving the index fingertip aims the pointer. Holding the normal movement pose does
-not start a click timer. A fresh, calibrated forward pose transition freezes the
-previous aim, confirms the gesture, and starts the visible hold timer. Pulling back,
-moving sideways, or losing usable tracking cancels. One forward hold produces at
-most one click; returning to the movement pose rearms it.
+Select Point forward, start the camera, and enable Allow clicks. Move your extended
+index to aim; point it toward the camera as if touching the screen to start the
+cursor timer. Pull back or move sideways to cancel. Return to ordinary pointing
+before another click. Holding the movement pose alone never starts a timer.
 
-This replaces automatic Dwell clicking. Pinch remains the default. Existing Dwell
-preferences select Point forward with real clicks off and setup required. Forward
-calibration is discarded at app exit, after a capture error, or when the selected
-camera/format changes. Recalibrate if your seating distance, camera angle, or hand changes.
-Normal camera pause/resume retains a completed profile for the same camera/format.
+There are no capture buttons, taught poses, or practice requirements. The app
+estimates a hand reference automatically while the user aims, without requiring a
+stationary cursor. Practice is optional and can be finished with zero target hits.
+It sends no system pointer or click input and leaves real clicks off when finished.
+The Allow clicks preference otherwise persists across launches, as it does for Pinch.
+The old Dwell preference still migrates with clicks off once.
 
-## What the camera can establish
+## Detection
 
-Apple's [Vision hand-pose observation](https://developer.apple.com/documentation/vision/vnhumanhandposeobservation)
-provides image-space joints and confidence. This app uses those **2D** observations;
-it does not measure finger depth or prove that a person intends to click.
+Apple's [Vision hand observation](https://developer.apple.com/documentation/vision/vnhumanhandposeobservation)
+provides image-space landmarks. This implementation uses 2D features rather than
+measured finger depth. It does not assume that every hand or camera looks identical.
 
-`ForwardPose` measures aspect-corrected palm size and index reach relative to the
-palm. Pointing toward the lens can shorten the projected index, and moving forward
-can enlarge the palm. Calibration projects those features onto a movement-to-press
-axis. Hand rotation, body movement, and lighting can confound this proxy. Occluded,
-folded, uncertain, or unknown-side hands fail closed. A reliable-looking practice
-run is necessary before real clicks, but does not establish a false-positive rate.
+`AutomaticForwardReference` observes an extended index with usable joints. It averages
+palm scale and index reach over at least 250 ms and four continuous observations.
+Finger reach is relative to palm size; distances are corrected for camera aspect.
+The pointer can move during this interval. Reference samples tolerate 6% logarithmic
+scale variation and 0.12 palm units of reach variation; unknown hands, invalid data,
+and gaps over 120 ms reset observation. No frames, landmarks, or references are saved.
 
-Setup captures two steady poses, then runs two targets with a simulated pointer.
-The engine uses desktop dimensions and thresholds, scaling only the drawing into
-the practice canvas. Practice requires no Accessibility approval and cannot emit
-system pointer or click output. Finishing practice leaves Allow clicks off.
-Frames, landmarks, camera identifiers, and calibration are never saved or uploaded.
+A reference requires reach of at least 1.05 palm units. The expected forward feature
+uses 55% of the observed index reach and 112% of palm scale. These shared relative
+thresholds replace manually recorded poses. The existing projection and off-axis
+checks require a coherent forward change; simple enlargement of an extended hand
+is not sufficient. Extended pointing automatically readapts to changed distance
+when the reference differs by at least 8% in log scale or 0.15 palm units in reach.
+Adaptation requires at least 90% of the previous extended reach and is disabled
+during gesture confirmation, countdown, and the completed-click state. Updating
+the reference discards pending click intent.
 
-## Detection details
+The click detector retains its confirmation and cancellation rules:
 
-These are initial tunings to evaluate with physical users, not universal constants:
+- An observed movement pose for 180 ms and at least three samples rearms.
+- Crossing 45% of the expected forward transition freezes the previous aim.
+- Reaching 78% for at least 100 ms and three samples starts the timer. Confirmation
+  must complete within 800 ms; the hold must retain at least 60% forward pose.
+- Palm displacement over 18 display points, sustained lateral drift over 16
+  points/second, withdrawal, or unusable tracking cancels independently of the cursor.
+- Hold presets remain 0.65, 1, and 1.5 seconds. A completed hold clicks once, then
+  requires withdrawal and the existing 450 ms cooldown before another gesture.
+- Loss of tracking, camera/format changes, settings changes, and output-destination
+  changes discard the reference. Ordinary pointing rebuilds it automatically.
 
-- Seven required joints need Vision confidence ≥ 0.6. The index must have a coherent
-  projected path; a folded or almost fully occluded finger is rejected.
-- Each capture needs 0.65 seconds and at least eight continuous, stable samples.
-  Missing observations, a different hand, motion, or a gap over 120 ms reset it.
-- Calibration requires at least 12% palm enlargement or a 0.35 palm-unit reduction
-  in index reach. The logarithmic scale and normalized reach form a two-feature axis.
-- At least 180 ms in the movement pose rearms. Crossing 45% of the taught transition
-  freezes the target; reaching 78% for at least 100 ms and three samples starts timing.
-  Intermediate confirmation must complete within 800 ms.
-- The hold requires at least 60% forward pose. A perspective-compensated palm shift
-  over 18 display points, or sustained drift above 16 points/second over at least
-  160 ms, cancels independently of the frozen fingertip cursor.
-- Hold presets are 0.65, 1, and 1.5 seconds. The timer advances only on observed
-  frames. A completed click needs withdrawal plus the 450 ms cooldown before rearming.
-- Calibration or mode/settings changes, permission loss, camera pause, invalid
-  frames, missing hands, and interrupted delivery discard pending intent.
+Seven joints still require Vision confidence of at least 0.6. Folded, nearly occluded,
+unknown-side, or malformed hands fail closed. Removing the wizard does not remove
+these input checks, Accessibility permission, or the explicit Allow clicks control.
 
-The legacy `DwellDetector` is retained as an internal timer primitive; it is only
-called after forward confirmation. Its autonomous dwell behavior is not exposed
-as a selectable mode. Pinch detection and its tuning are unchanged.
+## Validation and limits
 
-## Validation
+The production-engine tests use no injected profile or pose-capture calls. They
+exercise no-setup clicking with both hand sides, three hand scales, three index
+lengths, and 15/30/60 fps. Tests also cover moving while the reference is learned,
+ordinary pointing with noise, distance readaptation, starting with a forward pose,
+tracking interruption, click cancellation, rearming, and practice isolation.
 
-`bash scripts/test.sh` exercises the production engine at 15, 30, and 60 fps:
-ordinary movement and stillness without progress, slow approach, explicit press,
-target freeze, withdrawal, lateral cancellation, single-frame outliers, post-click
-rearm, tracking loss, permission changes, camera aspect correction, and calibration.
-Practice tests verify simulated clicks have no system output and cannot carry
-intent into desktop mode. These are synthetic landmarks, not physical tracking tests.
+These are synthetic observations, not measured physical success or false-positive
+rates. Hand rotation can resemble foreshortening; pointing into the lens can hide
+finger joints. The shared thresholds need physical testing across users, cameras,
+and lighting. Keep the mode experimental and use Pinch if recognition is unreliable.
 
-Before promoting the experimental mode, use the practice canvas and Test click
-button to record these results on actual cameras and hands:
+Before merging/releasing, check:
 
-| Exercise | Acceptance check |
-| --- | --- |
-| Aim slowly, quickly, then stop for several seconds | No countdown during ordinary movement/pose |
-| Aim, point forward, and hold | Ring starts after the gesture and clicks the chosen target once |
-| Pull back or move sideways during the timer | Ring clears with no click; normal aiming resumes |
-| Keep the forward pose after clicking | No repeated click |
-| Withdraw, aim, and press again | A fresh timer can click the same or another target |
-| Hide a joint or briefly remove the hand | No queued/resumed click when the hand returns |
-| Shift posture or rotate the hand without clicking | Check for false intent; recalibrate or use Pinch if unreliable |
-| Cancel setup, switch modes, pause, relaunch | Clicks remain off until deliberately enabled; unfinished setup is discarded |
-| Retry after camera failure or change camera | New calibration required |
-| Use another app, a full-screen Space, or a second display | Ring stays at the actual target and passes input through |
-
-Physical gesture success, false-positive rate, and camera/lighting coverage remain
-unverified for this change. Keep it opt-in and use Pinch if practice is inconsistent.
+1. A fresh Point forward selection allows clicks without capture or practice.
+2. Move normally at different speeds: no click ring while aiming or merely stopping.
+3. Point toward the screen: one countdown at the cursor, one click, then withdrawal.
+4. Pull back, move sideways, hide the hand, or pause mid-countdown: no delayed click.
+5. Try both hands, different seating distances, and finger lengths without a wizard.
+6. Open optional practice, then finish immediately: no target-count lock or system input.
+7. Relaunch with the saved mode: no setup gate; the reference rebuilds during pointing.

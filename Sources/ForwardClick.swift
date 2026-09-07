@@ -35,7 +35,7 @@ struct ForwardPose: Equatable {
     fileprivate var feature: CGPoint { CGPoint(x: log(scale) / 0.15, y: reach / 0.5) }
 }
 
-/// Calibration stays in memory and is never inferred from a stationary cursor.
+/// Relative image-space reference; generated automatically from ordinary pointing.
 struct ForwardProfile: Equatable {
     let neutral: ForwardPose
     let pressed: ForwardPose
@@ -58,37 +58,56 @@ struct ForwardProfile: Equatable {
     }
 }
 
-/// Captures one steady, continuously observed pose; gaps and hand changes restart it.
-struct ForwardPoseCapture {
-    private var samples: [(Double, ForwardPose)] = []
-    private(set) var progress = 0.0
+/// Learns hand scale from ordinary pointing, without buttons, pose capture, or stored data.
+/// It never uses cursor stillness as click intent; recognized forward holds suspend learning.
+struct AutomaticForwardReference {
+    private(set) var profile: ForwardProfile?
+    private var first: ForwardPose?
+    private var since: Double?
+    private var lastTime: Double?
+    private var count = 0
+    private var scaleSum = 0.0
+    private var reachSum = 0.0
 
-    mutating func reset() { samples.removeAll(); progress = 0 }
+    mutating func reset() {
+        profile = nil; lastTime = nil; clearSamples()
+    }
+    private mutating func clearSamples() {
+        first = nil; since = nil; count = 0; scaleSum = 0; reachSum = 0
+    }
 
-    mutating func update(_ pose: ForwardPose?, time: Double) -> ForwardPose? {
-        guard let pose, pose.isValid, time.isFinite else { reset(); return nil }
-        if let last = samples.last,
-           time <= last.0 || time - last.0 > GestureTuning.trackingGraceSeconds + 1e-9 || pose.side != last.1.side { reset() }
-        if let first = samples.first {
-            let changedScale = abs(log(pose.scale / first.1.scale)) > 0.07
-            let changedReach = abs(pose.reach - first.1.reach) > 0.14
-            let moved = hypot(pose.center.x - first.1.center.x, pose.center.y - first.1.center.y) > 0.025
-            if changedScale || changedReach || moved { reset() }
+    /// Returns true only when the reference changes, so the caller discards pending intent.
+    mutating func update(_ pose: ForwardPose?, time: Double, canAdapt: Bool) -> Bool {
+        guard let pose, pose.isValid, time.isFinite else { reset(); return true }
+        if let lastTime, time <= lastTime || time - lastTime > GestureTuning.trackingGraceSeconds + 1e-9 { reset() }
+        lastTime = time
+        if let profile, profile.neutral.side != pose.side { reset(); lastTime = time }
+        let minimumReach = max(1.05, (profile?.neutral.reach ?? 0) * 0.9)
+        guard canAdapt, pose.reach >= minimumReach else { clearSamples(); return false }
+        if let first, first.side != pose.side || abs(log(pose.scale / first.scale)) > 0.06 || abs(pose.reach - first.reach) > 0.12 {
+            clearSamples()
         }
-        samples.append((time, pose))
-        progress = min(1, (time - samples[0].0) / 0.65)
-        guard progress >= 1, samples.count >= 8 else { return nil }
-        let count = Double(samples.count)
-        return ForwardPose(scale: samples.reduce(0) { $0 + $1.1.scale } / count,
-                           reach: samples.reduce(0) { $0 + $1.1.reach } / count,
-                           center: CGPoint(x: samples.reduce(0) { $0 + $1.1.center.x } / count,
-                                           y: samples.reduce(0) { $0 + $1.1.center.y } / count), side: pose.side)
+        if first == nil { first = pose; since = time }
+        count += 1; scaleSum += pose.scale; reachSum += pose.reach
+        guard count >= 4, time - (since ?? time) >= 0.25 else { return false }
+        var neutral = pose
+        neutral.scale = scaleSum / Double(count); neutral.reach = reachSum / Double(count)
+        clearSamples()
+        if let profile, abs(log(neutral.scale / profile.neutral.scale)) < 0.08,
+           abs(neutral.reach - profile.neutral.reach) < 0.15 { return false }
+        // Shared relative thresholds account for hand size and camera distance.
+        // Foreshortening must accompany the forward pose; enlargement alone is off-axis.
+        var pressed = neutral
+        pressed.scale = min(1.49, neutral.scale * 1.12)
+        pressed.reach = neutral.reach * 0.55
+        profile = ForwardProfile(neutral: neutral, pressed: pressed)
+        return true
     }
 }
 
 enum ForwardClickPhase { case needsNeutral, ready, confirming, holding, clicked }
 
-/// A fresh neutral → forward pose transition authorizes exactly one countdown.
+/// A fresh movement → forward pose transition authorizes exactly one countdown.
 /// Timer cancellation observes the palm independently of the frozen pointer.
 struct ForwardClickDetector {
     var holdSeconds = 0.65
