@@ -2,7 +2,14 @@ import Foundation
 import CoreGraphics
 
 enum GestureTuning {
-    static let pointerSmoothingSeconds = 0.025
+    /// Low speed: heavier smoothing (kill camera jitter). High speed: low lag.
+    static let minSmoothingSeconds = 0.008
+    static let maxSmoothingSeconds = 0.050
+    /// Screen-diagonals/sec at which smoothing reaches the minimum.
+    static let velocityRefDiagonalsPerSecond = 1.4
+    /// Soft usable inset (was hard crop at 0.15). Wider FOV + tanh softclamp.
+    static let softInset = 0.10
+    static let softClampK = 1.20
     static let trackingGraceSeconds = 0.12
 }
 
@@ -118,22 +125,59 @@ struct HandGeometry {
     }
 }
 
+/// Soft camera→[0,1] map. Replaces hard `clamp((t-0.15)/0.70)`.
+/// Same idea as a mild 1D softclamp: mid-band nearly linear, gain falls off toward
+/// the edges, and the old hard wall at 0.15 is gone (C∞ through the old boundary).
+enum SoftMargin {
+    static func normalize(_ t: Double) -> Double {
+        guard t.isFinite else { return 0.5 }
+        let inset = GestureTuning.softInset
+        let x = (t - inset) / (1 - 2 * inset)
+        let k = GestureTuning.softClampK
+        let z = (x - 0.5) * 2
+        let y = Foundation.tanh(k * z) / Foundation.tanh(k)
+        return min(1, max(0, 0.5 + 0.5 * y))
+    }
+
+    /// Hard crop baseline (for synthetic proofs only).
+    static func hardCrop(_ t: Double) -> Double {
+        min(1, max(0, (t - 0.15) / 0.70))
+    }
+}
+
 struct PointerFilter {
     private var position: CGPoint?
     private var lastTime: Double?
+    private var lastTarget: CGPoint?
 
-    mutating func reset() { position = nil; lastTime = nil }
+    mutating func reset() { position = nil; lastTime = nil; lastTarget = nil }
 
     mutating func update(point: CGPoint, bounds: CGRect, time: Double, freeze: Bool) -> CGPoint {
-        let x = min(1, max(0, (point.x - 0.15) / 0.70))
-        let y = min(1, max(0, (point.y - 0.15) / 0.70))
+        let x = SoftMargin.normalize(Double(point.x))
+        let y = SoftMargin.normalize(Double(point.y))
         let target = CGPoint(x: bounds.minX + x * (bounds.width - 1),
                              y: bounds.minY + y * (bounds.height - 1))
         let dt = max(0, min(0.1, time - (lastTime ?? time)))
         lastTime = time
-        guard let previous = position else { position = target; return target }
+        guard let previous = position else {
+            position = target
+            lastTarget = target
+            return target
+        }
         if freeze { return previous }
-        let alpha = 1 - exp(-dt / GestureTuning.pointerSmoothingSeconds)
+        let diag = max(hypot(bounds.width, bounds.height), 1)
+        let rawSpeed: Double
+        if let lastTarget, dt > 1e-6 {
+            rawSpeed = hypot(target.x - lastTarget.x, target.y - lastTarget.y) / dt
+        } else {
+            rawSpeed = hypot(target.x - previous.x, target.y - previous.y) / max(dt, 1e-6)
+        }
+        lastTarget = target
+        let vNorm = rawSpeed / diag
+        let blend = min(1, max(0, vNorm / GestureTuning.velocityRefDiagonalsPerSecond))
+        let tau = GestureTuning.maxSmoothingSeconds * (1 - blend)
+            + GestureTuning.minSmoothingSeconds * blend
+        let alpha = 1 - exp(-dt / max(tau, 1e-4))
         let result = CGPoint(x: previous.x + (target.x - previous.x) * alpha,
                              y: previous.y + (target.y - previous.y) * alpha)
         position = result

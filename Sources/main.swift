@@ -71,7 +71,7 @@ final class PreviewView: NSView {
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         skeleton.path = path
-        guide.path = CGPath(roundedRect: rect.insetBy(dx: rect.width * 0.15, dy: rect.height * 0.15),
+        guide.path = CGPath(roundedRect: rect.insetBy(dx: rect.width * GestureTuning.softInset, dy: rect.height * GestureTuning.softInset),
                             cornerWidth: 10, cornerHeight: 10, transform: nil)
         CATransaction.commit()
     }

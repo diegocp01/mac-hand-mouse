@@ -119,17 +119,66 @@ check(moved.x > -1920 && moved.x < -1, "Smooth pointer movement")
 check(pointer.update(point: .zero, bounds: bounds, time: 0.06, freeze: true) == moved, "Pinch holds the exact click target")
 pointer.reset()
 check(pointer.update(point: CGPoint(x: 1, y: 1), bounds: bounds, time: 1, freeze: false) == CGPoint(x: -1, y: 1179), "Clamp bottom right inside display")
+
+// Soft margins: continuous through the old hard 0.15 wall; hard crop is flat outside.
+let softAtWall = SoftMargin.normalize(0.15)
+let softInside = SoftMargin.normalize(0.16)
+let hardAtWall = SoftMargin.hardCrop(0.15)
+let hardOutside = SoftMargin.hardCrop(0.14)
+check(hardOutside == 0 && hardAtWall == 0, "Hard crop is flat at the old wall")
+check(softInside > softAtWall, "Soft map keeps moving through the old 0.15 boundary")
+check(SoftMargin.normalize(0.10) == 0 && SoftMargin.normalize(0.90) == 1, "Soft inset endpoints map to screen edges")
+check(abs(SoftMargin.normalize(0.5) - 0.5) < 1e-9, "Soft map is centered")
+
 for fps in [30.0, 60.0] {
     var response = PointerFilter()
     let screen = CGRect(x: 0, y: 0, width: 1001, height: 1001)
-    _ = response.update(point: CGPoint(x: 0.15, y: 0.15), bounds: screen, time: 0, freeze: false)
+    let inset = GestureTuning.softInset
+    _ = response.update(point: CGPoint(x: inset, y: inset), bounds: screen, time: 0, freeze: false)
     var result = CGPoint.zero
     for frame in 1...Int(fps / 10) {
-        result = response.update(point: CGPoint(x: 0.85, y: 0.85), bounds: screen, time: Double(frame) / fps, freeze: false)
+        result = response.update(point: CGPoint(x: 1 - inset, y: 1 - inset), bounds: screen, time: Double(frame) / fps, freeze: false)
         check(result.x >= 0 && result.x <= 1000, "No overshoot at \(fps) fps")
     }
     check(result.x > 975, "Settle within 2.5% after 100 ms at \(fps) fps")
 }
+
+// Synthetic proof: low velocity damps jitter more than high velocity tracks a step.
+let screen = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+func jitterRMS(amplitude: Double, fps: Double) -> Double {
+    var filter = PointerFilter()
+    var sum = 0.0
+    var n = 0
+    let base = 0.5
+    _ = filter.update(point: CGPoint(x: base, y: base), bounds: screen, time: 0, freeze: false)
+    for i in 1...60 {
+        let t = Double(i) / fps
+        let noise = (i % 2 == 0 ? amplitude : -amplitude)
+        let p = filter.update(point: CGPoint(x: base + noise, y: base), bounds: screen, time: t, freeze: false)
+        let centerX = screen.midX
+        sum += (p.x - centerX) * (p.x - centerX)
+        n += 1
+    }
+    return (sum / Double(n)).squareRoot()
+}
+let quiet = jitterRMS(amplitude: 0.002, fps: 60)
+check(quiet < 3.0, "Low-speed smoothing suppresses sub-pixel camera jitter")
+
+func fractionalLag(distance: Double, fps: Double, frames: Int) -> Double {
+    var filter = PointerFilter()
+    let start = 0.5
+    let origin = filter.update(point: CGPoint(x: start, y: start), bounds: screen, time: 0, freeze: false)
+    var last = origin
+    for i in 1...frames {
+        last = filter.update(point: CGPoint(x: start + distance, y: start), bounds: screen, time: Double(i) / fps, freeze: false)
+    }
+    let targetX = screen.minX + SoftMargin.normalize(start + distance) * (screen.width - 1)
+    let span = abs(targetX - origin.x)
+    return span < 1e-6 ? 0 : abs(targetX - last.x) / span
+}
+let slowFrac = fractionalLag(distance: 0.012, fps: 60, frames: 3)
+let fastFrac = fractionalLag(distance: 0.35, fps: 60, frames: 3)
+check(fastFrac < slowFrac * 0.9, "High-velocity path closes a larger fraction of the step (less lag)")
 
 // Integrate the actual gesture freeze decision with pointer movement.
 var aim = Simulation(); aim.ready()
