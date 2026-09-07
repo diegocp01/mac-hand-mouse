@@ -21,10 +21,12 @@ at. Pointer motion alone is lower blast radius than click injection.
   `allowPinchClicks` and are migrated on launch).
 - Injection is gated by `SafetyPolicy.shouldInjectClick` (gesture ∧ allowClicks ∧ AX ∧
   pointer control). White flash / `clickedUntil` only fire on a real inject.
-- **Pinch** is the default click *mode*; **Dwell** is opt-in via the Click mode control.
+- **Pinch** is the default click *mode*; **Dwell** is shipped and opt-in via the Click
+  mode control (not a wave-2 idea).
 - Esc remains the panic kill-switch: pauses the camera and resets pinch/dwell/filter state.
 
 ## Later ideas (not shipped)
 
 - Velocity / motion gate so a moving pinch cannot click mid-swipe.
 - Separate right-click / drag / scroll modes behind the same allow-clicks latch.
+- Tap-to-click (cut unless synthetic proofs hold).
