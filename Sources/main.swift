@@ -129,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var preview: PreviewView!
     private let titleLabel = NSTextField(labelWithString: "Hand Mouse")
     private let gestureGuide = GestureGuideView(frame: .zero)
-    private let startingPoseTitle = "Palm forward · Raise two fingers"
+    private let startingPoseTitle = "Palm toward camera · Raise index + middle"
     private let startingPoseDetail = "Palm toward camera · Index + middle raised · Hold still briefly."
     private let optionsToggle = NSButton(title: "Settings", target: nil, action: nil)
     private var optionsRows: NSStackView!
@@ -147,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let toggle = NSButton(title: "Start", target: nil, action: nil)
     private let control = NSButton(checkboxWithTitle: "Move pointer", target: nil, action: nil)
     private let precisionMode = NSButton(checkboxWithTitle: "Precision", target: nil, action: nil)
+    private let steadyAim = NSButton(checkboxWithTitle: "Steady aim", target: nil, action: nil)
     private let allowClicks = NSButton(checkboxWithTitle: "Click", target: nil, action: nil)
     private let clickModeControl = NSSegmentedControl(labels: ["Two-finger tap"], trackingMode: .selectOne, target: nil, action: nil)
     private let sensitivity = NSSegmentedControl(labels: ["Precise", "Balanced", "Easy"], trackingMode: .selectOne, target: nil, action: nil)
@@ -274,6 +275,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         precisionMode.target = self; precisionMode.action = #selector(precisionChanged)
         precisionMode.toolTip = "Reduce pointer travel for small targets. Lower and raise your hand to reposition."
         precisionMode.setAccessibilityLabel("Precision mode for slower pointer movement")
+        steadyAim.state = (defaults.object(forKey: "steadyAim") as? Bool ?? true) ? .on : .off
+        steadyAim.target = self; steadyAim.action = #selector(steadyAimChanged)
+        steadyAim.toolTip = "Slow hand movements make smaller pointer adjustments. Move faster to cross the screen."
+        steadyAim.setAccessibilityLabel("Steady aim for easier small targets")
         allowScrolling.target = self; allowScrolling.action = #selector(scrollingChanged)
         allowScrolling.toolTip = "Pinch thumb + index, hold briefly, then move your hand up/down. Release to stop scrolling."
         allowScrolling.setAccessibilityLabel("Enable pinch scrolling with vertical hand movement")
@@ -348,7 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         optionsToggle.target = self; optionsToggle.action = #selector(toggleOptions)
         optionsToggle.setAccessibilityLabel("Advanced settings")
         optionsToggle.state = .off
-        optionsRows = StartupStyle.column([clickTest, displayStatus], spacing: 8)
+        optionsRows = StartupStyle.column([steadyAim, clickTest, displayStatus], spacing: 8)
         toggleOptions()
         let controls = NSStackView(views: [control, allowClicks, precisionMode, allowScrolling, allowDragging])
         controls.alignment = .centerY
@@ -485,7 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             allowScrolling: practicing ? practiceTask == .scroll : allowScrolling.state == .on,
             allowDragging: practicing ? practiceTask == .select : allowDragging.state == .on,
             allowPinchDragging: !practicing && clickMode == .pinch && allowPinchDragging.state == .on,
-            precisionMode: precisionMode.state == .on)
+            precisionMode: precisionMode.state == .on, steadyAim: steadyAim.state == .on)
         if settings != engine.settings { releaseDrag() }
         engine.configure(settings)
     }
@@ -551,6 +556,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func precisionChanged() {
         UserDefaults.standard.set(precisionMode.state == .on, forKey: "precisionMode")
         configureInteraction()
+    }
+
+    @objc private func steadyAimChanged() {
+        UserDefaults.standard.set(steadyAim.state == .on, forKey: "steadyAim")
+        configureInteraction(); clearClickFeedback(); readyFeedback()
     }
 
     @objc private func scrollingChanged() {
@@ -629,7 +639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if practicing {
             showFeedback("Practice only · No system input", practiceInstruction)
         } else if !running {
-            showFeedback("Palm forward · Raise two fingers", "Start the camera, then show one hand with your palm visible.")
+            showFeedback(startingPoseTitle, "Start the camera, then raise index + middle with your palm toward the camera.")
         } else if control.state != .on {
             showFeedback("Preview only", "Pointer and clicks off.")
         } else if allowClicks.state != .on {
@@ -707,6 +717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func startPractice() {
         if practicing { finishPractice(); return }
         guard activation.canResume else { return }
+        // Practice changes this session's output, not the user's saved preferences.
         allowClicks.state = .off
         disableScrolling(persist: false); disablePinchDragging(persist: false)
         allowDragging.state = .off
@@ -912,7 +923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cameraMenuItem.title = "Pause camera"
         cameraStatus.stringValue = "Starting camera…"
         preview.showPlaceholder("Allow camera access.")
-        showFeedback("Starting camera", "Get ready: index finger up, palm toward camera, thumb apart.")
+        showFeedback("Starting camera", startingPoseDetail)
         camera.start()
     }
     @objc private func pause() {
@@ -1009,7 +1020,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if cameraReady && now - lastFrameTime > GestureTuning.trackingGraceSeconds {
             interruptInteraction(); clearClickFeedback(); preview.update(nil)
             cameraStatus.stringValue = "Tracking interrupted"
-            showFeedback("Tracking interrupted", "Countdown canceled. Pause and restart the camera if tracking does not resume.")
+            showFeedback("Tracking interrupted", "Raise index + middle, palm toward camera. Restart the camera if tracking does not resume.")
             return
         }
         if !trusted || control.state != .on {
@@ -1046,7 +1057,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             lastCameraSource = frame.source
             if sourceChanged {
                 resetInteraction(); clearClickFeedback()
-                showFeedback("Camera changed", "Point normally to resume. The gesture adapts automatically.")
+                showFeedback("Camera changed", startingPoseDetail + " The pointer stays where you left it.")
                 return
             }
         }
@@ -1069,7 +1080,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case .staleFrame:
                 preview.update(nil)
                 cameraStatus.stringValue = "Tracking delayed"
-                showFeedback("Tracking delayed", "Countdown canceled. Hold still briefly to reacquire your hand.")
+                showFeedback("Tracking delayed", startingPoseDetail + " No click is pending.")
             case .invalidDisplay:
                 pause(); showFeedback("Display unavailable", "Choose a connected display, then start camera.")
             case .permission, .previewOnly:
@@ -1086,7 +1097,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if ownership.side == nil && capture.hands.count > 1 {
                     showFeedback("Start with one hand", "Lower the other hand until Pointer ready. Then bring it back as the drag modifier.")
                 } else {
-                    showFeedback("Looking for your hand", "Return your original pointer hand, palm visible. The other hand cannot take over.")
+                    showFeedback("Looking for your hand", "Raise index + middle on your original pointer hand, palm toward camera.")
                 }
             case .acquiring, .differentHand, .cursorUnavailable:
                 lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
@@ -1119,7 +1130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: location, mouseButton: .left),
                   let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: location, mouseButton: .left) else {
                 clearClickFeedback()
-                showFeedback("Click unavailable", "No click was sent. Move or release your pinch to try again.")
+                showFeedback("Click unavailable", "No click was sent. Raise index + middle, then bend and lift to try again.")
                 return
             }
             down.setIntegerValueField(.mouseEventClickState, value: 1)

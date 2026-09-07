@@ -1,5 +1,7 @@
 # v1.5 interaction recovery and navigation
 
+> Historical v1.5 design: its click modes and scrolling pose have since changed. For current acquisition, two-finger tapping, and thumb + index pinch scrolling, see [Two-finger tap](TWO_FINGER_TAP.md).
+
 PR #4 replaced automatic Dwell clicking with an intentional forward gesture;
 PR #7 removed manual pose setup. This change preserves both and completes the next
 parts of the roadmap: cursor reacquisition, scrolling, keyboard resume, and practice

@@ -11,6 +11,7 @@ struct InteractionSettings: Equatable {
     var allowDragging = false
     var allowPinchDragging = false
     var precisionMode = false
+    var steadyAim = true
 }
 
 enum ClickPreference {
@@ -206,6 +207,7 @@ struct InteractionEngine {
                 filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
             }
             let location = filter.update(point: index, bounds: bounds, time: timestamp, precision: settings.precisionMode,
+                steadyAim: settings.mode == .twoFingerTap && settings.steadyAim && drag.phase != .dragging,
                 freeze: settings.allowClicks && (drag.phase == .confirming || began || ended))
             lastLocation = location
             return InteractionStep(location: location, destination: destination, dragging: drag.phase == .dragging)
@@ -260,7 +262,8 @@ struct InteractionEngine {
             fired = pinch.update(ratio: pinchRatio, time: timestamp)
         }
         let freeze = settings.allowClicks && (settings.mode == .twoFingerTap ? fingersTogether || tap.shouldFreeze || fired : (settings.mode == .forward ? forward.shouldFreeze : pinch.shouldFreeze))
-        let location = filter.update(point: index, bounds: bounds, time: timestamp, precision: settings.precisionMode, freeze: freeze)
+        let location = filter.update(point: index, bounds: bounds, time: timestamp, precision: settings.precisionMode,
+                                     steadyAim: settings.mode == .twoFingerTap && settings.steadyAim, freeze: freeze)
         lastLocation = location
         return InteractionStep(location: location,
                                click: SafetyPolicy.shouldInjectClick(gestureFired: fired,

@@ -1,5 +1,7 @@
 # Camera and click feedback
 
+> Historical feedback design for Point forward clicking. Current two-finger tap feedback is described in [Two-finger tap](TWO_FINGER_TAP.md), without a click countdown.
+
 The camera preview answers “Can it see my hand?” The click card answers “What will happen next?” The cursor ring puts the countdown at the target so people can watch what they are clicking instead of looking back at the app.
 
 - Keep camera status and Pause visible, including while scrolling through settings.

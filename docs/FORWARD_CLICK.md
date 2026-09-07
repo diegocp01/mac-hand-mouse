@@ -1,5 +1,7 @@
 # Forward clicking without pose setup (experimental)
 
+> Historical design for the internal Forward detector. Point forward is no longer selectable in the app. For current startup and click instructions, see [Two-finger tap](TWO_FINGER_TAP.md).
+
 ## User flow
 
 Select Point forward and start the camera. Allow clicks defaults on for new installs;
