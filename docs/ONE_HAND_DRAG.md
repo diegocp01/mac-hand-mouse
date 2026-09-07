@@ -1,5 +1,7 @@
 # One-hand pinch dragging
 
+> Historical design retained for regression coverage. One-hand pinch dragging is unavailable with the current two-finger tap gesture. For current controls, see the [user guide](../README.md#use).
+
 This optional Pinch-mode feature lets one hand aim, click, drag, and select text. Existing pinch clicking and forward clicking keep their behavior when it is off. The startup screen gains no additional text: the opt-in lives under Gesture settings.
 
 ## Interaction
