@@ -6,12 +6,14 @@
 
 ## First launch
 
-The dark startup panel walks you through **Permissions → Camera → Pointer**. Each step reflects the current permission and camera state. **Start / Pause camera** stays visible while you scroll; **Gesture settings** keeps extra controls out of the way until you need them.
+The dark startup panel walks you through **Permissions → Camera → Pointer**. Each step reflects the current permission and camera state. The starting-pose guide and **Start / Pause camera** stay visible while you scroll; **Gesture settings** keeps extra controls out of the way until you need them.
 
 1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. **Start camera** → allow camera access.
-3. Show **one hand**, palm visible, with thumb + index separated. Keep it steady briefly to take over the current cursor, then move your **index fingertip** inside the dashed guide.
+3. **Point your index finger UP**, with your **palm toward the camera** and **thumb apart**. Hold still for about a second until the app says **Pointer ready**. Then move your index fingertip to aim inside the dashed guide.
 4. Expand **Gesture settings** to choose **Pinch** or **Point forward**, then enable **Allow clicks** when ready. Forward clicking adapts automatically as you aim; **Practice safely** lets you try either mode without sending system input.
+
+The starting pose comes **before** the click gesture. In Point forward mode, first raise your index to start pointer control; aim at the target, then point toward the camera to click. If the app says **Waiting to resume**, repeat the starting pose. No capture button or calibration wizard is required.
 
 Keep a trackpad or mouse nearby. **Esc** pauses capture. **Control + Option + Command + H** pauses or resumes from another app; change or disable this shortcut in **Permissions**.
 
@@ -96,7 +98,7 @@ Dragging, right-click, double-click, and tap-to-click are **not** included. Keep
 - **Camera blocked:** click **Camera Settings**, enable Hand Mouse, then restart if macOS requests it.
 - **Camera interrupted or disconnected:** reconnect it or close the other camera app, then click **Start camera** to retry. Hand Mouse rebuilds its capture session instead of silently restarting mouse control.
 - **Hand detected, but mouse won't move:** enable Accessibility for the installed app.
-- **Waiting to resume:** open thumb + index (or point normally in Forward mode), use the same hand, and keep it steady briefly. If the pointer is on another display, move it onto the selected display first.
+- **Waiting to resume:** point your index **up**, palm **toward the camera**, and thumb **apart**. Hold still for about a second until **Pointer ready**; then aim. A finger already pointing into the lens may hide its length. Use the same hand; if the pointer is on another display, move it onto the selected display first.
 - **Shortcut unavailable:** another app may own that combination. Choose the other shortcut or **Off** in **Permissions**. Hand Mouse must be running, and the Mac must be awake and in your active session.
 - **Updating from v1.3.0 or earlier:** a one-time Accessibility repair is needed when moving to the persistent signing identity. Use **Show in Finder** to locate the new app, remove the old Hand Mouse entry in Accessibility, then add and enable that exact copy. Future source updates reuse its signer. [Why this changed](docs/SIGNING.md).
 - **Permission is on but the pointer still won't move:** confirm that Accessibility lists the exact running app. If its entry is stale, replace it; toggling the old entry may not help. See the [targeted repair](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the pane is called **Device Control and Data Access**.

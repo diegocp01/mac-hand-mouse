@@ -126,6 +126,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let permissionStep = SetupStepView(number: "01", title: "Permissions")
     private let cameraStep = SetupStepView(number: "02", title: "Camera")
     private let practiceStep = SetupStepView(number: "03", title: "Pointer")
+    private let pointerGuide = PointerGuideView(frame: .zero)
+    private let startingPoseTitle = "Raise your index finger to start"
+    private let startingPoseDetail = "Palm toward camera · Thumb apart · Hold still for about a second."
     private let optionsToggle = NSButton(title: "Gesture settings", target: nil, action: nil)
     private var optionsRows: NSStackView!
     private let feedback = ClickFeedbackView(frame: .zero)
@@ -319,7 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let actions = NSStackView(views: [optionsToggle, NSView(), clickTest])
         actions.spacing = 12
         let header = StartupStyle.column([
-            titleLabel, primaryRow
+            titleLabel, primaryRow, pointerGuide
         ], spacing: 8)
         header.translatesAutoresizingMaskIntoConstraints = false
         let stack = StartupStyle.column([
@@ -353,7 +356,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -28),
             stack.topAnchor.constraint(equalTo: document.topAnchor),
             stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -12),
-            primaryRow.widthAnchor.constraint(equalTo: header.widthAnchor)
+            primaryRow.widthAnchor.constraint(equalTo: header.widthAnchor),
+            pointerGuide.widthAnchor.constraint(equalTo: header.widthAnchor)
         ])
         for view in [steps, setupRows!, permissionStatus, preview!, feedback, practice, controls, actions,
                      optionsRows!, forwardControls!, forwardInstructions] {
@@ -381,7 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.lastFrameTime = ProcessInfo.processInfo.systemUptime
             self.cameraStatus.stringValue = "Looking for hand"
             self.preview.showPlaceholder(nil)
-            self.showFeedback("Show one hand", "Palm visible, inside the guide.")
+            self.showFeedback(self.startingPoseTitle, self.startingPoseDetail)
         }
         camera.onError = { [weak self] message in
             guard let self, self.running else { return }
@@ -435,9 +439,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                           detail: authorization == .denied || authorization == .restricted
                             ? "Open Camera Settings"
                             : (running ? (cameraReady ? "Camera is on" : "Starting camera…") : "Start camera"))
-        practiceStep.update(complete: false, active: cameraReady,
-                            detail: practicing ? "Practice only · System input off" : (!cameraReady ? "Show one hand"
-                                : (allowClicks.state == .on ? "Clicks on · Aim, then click" : "Move your index · Clicks off")))
+        let pointerReady = running && engine.acquisition.active
+        practiceStep.update(complete: pointerReady, active: cameraReady && !pointerReady,
+                            detail: pointerReady ? (practicing ? "Practice pointer ready" : "Pointer ready") : "Raise index · Palm toward camera")
+        if !running {
+            pointerGuide.update(title: "Start with your index finger up", detail: startingPoseDetail + "\nStart camera, then wait for Pointer ready before aiming or clicking.")
+        } else if !practicing && (!trusted || control.state != .on) {
+            pointerGuide.update(title: trusted ? "Preview only" : "Enable Accessibility first",
+                detail: trusted ? "Turn on Move pointer to use your hand. Practice safely also works without system input."
+                    : "Open Permissions below to allow mouse control. You can still use Practice safely.")
+        } else if !pointerReady {
+            let next = clickMode == .forward ? "Once the pointer moves, aim first; point toward the camera only to click."
+                : "Once the pointer moves, aim first; touch thumb + index to click."
+            pointerGuide.update(title: startingPoseTitle, detail: startingPoseDetail + "\n" + next)
+        } else if engine.scroll.phase != .idle {
+            pointerGuide.update(title: "Two-finger scrolling", detail: "Move index + middle up/down to scroll.\nLower your middle finger and return to the starting pose to aim again.")
+        } else {
+            let next = !engine.settings.allowClicks ? "Clicks are off. Turn on Allow clicks when you want to click."
+                : (clickMode == .forward ? "Point toward the camera and hold to click. Pull back to cancel or click again."
+                    : "Touch thumb + index to click, then separate them before the next click.")
+            pointerGuide.update(title: practicing ? "Practice pointer ready · Move to aim" : "Pointer ready · Move to aim",
+                detail: "Move your index finger to aim at the target.\n" + next)
+        }
     }
 
     private func configureInteraction() {
@@ -623,7 +646,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             updatePractice()
         }
         let instruction = step.blocked == .differentHand ? "Use the same hand, or finish and restart practice to switch hands."
-            : (step.blocked != nil ? "Point normally with thumb + index separated and keep your hand steady briefly to resume."
+            : (step.blocked != nil ? "Raise your index finger, palm toward camera, thumb apart. Hold still for about a second."
                 : (engine.scroll.phase != .idle ? "Move two fingers up/down to change the counter. Lower the middle finger to return to pointing."
                     : (clickMode == .forward ? "Move onto green. Point forward to start the timer; pull back to cancel."
                        : "Move onto green, then pinch. No pointer, clicks, or scroll events go to other apps.")))
@@ -649,7 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cameraMenuItem.title = "Pause camera"
         cameraStatus.stringValue = "Starting camera…"
         preview.showPlaceholder("Allow camera access.")
-        showFeedback("Starting camera", "Show one hand, palm visible.")
+        showFeedback("Starting camera", "Get ready: index finger up, palm toward camera, thumb apart.")
         camera.start()
     }
     @objc private func pause() {
@@ -795,7 +818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case .missingHand:
                 lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
                 cameraStatus.stringValue = "Looking for hand"
-                showFeedback("Looking for your hand", "Show your index finger and palm.")
+                showFeedback("Looking for your hand", "Raise your index finger, palm toward camera, thumb apart. Keep your hand inside the guide.")
             case .acquiring, .differentHand, .cursorUnavailable:
                 lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
                 cameraStatus.stringValue = "Waiting to resume"
@@ -804,7 +827,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 } else if blocked == .cursorUnavailable {
                     showFeedback("Pointer outside target display", "Move your mouse onto the chosen display, or move this window to another display and restart the camera.")
                 } else {
-                    showFeedback("Point normally to resume", "Separate thumb + index and keep your hand steady briefly. The pointer stays where you left it.")
+                    showFeedback(startingPoseTitle, startingPoseDetail + " The pointer stays where you left it.")
                 }
             case .paused: break
             }

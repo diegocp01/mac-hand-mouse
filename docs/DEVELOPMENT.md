@@ -33,7 +33,7 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `Sources/FrameMailbox.swift` | Bounded delivery of the newest result |
 | `Sources/main.swift` | Window, camera lifecycle, feedback orchestration, permissions, mouse events |
 | `Sources/FeedbackUI.swift` | Determinate click ring, status card, simulated practice canvas, nonactivating cursor overlay |
-| `Sources/StartupUI.swift` | Startup palette, live setup milestones, and static camera standby artwork |
+| `Sources/StartupUI.swift` | Startup palette, visible setup milestones, persistent starting-pose guide, and static standby artwork |
 | `Sources/FeedbackGeometry.swift` | Screen-edge caption placement with a ring centered on the click target |
 | `Tests/main.swift` | Deterministic gesture and pointer checks |
 | `Tests/RecoveryScrollTests.swift` | Hand return, physical mouse takeover, scrolling, practice isolation, and activation gates |
@@ -100,3 +100,17 @@ Sleep, display sleep, user-session deactivation, and display configuration chang
 See [v1.5 interaction recovery](RECOVERY_AND_SCROLL.md) for the activation policy, relative cursor anchoring, scroll gesture, keyboard registration, regression coverage, and manual test checklist. These features change the production pipeline, not just the visual feedback.
 
 Validation before release: with a live camera, confirm Start/Pause, no-hand recovery, Pinch, setup-free forward clicks, optional practice, cancel/rearm, clicks off during a countdown, Escape, Accessibility loss, and cursor ring alignment on additional displays/full-screen apps. Use the practice canvas and app's Test click target. Synthetic tests do not verify physical tracking or delivery to other apps.
+
+## Starting-pose guidance
+
+The header keeps the index-up, palm-facing-camera, thumb-apart instructions visible
+before capture and during acquisition. It changes to aiming/clicking instructions
+only when `engine.acquisition.active` is true, or to scrolling instructions during
+that mode. Setup cards display their status details visually as well as through
+Accessibility. The pointer milestone becomes complete after acquisition, not merely
+because the camera sees a hand or Allow clicks is enabled. This presentation does
+not authorize movement, change gesture thresholds, or advance a click timer.
+
+UI review: verify the paused starting pose, starting camera, waiting for a hand,
+reacquisition, Pointer ready, preview-only mode, and practice. Resize to 620×540 and
+scroll the settings; the starting-pose guide and camera controls must remain visible.
