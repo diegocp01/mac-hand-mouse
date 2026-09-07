@@ -399,12 +399,49 @@ struct PointerAxisMap {
     var visibleUpper: Double { screen == 1 ? hand : upper }
 }
 
+/// Fine corrections use less travel without changing the target when speed changes.
+/// The bounded, position-based offset preserves screen-edge reach and never decays at rest.
+private struct SteadyAimMotion {
+    private var hand: CGPoint?
+    private var baseline: CGPoint?
+    private var target: CGPoint?
+
+    mutating func reanchor(hand: CGPoint, cursor: CGPoint) {
+        self.hand = hand; baseline = cursor; target = cursor
+    }
+
+    mutating func update(hand: CGPoint, baseline: CGPoint, bounds: CGRect, dt: Double) -> CGPoint {
+        guard let oldHand = self.hand, let oldBaseline = self.baseline, let oldTarget = target, dt > 0 else {
+            reanchor(hand: hand, cursor: baseline)
+            return baseline
+        }
+        let speed = hypot(hand.x - oldHand.x, hand.y - oldHand.y) / dt
+        let blend = min(1, max(0, (speed - 0.04) / (0.25 - 0.04)))
+        let gain = 0.25 + 0.75 * blend * blend * (3 - 2 * blend)
+        func advance(_ old: Double, _ delta: Double, _ base: Double, _ low: Double, _ high: Double) -> Double {
+            let maxOffset = min(48.0, (high - low) / 4)
+            let edgeDistance = max(0, min(base - low, high - base))
+            let edgeBlend = min(1, edgeDistance / (2 * maxOffset))
+            let limit = maxOffset * edgeBlend * edgeBlend * (3 - 2 * edgeBlend)
+            return min(high, max(low, min(base + limit, max(base - limit, old + gain * delta))))
+        }
+        let next = CGPoint(
+            x: advance(oldTarget.x, baseline.x - oldBaseline.x, baseline.x, bounds.minX, bounds.maxX - 1),
+            y: advance(oldTarget.y, baseline.y - oldBaseline.y, baseline.y, bounds.minY, bounds.maxY - 1))
+        self.hand = hand; self.baseline = baseline; target = next
+        return next
+    }
+}
+
 struct PointerFilter {
     private var position: CGPoint?
     private var lastTime: Double?
     private var lastTarget: CGPoint?
     private var horizontal: PointerAxisMap?
     private var vertical: PointerAxisMap?
+    private var steadyMotion = SteadyAimMotion()
+    private var wasFrozen = false
+    private var steadyAimMode: Bool?
 
     var controlRegion: CGRect {
         let inset = GestureTuning.softInset
@@ -415,13 +452,17 @@ struct PointerFilter {
         return CGRect(x: left, y: top, width: right - left, height: bottom - top)
     }
 
-    mutating func reset() { position = nil; lastTime = nil; lastTarget = nil; horizontal = nil; vertical = nil }
+    mutating func reset() {
+        position = nil; lastTime = nil; lastTarget = nil; horizontal = nil; vertical = nil
+        steadyMotion = SteadyAimMotion(); wasFrozen = false; steadyAimMode = nil
+    }
 
     mutating func reanchor(point: CGPoint, cursor: CGPoint, bounds: CGRect, time: Double) {
         reset()
         horizontal = PointerAxisMap(hand: point.x, screen: (cursor.x - bounds.minX) / (bounds.width - 1))
         vertical = PointerAxisMap(hand: point.y, screen: (cursor.y - bounds.minY) / (bounds.height - 1))
         position = cursor; lastTarget = cursor; lastTime = time
+        steadyMotion.reanchor(hand: point, cursor: cursor)
     }
 
     /// Soft-mapped screen target with no EMA / freeze — use for dwell cancel sampling.
@@ -432,16 +473,36 @@ struct PointerFilter {
                        y: bounds.minY + y * (bounds.height - 1))
     }
 
-    mutating func update(point: CGPoint, bounds: CGRect, time: Double, precision: Bool = false, freeze: Bool) -> CGPoint {
-        let target = unfrozenTarget(point: point, bounds: bounds, precision: precision)
+    mutating func update(point: CGPoint, bounds: CGRect, time: Double, precision: Bool = false,
+                         steadyAim: Bool = false, freeze: Bool) -> CGPoint {
+        var target = unfrozenTarget(point: point, bounds: bounds, precision: precision)
         let dt = max(0, min(0.1, time - (lastTime ?? time)))
         lastTime = time
         guard let previous = position else {
             position = target
             lastTarget = target
+            steadyMotion.reanchor(hand: point, cursor: target)
+            steadyAimMode = steadyAim
             return target
         }
-        if freeze { return previous }
+        if let previousMode = steadyAimMode, previousMode != steadyAim {
+            // Dragging uses full travel. Changing paths must discard the fine-motion offset.
+            reanchor(point: point, cursor: previous, bounds: bounds, time: time)
+            steadyAimMode = steadyAim; wasFrozen = freeze
+            return previous
+        }
+        steadyAimMode = steadyAim
+        if freeze { wasFrozen = true; return previous }
+        if steadyAim && wasFrozen {
+            reanchor(point: point, cursor: previous, bounds: bounds, time: time)
+            return previous
+        }
+        wasFrozen = false
+        if steadyAim {
+            target = steadyMotion.update(hand: point, baseline: target, bounds: bounds, dt: dt)
+        } else {
+            steadyMotion.reanchor(hand: point, cursor: target)
+        }
         // Rebase at display edges so reversing direction has no hidden dead zone.
         if target.x <= bounds.minX || target.x >= bounds.maxX - 1 {
             horizontal = PointerAxisMap(hand: point.x, screen: target.x <= bounds.minX ? 0 : 1)
