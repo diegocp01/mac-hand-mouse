@@ -48,6 +48,18 @@ bash "Install Hand Mouse.command"
 
 The installer builds from source, installs **Hand Mouse** in `~/Applications`, and opens it. **Next time, open Hand Mouse from your home folder's Applications folder or search for it in Spotlight.** For editing, tests, and running a development build, see [development notes](docs/DEVELOPMENT.md).
 
+After installing from a Git clone, use **Hand Mouse → Check for Updates…** in
+the top-left menu. The app checks the official GitHub `main` branch. When an
+update is available, **Update and Restart** pauses the camera, fast-forwards the
+clean source checkout, rebuilds with the same local signing identity, and reopens
+the installed app. This preserves normal Accessibility approval across updates.
+
+The updater stops without changing the app if the checkout has uncommitted files,
+is on another branch, has diverged from GitHub, or uses a different remote. Commit
+developer work before updating. A packaged ZIP does not contain a source checkout;
+clone the repository and run the installer once to enable source updates.
+See [source-update behavior and safeguards](docs/UPDATES.md) for details.
+
 ## Use
 
 | Action | How |

@@ -77,6 +77,16 @@ TARGET_PUBLISHED=1
 codesign --verify --deep --strict "$TARGET_APP"
 REPLACEMENT_COMPLETE=1
 
+UPDATE_STATE_DIR="${HAND_MOUSE_UPDATE_STATE_DIR:-$HOME/Library/Application Support/Hand Mouse}"
+if mkdir -p "$UPDATE_STATE_DIR" && chmod 700 "$UPDATE_STATE_DIR"; then
+    SOURCE_STATE=$(mktemp "$UPDATE_STATE_DIR/.source-checkout.XXXXXX")
+    printf '%s\n' "$(pwd -P)" > "$SOURCE_STATE"
+    chmod 600 "$SOURCE_STATE"
+    mv "$SOURCE_STATE" "$UPDATE_STATE_DIR/source-checkout"
+else
+    echo "Warning: Check for Updates could not save the source checkout." >&2
+fi
+
 echo "Installed: $TARGET_APP"
 echo "Next: enable Accessibility in the app, then Start camera and allow camera access."
 if [ "${HAND_MOUSE_NO_OPEN:-0}" != 1 ]; then open "$TARGET_APP"; fi
