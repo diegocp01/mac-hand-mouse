@@ -11,7 +11,7 @@ The dark startup panel walks you through **Permissions → Camera → Pointer**.
 1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. **Start camera** → allow camera access.
 3. **Raise index + middle fingers**, with your **palm toward the camera**. Hold still briefly until **Pointer ready**, then move your index fingertip to aim inside the dashed guide.
-4. Enable **Allow clicks** when ready. Bend both fingers down together, then lift to click. **Practice safely** lets you try taps without sending system input.
+4. Try **Practice safely**: aim at green, bend index + middle, then lift to click. The guide highlights **Aim → Bend → Lift** as you go. Practice sends no system input and leaves clicks off when you finish; enable **Allow clicks** when ready to control other apps.
 
 The starting pose comes **before** the click gesture. Raise index + middle to start, then bend and lift both together to click. No pose calibration is required.
 
@@ -64,14 +64,14 @@ See [source-update behavior and safeguards](docs/UPDATES.md) for details.
 
 1. Click **Start camera**. Raise **index + middle fingers**, palm toward the camera, and hold steady briefly until **Pointer ready**.
 2. Move your index fingertip within the dashed box to aim. Its edges reach the screen edges; your palm can extend outside the box.
-3. Raise both fingers, **bend index + middle down together**, then **lift them together** to click, like tapping a trackpad in the air. Complete the tap within roughly half a second.
+3. **Bend index + middle together**, then **lift them together** to click, like tapping a trackpad in the air. Follow **Bend both fingers → Lift to click** beside your pointer.
 
-The pointer freezes during the tap. **Lift to click** appears beside the system cursor, including over other apps. A completed tap clicks once; holding still never clicks. Keep both fingers and their knuckles visible. Missing tracking, a long hold, or **Esc** cancels the pending tap. Raise both fingers again before retrying.
+The pointer stays on your target while you bend and lift. **Lift to click** appears only after a bend is recognized. You have time to start the bend gently; once bent, lift in one motion. A completed tap clicks once; holding still never clicks. If a tap is canceled, the guide tells you to raise both fingers and try again. Keep both fingers and their knuckles visible. Missing tracking, a long hold, or **Esc** cancels the pending tap.
 
 **Two-finger tap replaces Pinch and Point forward clicking.** Existing Allow clicks choices remain saved. One-hand pinch dragging is unavailable in this mode. Thumb + index pinching is reserved for scrolling; index + middle still perform the tap click.
 
 - **Practice safely:** rehearse taps on targets without sending mouse events to other apps. Finishing practice leaves clicks off.
-- **Pointer lock:** bring index + middle together to hold the target. A **🔒 Pointer locked** indicator appears beside the cursor; separate them to move again.
+- **Pointer lock:** optionally bring index + middle together to hold the target. **Bend to click** appears beside the cursor; separate them to move again. A normal bend also holds the target automatically.
 - **Precision mode:** enable **Precision mode · slower pointer** in Gesture settings for roughly 35% of normal hand-to-pointer travel. Lower and raise your hand to reposition when needed. The setting is saved.
 - **Pinch to scroll:** enable it in Gesture settings, touch thumb + index and hold steady for about a quarter second, then move your hand up/down. The cursor stays put and clicks are suppressed. Release the pinch to stop immediately and resume aiming without a jump. Scrolling also works with Allow clicks off.
 - **Allow clicks:** turn off to aim without clicking.

@@ -27,6 +27,40 @@ import CoreGraphics
             _ = feed(.bent, 3); time += 1
             check(feed(.raised, Int(fps)) == 0, "stale cycle cancels")
         }
+        // A gradual bend must keep the original target through release. Exercise
+        // the production path at camera rates, with both input destinations/gates.
+        for fps in [15.0, 30, 60] {
+            for practice in [false, true] {
+                for allowed in [false, true] {
+                    var engine = InteractionEngine()
+                    engine.configure(InteractionSettings(mode: .twoFingerTap, allowClicks: allowed))
+                    var cursor = CGPoint(x: 500, y: 500)
+                    var time = 0.0
+                    var clicks = 0
+                    func feed(_ pose: TapPose, seconds: Double, y: Double) {
+                        for _ in 0..<Int((fps * seconds).rounded(.up)) {
+                            time += 1 / fps
+                            let step = engine.process(index: CGPoint(x: 0.5, y: y), pinchRatio: nil,
+                                timestamp: time, now: time, bounds: CGRect(x: 0, y: 0, width: 1000, height: 1000),
+                                running: true, trusted: !practice, destination: practice ? .practice : .system,
+                                cursorPosition: cursor, handSide: "left", tapPose: pose)
+                            if let location = step.location { cursor = location }
+                            if step.click { clicks += 1 }
+                            if practice { check(!step.systemClick && step.systemLocation == nil, "slow practice tap stays isolated") }
+                        }
+                    }
+                    feed(.raised, seconds: 1, y: 0.5)
+                    let aim = cursor
+                    feed(.transition, seconds: 0.7, y: 0.54)
+                    feed(.bent, seconds: 0.15, y: 0.6)
+                    feed(.raised, seconds: 1 / fps, y: 0.52)
+                    check(clicks == (allowed ? 1 : 0), "gradual bend respects click gate at \(fps) fps")
+                    if allowed { check(cursor == aim, "gradual bend and release preserve target at \(fps) fps") }
+                    feed(.raised, seconds: 0.5, y: 0.52)
+                    check(clicks == (allowed ? 1 : 0), "gradual tap never repeats while raised")
+                }
+            }
+        }
         for practice in [false, true] {
             for allowed in [false, true] {
                 var engine = InteractionEngine()
@@ -97,6 +131,32 @@ import CoreGraphics
             let before = cursor
             feed(0.2, x: 0.6)
             check(cursor.x > before.x && clicks == 1, "clicks off bypasses proximity lock")
+        }
+        // A visible second hand suppresses taps before a drag pose is recognized.
+        // The persistent guide must observe that same modifier, not just drag.phase.
+        for practice in [false, true] {
+            var engine = InteractionEngine()
+            engine.configure(InteractionSettings(mode: .twoFingerTap, allowDragging: true))
+            var time = 0.0
+            func feed(companion: Bool) {
+                time += 1.0 / 30
+                let step = engine.process(index: CGPoint(x: 0.5, y: 0.5), pinchRatio: nil,
+                    timestamp: time, now: time, bounds: CGRect(x: 0, y: 0, width: 1000, height: 1000),
+                    running: true, trusted: !practice, destination: practice ? .practice : .system,
+                    cursorPosition: CGPoint(x: 500, y: 500), handSide: "left",
+                    companionPresent: companion, tapPose: .raised)
+                check(!step.click, "showing or hiding a companion hand never clicks")
+            }
+            for _ in 0..<30 { feed(companion: false) }
+            check(engine.tap.phase == .ready && !engine.dragModifierPresent, "single hand is ready to tap")
+            feed(companion: true)
+            check(engine.dragModifierPresent && engine.drag.phase == .idle && engine.tap.phase == .waiting,
+                "guide sees modifier before a drag starts")
+            feed(companion: false)
+            check(!engine.dragModifierPresent, "lowering companion restores tap guide")
+            feed(companion: true)
+            engine.trackingInterrupted()
+            check(!engine.dragModifierPresent, "tracking loss clears companion feedback")
         }
         // Pinch scrolling uses the production engine, including arbitration and release.
         for practice in [false, true] {

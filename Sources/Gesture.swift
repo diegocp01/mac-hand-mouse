@@ -28,41 +28,69 @@ enum TapPose { case raised, bent, transition, uncertain }
 /// A visible raise -> bend -> raise cycle clicks once. Missing observations cancel it.
 struct TwoFingerTapDetector {
     enum Phase { case waiting, ready, pressed }
+    enum Cancellation { case timedOut, incompleteBend, trackingLost }
     private(set) var phase: Phase = .waiting
+    private(set) var cancellation: Cancellation?
     private var raisedSince: Double?
+    private var pressSince: Double?
     private var bentSince: Double?
     private var lastTime: Double?
     private var bendSamples = 0
     var shouldFreeze: Bool { phase == .pressed }
 
+    /// The feedback and release event share the same evidence requirement.
+    var canReleaseToClick: Bool {
+        guard phase == .pressed, bendSamples >= 2,
+              let pressSince, let lastTime else { return false }
+        return lastTime - pressSince >= 0.05 - 1e-9
+    }
+
     mutating func reset() {
-        phase = .waiting; raisedSince = nil; bentSince = nil; lastTime = nil; bendSamples = 0
+        phase = .waiting; cancellation = nil; raisedSince = nil
+        pressSince = nil; bentSince = nil; lastTime = nil; bendSamples = 0
+    }
+
+    private mutating func cancel(_ reason: Cancellation) {
+        reset(); cancellation = reason
     }
 
     mutating func update(_ pose: TapPose?, time: Double) -> Bool {
-        guard time.isFinite else { reset(); return false }
-        if let lastTime, time <= lastTime || time - lastTime > GestureTuning.trackingGraceSeconds + 1e-9 { reset() }
-        lastTime = time
-        guard let pose, pose != .uncertain else { reset(); return false }
-        if pose == .transition {
-            if phase == .ready { phase = .pressed; bentSince = time; bendSamples = 0 }
-            if let bentSince, time - bentSince > 0.65 { reset() }
-            raisedSince = nil
-            return false
+        guard time.isFinite else { cancel(.trackingLost); return false }
+        if let lastTime, time <= lastTime || time - lastTime > GestureTuning.trackingGraceSeconds + 1e-9 {
+            cancel(.trackingLost)
         }
+        lastTime = time
+        guard let pose, pose != .uncertain else { cancel(.trackingLost); return false }
         if phase == .pressed {
-            guard let bentSince, time - bentSince <= 0.65 else { reset(); return false }
-            if pose == .bent { bendSamples += 1; return false }
-            let clicked = bendSamples >= 2 && time - bentSince >= 0.05
-            reset(); lastTime = time; raisedSince = time
+            // Preparation gets its own bounded allowance. Once a bend is seen,
+            // further transition frames never restart its existing release window.
+            // These timings are covered synthetically; physical camera trials remain necessary.
+            let start = bentSince ?? pressSince ?? time
+            let limit = bentSince == nil ? 0.8 : 0.65
+            guard time - start <= limit + 1e-9 else { cancel(.timedOut); return false }
+            if pose == .bent {
+                if bentSince == nil { bentSince = time }
+                bendSamples += 1
+                return false
+            }
+            if pose == .transition { return false }
+            let clicked = canReleaseToClick
+            if clicked { reset() } else { cancel(.incompleteBend) }
+            lastTime = time; raisedSince = time
             return clicked
         }
         if pose == .raised {
             if raisedSince == nil { raisedSince = time }
-            if time - raisedSince! >= 0.15 { phase = .ready }
+            if time - raisedSince! >= 0.15 - 1e-9 {
+                phase = .ready; cancellation = nil
+            }
         } else {
             raisedSince = nil
-            if phase == .ready { phase = .pressed; bentSince = time; bendSamples = 1 }
+            if phase == .ready {
+                phase = .pressed; pressSince = time
+                bentSince = pose == .bent ? time : nil
+                bendSamples = pose == .bent ? 1 : 0
+            }
         }
         return false
     }
