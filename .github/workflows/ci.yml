@@ -1,0 +1,41 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check shell syntax
+        run: |
+          for script in scripts/*.sh *.command; do bash -n "$script"; done
+      - name: Test gestures and pointer movement
+        run: bash scripts/test.sh
+      - name: Build and verify installation
+        run: HAND_MOUSE_INSTALL_DIR="$RUNNER_TEMP/Hand Mouse Install" HAND_MOUSE_NO_OPEN=1 bash "Install Hand Mouse.command"
+      - name: Package universal app
+        if: matrix.runner == 'macos-15'
+        run: bash scripts/package.sh
+      - name: Upload universal archive and checksum
+        if: matrix.runner == 'macos-15'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Hand-Mouse-macos-universal
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
