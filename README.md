@@ -6,10 +6,12 @@
 
 ## First launch (~10 seconds)
 
-1. **Enable Accessibility** → turn on **Hand Mouse** in System Settings (add `~/Applications/Hand Mouse.app` with **+** if needed).
-2. **Start camera** → allow camera access.
-3. Show **one hand**, palm visible. **Index fingertip** moves the pointer (keep it inside the dashed guide).
-4. Leave **Allow clicks** off while you practice aiming. When ready, enable it and pick **Pinch** or **Dwell**.
+The window is grouped: **Camera → Setup → Pointing → Clicking**.
+
+1. **Setup:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
+2. **Camera:** **Start camera** → allow camera access.
+3. **Pointing:** show **one hand**, palm visible; **index fingertip** moves the pointer inside the dashed guide.
+4. **Clicking:** leave **Allow clicks** off while you practice. When ready, enable it and pick **Pinch** or **Dwell** (click controls stay dimmed until clicks are allowed).
 
 Keep a trackpad or mouse nearby. **Esc** (or **Pause camera** / menu-bar hand) pauses capture.
 
