@@ -56,6 +56,48 @@ import CoreGraphics
                 if allowed { check(cursor == aim, "tap keeps target anchored") }
             }
         }
+        for practice in [false, true] {
+            var engine = InteractionEngine()
+            engine.configure(InteractionSettings(mode: .twoFingerTap))
+            var cursor = CGPoint(x: 500, y: 500)
+            var time = 0.0
+            var clicks = 0
+            func feed(_ ratio: Double?, _ pose: TapPose? = .raised, x: Double = 0.5) {
+                time += 1.0 / 30
+                let step = engine.process(index: CGPoint(x: x, y: 0.5), pinchRatio: nil,
+                    timestamp: time, now: time, bounds: CGRect(x: 0, y: 0, width: 1000, height: 1000),
+                    running: true, trusted: !practice, destination: practice ? .practice : .system,
+                    cursorPosition: cursor, handSide: "left", tapPose: pose, fingerSeparationRatio: ratio)
+                if let location = step.location { cursor = location }
+                if step.click { clicks += 1 }
+                if practice { check(step.systemLocation == nil && !step.systemClick, "close lock stays in practice") }
+            }
+            for _ in 0..<30 { feed(0.6) }
+            feed(0.6, x: 0.52)
+            let aim = cursor
+            feed(0.30, x: 0.6)
+            check(cursor == aim && clicks == 0, "first touching frame freezes without clicking")
+            for _ in 0..<30 { feed(0.35, x: 0.65) }
+            check(cursor == aim, "hysteresis holds lock while raised")
+            feed(nil, nil, x: 0.7)
+            check(cursor == aim, "missing proximity does not unlock")
+            for _ in 0..<30 { feed(0.2, .raised, x: 0.7) }
+            for _ in 0..<3 { feed(0.2, .bent, x: 0.7) }
+            feed(0.2, .raised, x: 0.7)
+            check(cursor == aim && clicks == 1, "tap clicks at locked target")
+            for _ in 0..<30 { feed(0.2, .raised, x: 0.7) }
+            for _ in 0..<30 { feed(0.2, .bent, x: 0.7) }
+            check(cursor == aim && clicks == 1, "tap timeout does not release close lock")
+            feed(0.42, .raised, x: 0.7)
+            check(cursor == aim, "separation reanchors without jump")
+            feed(0.6, x: 0.72)
+            check(cursor.x > aim.x, "movement resumes after separation")
+            engine.configure(InteractionSettings(mode: .twoFingerTap, allowClicks: false))
+            for _ in 0..<30 { feed(0.2, x: 0.5) }
+            let before = cursor
+            feed(0.2, x: 0.6)
+            check(cursor.x > before.x && clicks == 1, "clicks off bypasses proximity lock")
+        }
         print("Passed \(checks) two-finger tap checks")
     }
 }

@@ -710,7 +710,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             cursorPosition: practiceCursor ?? CGPoint(x: screen.midX, y: screen.midY),
             handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
-            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose)
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio)
         preview.controlRegion = engine.pointerControlRegion
         if let location = step.location { practiceCursor = location }
         let simulatedPoint = step.location.map {
@@ -987,7 +987,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                   running: running, trusted: AXIsProcessTrusted(), cursorPosition: CGEvent(source: nil)?.location,
                                   handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
-            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose)
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio)
         preview.controlRegion = engine.pointerControlRegion
         guard dragOutput.dispatch(step, post: postDragEvents) else { interruptInteraction(); return }
         if let blocked = step.blocked {
