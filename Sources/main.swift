@@ -115,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let practice = PracticeView()
     private var practiceCursor: CGPoint?
     private let practiceButton = NSButton(title: "Practice safely", target: nil, action: nil)
+    private let allowPinchDragging = NSButton(checkboxWithTitle: "Pinch to drag (experimental)", target: nil, action: nil)
     private let allowDragging = NSButton(checkboxWithTitle: "Allow two-hand L dragging (experimental)", target: nil, action: nil)
     private let allowScrolling = NSButton(checkboxWithTitle: "Allow two-finger scrolling", target: nil, action: nil)
     private let shortcutChoice = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -175,6 +176,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case .clicked: return .held
             case .ready: return .ready
             case .needsNeutral: return .waitingForOpen
+            }
+        }
+        if engine.settings.allowPinchDragging {
+            switch engine.pinchDrag.phase {
+            case .waitingForOpen: return .waitingForOpen
+            case .ready: return .ready
+            case .confirming: return .confirming
+            case .pressed, .dragging: return .held
             }
         }
         return engine.pinch.phase
@@ -280,6 +289,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             defaults.set(false, forKey: "allowClicks")
             defaults.set(clickMode.rawValue, forKey: "clickMode")
         }
+        allowPinchDragging.state = clickMode == .pinch && allowDragging.state != .on && defaults.bool(forKey: "allowPinchDragging") ? .on : .off
+        allowPinchDragging.target = self; allowPinchDragging.action = #selector(pinchDraggingChanged)
+        allowPinchDragging.toolTip = "Pinch + release to click. Hold + move your hand to drag or select text. Release to finish. Requires Allow clicks."
         clickModeControl.selectedSegment = clickMode == .forward ? 1 : 0
         clickModeControl.target = self; clickModeControl.action = #selector(clickModeChanged)
         clickTest.target = self; clickTest.action = #selector(testClick)
@@ -314,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         modeRow.spacing = 12
         let tuningRow = NSStackView(views: [pinchFeelLabel, sensitivity, dwellDurationLabel, dwellDuration])
         tuningRow.spacing = 10
-        let hint = NSTextField(wrappingLabelWithString: "Dashed box = fingertip travel · Esc pauses · On-device")
+        let hint = NSTextField(wrappingLabelWithString: "Dashed box = movement range · Esc pauses · On-device")
         hint.font = .systemFont(ofSize: 11); hint.textColor = StartupStyle.muted
         displayStatus.font = .systemFont(ofSize: 11)
         displayStatus.textColor = StartupStyle.muted
@@ -326,7 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         optionsToggle.target = self; optionsToggle.action = #selector(toggleOptions)
         optionsToggle.setAccessibilityLabel("Gesture settings")
         optionsToggle.state = clickMode == .forward ? .on : .off
-        optionsRows = StartupStyle.column([modeRow, tuningRow, allowScrolling, allowDragging, forwardControls, displayStatus])
+        optionsRows = StartupStyle.column([modeRow, tuningRow, allowScrolling, allowPinchDragging, allowDragging, forwardControls, displayStatus])
         toggleOptions()
         let controls = NSStackView(views: [control, NSView(), allowClicks])
         controls.spacing = 12
@@ -463,6 +475,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let next = clickMode == .forward ? "Once the pointer moves, aim first; point toward the camera only to click."
                 : "Once the pointer moves, aim first; touch thumb + index to click."
             pointerGuide.update(title: startingPoseTitle, detail: startingPoseDetail + "\n" + next)
+        } else if engine.settings.allowPinchDragging && engine.pinchDrag.held {
+            pointerGuide.update(title: engine.pinchDrag.phase == .dragging ? "Move your palm to drag" : "Pinch held", detail: pinchDragInstruction)
         } else if clickMode == .forward && engine.settings.allowClicks,
                   !(engine.settings.allowDragging && engine.drag.phase != .idle),
                   engine.scroll.phase == .idle, let issue = lastForwardIssue {
@@ -473,7 +487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             let next = !engine.settings.allowClicks ? "Clicks are off. Turn on Allow clicks when you want to click."
                 : (clickMode == .forward ? "Point toward the camera and hold to click. Pull back to cancel or click again."
-                    : "Touch thumb + index to click, then separate them before the next click.")
+                    : (engine.settings.allowPinchDragging ? "Pinch + release to click. Hold + move hand to drag. Release to finish." : "Touch thumb + index to click, then separate them before the next click."))
             pointerGuide.update(title: practicing ? "Practice pointer ready · Move to aim" : "Pointer ready · Move to aim",
                 detail: "Move your fingertip within the dashed box to reach screen edges. Your palm can extend outside the box.\n" + next + (engine.settings.allowDragging ? " Two L-shaped hands drag/select; open either hand to release." : ""))
         }
@@ -484,7 +498,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             pointerEnabled: practicing || control.state == .on,
             pinchThreshold: [0.34, 0.42, 0.50][min(2, max(0, sensitivity.selectedSegment))],
             dwellSeconds: [0.65, 1.0, 1.5][min(2, max(0, dwellDuration.selectedSegment))],
-            allowScrolling: allowScrolling.state == .on, allowDragging: allowDragging.state == .on)
+            allowScrolling: allowScrolling.state == .on, allowDragging: allowDragging.state == .on,
+            allowPinchDragging: clickMode == .pinch && allowPinchDragging.state == .on)
         if settings != engine.settings { releaseDrag() }
         engine.configure(settings)
     }
@@ -527,7 +542,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                : "\(shortcutChoice.titleOfSelectedItem ?? "") pauses or resumes the camera from another app. Esc pauses.")
     }
 
+    private func disablePinchDragging() {
+        allowPinchDragging.state = .off
+        UserDefaults.standard.set(false, forKey: "allowPinchDragging")
+    }
+
+    @objc private func pinchDraggingChanged() {
+        if allowPinchDragging.state == .on {
+            allowDragging.state = .off
+            UserDefaults.standard.set(false, forKey: "allowDragging")
+        }
+        UserDefaults.standard.set(allowPinchDragging.state == .on, forKey: "allowPinchDragging")
+        configureInteraction(); resetInteraction(); clearClickFeedback(); readyFeedback()
+    }
+
     @objc private func draggingChanged() {
+        if allowDragging.state == .on { disablePinchDragging() }
         UserDefaults.standard.set(allowDragging.state == .on, forKey: "allowDragging")
         configureInteraction(); resetInteraction(); clearClickFeedback(); readyFeedback()
     }
@@ -598,6 +628,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dwellDuration.isHidden = clickMode != .forward
         dwellDurationLabel.isHidden = clickMode != .forward
         let learning = practicing
+        allowPinchDragging.isHidden = clickMode != .pinch
+        allowPinchDragging.title = learning ? "Try pinch dragging" : "Pinch to drag (experimental)"
         allowDragging.title = learning ? "Try two-hand L dragging in practice" : "Allow two-hand L dragging (experimental)"
         allowScrolling.title = learning ? "Try two-finger scrolling in practice" : "Allow two-finger scrolling"
         clickTest.isEnabled = clicksOn && !learning
@@ -621,7 +653,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if practicing { finishPractice(); return }
         guard activation.canResume else { return }
         allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
-        disableScrolling()
+        disableScrolling(); disablePinchDragging()
         allowDragging.state = .off; UserDefaults.standard.set(false, forKey: "allowDragging")
         practicing = true
         resetInteraction(); practice.reset(); practiceCursor = nil; clearClickFeedback(); practiceMessageUntil = 0
@@ -633,7 +665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func finishPractice() {
         practicing = false
         resetInteraction(); clearClickFeedback(); practice.reset(); practiceCursor = nil
-        disableScrolling()
+        disableScrolling(); disablePinchDragging()
         allowDragging.state = .off; UserDefaults.standard.set(false, forKey: "allowDragging")
         allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
         refreshClickChrome()
@@ -645,6 +677,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         UserDefaults.standard.set(false, forKey: "allowScrolling")
     }
 
+    private var pinchDragInstruction: String {
+        switch engine.pinchDrag.phase {
+        case .waitingForOpen: return "Separate thumb + index."
+        case .ready: return "Pinch + release to click. Hold + move hand to drag."
+        case .confirming: return "Hold pinch briefly."
+        case .pressed: return "Move hand to drag · Release to click"
+        case .dragging: return "Release to finish."
+        }
+    }
+
     private func handlePractice(_ frame: HandFrame, now: Double) {
         guard frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.20 else {
             interruptInteraction(); cursorFeedback.hide(); return
@@ -654,13 +696,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cursorFeedback.hide()
         // This branch ends before OS dispatch. Simulation also exposes no system output.
         let screen = CGDisplayBounds(targetDisplay)
-        let step = engine.process(index: frame.points[.indexTip], pinchRatio: frame.pinchRatio,
+        let step = engine.process(index: frame.points[.indexTip], pinchRatio: engine.settings.allowPinchDragging ? frame.dragPinchRatio : frame.pinchRatio,
             forwardPose: frame.forwardPose, timestamp: frame.timestamp, now: now,
             bounds: screen, running: running, trusted: false, destination: .practice,
             cursorPosition: practiceCursor ?? CGPoint(x: screen.midX, y: screen.midY),
             handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
-            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased)
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm)
         preview.controlRegion = engine.pointerControlRegion
         if let location = step.location { practiceCursor = location }
         let simulatedPoint = step.location.map {
@@ -682,6 +724,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let dragInstruction = engine.drag.phase == .needsRelease ? "Open either hand briefly to reset dragging, then make both L poses again." : step.dragging
             ? "Dragging in practice. Move your original hand; break either L to release."
             : "For dragging: make an L with both thumbs + index fingers, other fingers folded. The original hand moves the selection."
+        if engine.settings.allowPinchDragging && step.blocked == nil && engine.scroll.phase == .idle {
+            showFeedback("Practice only · No system input", now < practiceMessageUntil ? practiceMessage : pinchDragInstruction)
+            return
+        }
         showFeedback("Practice only · No system input", engine.settings.allowDragging && (frame.companionPresent || engine.drag.phase != .idle)
             ? dragInstruction : (now < practiceMessageUntil ? practiceMessage : instruction),
             progress: engine.forward.phase == .holding ? engine.forward.progress : nil)
@@ -731,6 +777,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func clickModeChanged() {
         if practicing { practice.reset(); practiceCursor = nil; practiceMessageUntil = 0 }
         clickMode = clickModeControl.selectedSegment == 1 ? .forward : .pinch
+        if clickMode != .pinch { disablePinchDragging() }
         UserDefaults.standard.set(clickMode.rawValue, forKey: "clickMode")
         resetInteraction(); clickedUntil = 0
         refreshClickChrome(); readyFeedback(); refresh()
@@ -844,12 +891,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             pause(); showFeedback("Display disconnected", "Choose a connected display and start the camera again.")
             return
         }
-        let step = engine.process(index: frame.points[.indexTip], pinchRatio: frame.pinchRatio, forwardPose: frame.forwardPose,
+        let step = engine.process(index: frame.points[.indexTip], pinchRatio: engine.settings.allowPinchDragging ? frame.dragPinchRatio : frame.pinchRatio, forwardPose: frame.forwardPose,
                                   timestamp: frame.timestamp, now: now, bounds: CGDisplayBounds(targetDisplay),
                                   running: running, trusted: AXIsProcessTrusted(), cursorPosition: CGEvent(source: nil)?.location,
                                   handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
-            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased)
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm)
         preview.controlRegion = engine.pointerControlRegion
         guard dragOutput.dispatch(step, post: postDragEvents) else { interruptInteraction(); return }
         if let blocked = step.blocked {
@@ -894,7 +941,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let location = step.systemLocation else { return }
         lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil)
         cameraStatus.stringValue = "Hand tracked"
-        if !step.systemDragging {
+        if !step.systemButtonHeld {
             CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left)?.post(tap: .cghidEventTap)
         }
         if step.systemScrollY != 0,
@@ -917,9 +964,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             clickedUntil = now + 0.35
             lastClickLocation = location
         }
+        if engine.pinchDrag.releasedClick {
+            clickedUntil = now + 0.35; lastClickLocation = location
+        }
         let clicked = now < clickedUntil
         preview.update(frame, phase: previewPhase, clicked: clicked)
-        if engine.settings.allowDragging && (frame.companionPresent || engine.drag.phase != .idle) {
+        if engine.settings.allowPinchDragging && clicksAllowed && engine.scroll.phase == .idle {
+            let title = clicked ? "Clicked ✓" : (step.dragging ? "Dragging" : (step.buttonHeld ? "Pressed" : "Pinch to click"))
+            showFeedback(title, pinchDragInstruction, clicked: clicked)
+            if engine.pinchDrag.engaged || clicked {
+                cursorFeedback.show(at: location, displayID: targetDisplay, progress: 0, remaining: 0, clicked: clicked, caption: title)
+            } else { cursorFeedback.hide() }
+        } else if engine.settings.allowDragging && (frame.companionPresent || engine.drag.phase != .idle) {
             let title = engine.drag.phase == .needsRelease ? "Open either hand to reset dragging" : (step.dragging ? "Dragging / selecting" : (engine.drag.phase == .confirming ? "Hold both L poses briefly"
                 : (!frame.isL ? "Make an L with your pointer hand" : "Make an L with your second hand")))
             let detail = engine.drag.phase == .needsRelease
