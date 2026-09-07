@@ -53,6 +53,7 @@ struct InteractionEngine {
     private(set) var drag = TwoHandDragDetector()
     private(set) var pinchDrag = OneHandDragDetector()
     private var filter = PointerFilter()
+    private var fingersTogether = false
     var pointerControlRegion: CGRect { filter.controlRegion }
     private var lastTimestamp: Double?
     private var lastDestination: InteractionDestination?
@@ -69,6 +70,7 @@ struct InteractionEngine {
 
     mutating func reset() {
         tap.reset()
+        fingersTogether = false
         drag.interrupt(); pinchDrag.reset()
         pinch.reset(); forward.reset(); forwardReference.reset(); filter.reset()
         lastTimestamp = nil
@@ -79,6 +81,7 @@ struct InteractionEngine {
     /// Stops an in-progress gesture when delivery stalls, retaining post-click rearm rules.
     mutating func trackingInterrupted() {
         tap.reset()
+        fingersTogether = false
         drag.interrupt(); pinchDrag.reset()
         pinch.reset(); forward.reset(); forwardReference.reset(); scroll.reset(); filter.reset()
         acquisition.interrupt(); lastLocation = nil
@@ -90,7 +93,7 @@ struct InteractionEngine {
                           handSide: String? = nil, scrollPoint: CGPoint? = nil,
                           primaryL: Bool = false, companionPresent: Bool = false, companionL: Bool = false,
                           primaryReleased: Bool = false, companionReleased: Bool = false, palm: CGPoint? = nil,
-                          tapPose: TapPose? = nil) -> InteractionStep {
+                          tapPose: TapPose? = nil, fingerSeparationRatio: Double? = nil) -> InteractionStep {
         guard running else { reset(); return InteractionStep(blocked: .paused) }
         let inputAllowed = trusted || destination == .practice
         guard inputAllowed else { reset(); return InteractionStep(blocked: .permission) }
@@ -204,6 +207,18 @@ struct InteractionEngine {
             trackingInterrupted()
             return InteractionStep(blocked: .acquiring)
         }
+        // Lock on the first close observation, independent of tap arming/timeout.
+        // Missing proximity observations retain an existing lock until visible separation.
+        let wasTogether = fingersTogether
+        if settings.mode == .twoFingerTap && settings.allowClicks {
+            if let ratio = fingerSeparationRatio, ratio.isFinite, ratio >= 0 {
+                if ratio <= 0.30 { fingersTogether = true }
+                else if ratio >= 0.42 { fingersTogether = false }
+            }
+        } else { fingersTogether = false }
+        if wasTogether && !fingersTogether {
+            filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
+        }
         let fired: Bool
         if !settings.allowClicks {
             tap.reset()
@@ -220,7 +235,7 @@ struct InteractionEngine {
         } else {
             fired = pinch.update(ratio: pinchRatio, time: timestamp)
         }
-        let freeze = settings.allowClicks && (settings.mode == .twoFingerTap ? tap.shouldFreeze || fired : (settings.mode == .forward ? forward.shouldFreeze : pinch.shouldFreeze))
+        let freeze = settings.allowClicks && (settings.mode == .twoFingerTap ? fingersTogether || tap.shouldFreeze || fired : (settings.mode == .forward ? forward.shouldFreeze : pinch.shouldFreeze))
         let location = filter.update(point: index, bounds: bounds, time: timestamp, freeze: freeze)
         lastLocation = location
         return InteractionStep(location: location,
