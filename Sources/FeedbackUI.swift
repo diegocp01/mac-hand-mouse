@@ -105,71 +105,276 @@ final class ClickFeedbackView: NSView {
     }
 }
 
-/// Harmless practice: this view draws a simulated pointer and never posts OS events.
+/// Task practice is driven by `InteractionEngine` output. These controls can reset
+/// or choose a task, but clicking the drawn targets with a physical mouse cannot
+/// complete them and this view never posts an OS event.
 final class PracticeView: NSView {
+    var onTaskChange: ((PracticeTask) -> Void)?
+    private(set) var state = PracticeTaskState()
+    var currentTask: PracticeTask { state.task }
+
+    private let taskPicker = NSSegmentedControl(labels: ["Click", "Scroll", "Select text"],
+                                                trackingMode: .selectOne, target: nil, action: nil)
+    private let instruction = NSTextField(labelWithString: "")
+    private let completion = NSTextField(labelWithString: "")
+    private let retryButton = NSButton(title: "Retry", target: nil, action: nil)
+    private let nextButton = NSButton(title: "Next", target: nil, action: nil)
+    private var pointer: CGPoint?
+    private var fraction = 0.0
+
     override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        layer?.borderWidth = 1
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        reset()
+
+        taskPicker.target = self; taskPicker.action = #selector(taskPicked)
+        taskPicker.selectedSegment = 0
+        taskPicker.setAccessibilityLabel("Practice task")
+        instruction.font = .systemFont(ofSize: 13, weight: .medium)
+        instruction.textColor = StartupStyle.muted
+        completion.font = .systemFont(ofSize: 13, weight: .semibold)
+        completion.textColor = .systemGreen
+        retryButton.target = self; retryButton.action = #selector(retry)
+        retryButton.bezelStyle = .rounded
+        nextButton.target = self; nextButton.action = #selector(nextTask)
+        nextButton.bezelStyle = .rounded
+
+        for view in [taskPicker, instruction, completion, retryButton, nextButton] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            taskPicker.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            taskPicker.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            taskPicker.widthAnchor.constraint(equalToConstant: 300),
+            instruction.leadingAnchor.constraint(equalTo: taskPicker.trailingAnchor, constant: 16),
+            instruction.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            instruction.centerYAnchor.constraint(equalTo: taskPicker.centerYAnchor),
+            completion.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            completion.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -13),
+            retryButton.trailingAnchor.constraint(equalTo: nextButton.leadingAnchor, constant: -8),
+            retryButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            nextButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            nextButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+        ])
+        updateColors()
+        reset(task: .click)
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
-    private(set) var hits = 0
-    private var pointer: CGPoint?
-    private var fraction = 0.0
-    private var scrollPosition = 250.0
-    private var dragStart: CGPoint?
-    private var dragEnd: CGPoint?
-    private var wasDragging = false
-    private var target: CGRect {
-        CGRect(x: bounds.width * (hits % 2 == 0 ? 0.30 : 0.70) - 42,
-               y: bounds.height * 0.5 - 42, width: 84, height: 84)
-    }
-    func reset() {
-        hits = 0; pointer = nil; fraction = 0; scrollPosition = 250
-        dragStart = nil; dragEnd = nil; wasDragging = false
-        _ = update(point: nil, progress: 0, clicked: false)
-    }
-    @discardableResult func update(point: CGPoint?, progress: Double, clicked: Bool, scrollY: Int32 = 0, dragging: Bool = false) -> Bool {
-        if dragging && !wasDragging { dragStart = point }
-        if dragging { dragEnd = point }
-        wasDragging = dragging
-        pointer = point; fraction = progress
-        scrollPosition = min(500, max(0, scrollPosition - Double(scrollY)))
-        let hit = clicked && point.map { hypot($0.x - target.midX, $0.y - target.midY) <= target.width / 2 } == true
-        if hit { hits += 1 }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
         needsDisplay = true
-        setAccessibilityLabel("Practice target. \(hits) successful practice clicks. Scroll position \(Int(scrollPosition)) of 500. \(dragging ? "Dragging selection." : "Drag released.") No system input is sent.")
-        return hit
     }
+
+    private var canvas: CGRect {
+        CGRect(x: 16, y: 54, width: max(1, bounds.width - 32), height: max(1, bounds.height - 104))
+    }
+
+    private func updateColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = StartupStyle.surface.cgColor
+            layer?.borderColor = StartupStyle.accent.withAlphaComponent(0.20).cgColor
+        }
+    }
+
+    func reset(task: PracticeTask = .click) {
+        state.reset(task: task)
+        pointer = nil; fraction = 0
+        taskPicker.selectedSegment = PracticeTask.allCases.firstIndex(of: task) ?? 0
+        refreshChrome()
+    }
+
+    func select(_ task: PracticeTask) {
+        reset(task: task)
+        onTaskChange?(task)
+    }
+
+    @discardableResult
+    func update(point: CGPoint?, progress: Double, clicked: Bool, scrollY: Int32 = 0,
+                dragging: Bool = false, interrupted: Bool = false) -> Bool {
+        let normalizedPoint = point.flatMap(normalize)
+        pointer = interrupted ? nil : point.flatMap { canvas.contains($0) ? $0 : nil }
+        fraction = interrupted ? 0 : min(1, max(0, progress))
+        let newlyCompleted = state.update(point: normalizedPoint, clicked: clicked,
+                                          scrollY: scrollY, dragging: dragging,
+                                          interrupted: interrupted || (point != nil && normalizedPoint == nil))
+        refreshChrome()
+        return newlyCompleted
+    }
+
+    func interrupt() {
+        _ = update(point: nil, progress: 0, clicked: false, interrupted: true)
+    }
+
+    private func normalize(_ point: CGPoint) -> CGPoint? {
+        guard point.x.isFinite, point.y.isFinite, canvas.contains(point) else { return nil }
+        return CGPoint(x: (point.x - canvas.minX) / canvas.width,
+                       y: (point.y - canvas.minY) / canvas.height)
+    }
+
+    private func pixel(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: canvas.minX + point.x * canvas.width,
+                y: canvas.minY + point.y * canvas.height)
+    }
+
+    func point(forNormalizedInput point: CGPoint) -> CGPoint { pixel(point) }
+
+    private func pixel(_ rect: CGRect) -> CGRect {
+        CGRect(x: canvas.minX + rect.minX * canvas.width,
+               y: canvas.minY + rect.minY * canvas.height,
+               width: rect.width * canvas.width, height: rect.height * canvas.height)
+    }
+
+    @objc private func taskPicked() {
+        let index = min(PracticeTask.allCases.count - 1, max(0, taskPicker.selectedSegment))
+        select(PracticeTask.allCases[index])
+    }
+
+    @objc private func retry() { select(currentTask) }
+
+    @objc private func nextTask() {
+        guard state.completed, let index = PracticeTask.allCases.firstIndex(of: currentTask),
+              index + 1 < PracticeTask.allCases.count else { return }
+        select(PracticeTask.allCases[index + 1])
+    }
+
+    private func refreshChrome() {
+        switch currentTask {
+        case .click: instruction.stringValue = "Click the Send button"
+        case .scroll: instruction.stringValue = "Scroll to find Quarterly review"
+        case .select: instruction.stringValue = "Highlight the sentence with both hands"
+        }
+        completion.stringValue = state.completed ? "✓  Task complete" : "Practice only · Your Mac is not controlled"
+        completion.textColor = state.completed ? .systemGreen : StartupStyle.muted
+        let isLast = currentTask == PracticeTask.allCases.last
+        nextButton.isHidden = isLast
+        nextButton.isEnabled = state.completed && !isLast
+        setAccessibilityLabel("\(instruction.stringValue). \(state.completed ? "Task complete." : "Not complete.") Practice sends no system input.")
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.controlBackgroundColor.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
-        NSColor.systemMint.withAlphaComponent(0.2).setFill()
-        NSBezierPath(ovalIn: target).fill()
-        NSColor.systemMint.setStroke()
-        let outline = NSBezierPath(ovalIn: target); outline.lineWidth = 3; outline.stroke()
-        let label = "Scroll: \(Int(scrollPosition)) / 500"
-        (label as NSString).draw(at: CGPoint(x: 14, y: 12), withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor])
-        if let start = dragStart, let end = dragEnd {
-            let selection = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
-                width: max(2, abs(end.x - start.x)), height: max(8, abs(end.y - start.y)))
-            NSColor.systemBlue.withAlphaComponent(0.25).setFill()
-            NSBezierPath(rect: selection).fill()
-            NSColor.systemBlue.setStroke()
-            let line = NSBezierPath(); line.move(to: start); line.line(to: end); line.lineWidth = 2; line.stroke()
+        super.draw(dirtyRect)
+        NSColor.controlBackgroundColor.withAlphaComponent(0.72).setFill()
+        NSBezierPath(roundedRect: canvas, xRadius: 12, yRadius: 12).fill()
+        switch currentTask {
+        case .click: drawClickTask()
+        case .scroll: drawScrollTask()
+        case .select: drawSelectionTask()
         }
-        if let pointer {
-            NSColor.labelColor.setFill()
-            NSBezierPath(ovalIn: CGRect(x: pointer.x - 5, y: pointer.y - 5, width: 10, height: 10)).fill()
-            if fraction > 0 {
-                let arc = NSBezierPath()
-                arc.appendArc(withCenter: pointer, radius: 17, startAngle: -90,
-                              endAngle: -90 + CGFloat(fraction) * 360, clockwise: false)
-                NSColor.systemMint.setStroke(); arc.lineWidth = 3; arc.stroke()
+        drawPointer()
+    }
+
+    private func drawClickTask() {
+        let card = CGRect(x: canvas.midX - 205, y: canvas.minY + 13,
+                          width: 410, height: max(78, canvas.height - 26))
+        NSColor.windowBackgroundColor.setFill()
+        NSBezierPath(roundedRect: card, xRadius: 10, yRadius: 10).fill()
+        let button = pixel(PracticeTaskState.clickTarget)
+        draw("Ready to share?", at: CGPoint(x: card.minX + 20, y: button.minY + 2),
+             font: .systemFont(ofSize: 15, weight: .semibold), color: .labelColor)
+        draw("Send the finished note to your team.", at: CGPoint(x: card.minX + 20, y: button.maxY + 15),
+             font: .systemFont(ofSize: 12), color: .secondaryLabelColor)
+        (state.completed ? NSColor.systemGreen : NSColor.controlAccentColor).setFill()
+        NSBezierPath(roundedRect: button, xRadius: 7, yRadius: 7).fill()
+        draw(state.completed ? "Sent ✓" : "Send", centeredIn: button,
+             font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+    }
+
+    private func drawScrollTask() {
+        let viewport = pixel(PracticeTaskState.listViewport)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: viewport, xRadius: 9, yRadius: 9).addClip()
+        let target = pixel(state.visibleListTargetRow)
+        let rowHeight = target.height
+        let names = ["Budget notes", "Project kickoff", "Design review", "Quarterly review", "Launch checklist", "Customer calls", "Team planning"]
+        for (offset, name) in zip(-3...3, names) {
+            let row = CGRect(x: target.minX, y: target.minY + CGFloat(offset) * rowHeight,
+                             width: target.width, height: rowHeight)
+            if name == "Quarterly review" {
+                (state.completed ? NSColor.systemGreen : NSColor.controlAccentColor).withAlphaComponent(0.17).setFill()
+                NSBezierPath(roundedRect: row.insetBy(dx: 5, dy: 3), xRadius: 6, yRadius: 6).fill()
             }
+            draw(name, at: CGPoint(x: row.minX + 14, y: row.midY - 8),
+                 font: .systemFont(ofSize: 12, weight: name == "Quarterly review" ? .semibold : .regular),
+                 color: name == "Quarterly review" ? .labelColor : .secondaryLabelColor)
+            NSColor.separatorColor.setStroke()
+            let divider = NSBezierPath(); divider.move(to: CGPoint(x: row.minX + 10, y: row.maxY))
+            divider.line(to: CGPoint(x: row.maxX - 10, y: row.maxY)); divider.lineWidth = 0.5; divider.stroke()
         }
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.separatorColor.setStroke()
+        let outline = NSBezierPath(roundedRect: viewport, xRadius: 9, yRadius: 9)
+        outline.lineWidth = 1; outline.stroke()
+        draw("Scroll ↓", at: CGPoint(x: viewport.maxX + 12, y: viewport.midY - 7),
+             font: .systemFont(ofSize: 11, weight: .semibold), color: .secondaryLabelColor)
+    }
+
+    private func drawSelectionTask() {
+        let card = CGRect(x: canvas.minX + 44, y: canvas.minY + 16,
+                          width: canvas.width - 88, height: max(72, canvas.height - 32))
+        NSColor.windowBackgroundColor.setFill()
+        NSBezierPath(roundedRect: card, xRadius: 10, yRadius: 10).fill()
+        draw("Highlight this sentence", at: CGPoint(x: card.minX + 20, y: card.minY + 16),
+             font: .systemFont(ofSize: 11, weight: .semibold), color: .secondaryLabelColor)
+        let sentence = pixel(PracticeTaskState.sentenceTarget)
+        if state.completed {
+            NSColor.selectedTextBackgroundColor.withAlphaComponent(0.72).setFill()
+            NSBezierPath(roundedRect: sentence.insetBy(dx: -3, dy: -2), xRadius: 3, yRadius: 3).fill()
+        } else if let start = state.selectionStart, let end = state.selectionEnd {
+            let a = pixel(start), b = pixel(end)
+            let partial = CGRect(x: min(a.x, b.x), y: sentence.minY - 2,
+                                 width: max(2, abs(b.x - a.x)), height: sentence.height + 4)
+                .intersection(sentence.insetBy(dx: -3, dy: -2))
+            NSColor.selectedTextBackgroundColor.withAlphaComponent(0.55).setFill()
+            NSBezierPath(roundedRect: partial, xRadius: 3, yRadius: 3).fill()
+        }
+        let words = "Thoughtful tools make everyday work feel simple, direct, and effortless."
+        let baseFont = NSFont.systemFont(ofSize: 15, weight: .medium)
+        let baseWidth = (words as NSString).size(withAttributes: [.font: baseFont]).width
+        let fontSize = min(18, max(11, 15 * (sentence.width - 16) / max(1, baseWidth)))
+        let sentenceFont = NSFont.systemFont(ofSize: fontSize, weight: .medium)
+        let wordSize = (words as NSString).size(withAttributes: [.font: sentenceFont])
+        draw(words, at: CGPoint(x: sentence.minX + 8, y: sentence.midY - wordSize.height / 2),
+             font: sentenceFont, color: .labelColor)
+        NSColor.controlAccentColor.withAlphaComponent(0.55).setStroke()
+        for x in [sentence.minX, sentence.maxX] {
+            let marker = NSBezierPath(); marker.move(to: CGPoint(x: x, y: sentence.minY - 4))
+            marker.line(to: CGPoint(x: x, y: sentence.maxY + 4)); marker.lineWidth = 1.5; marker.stroke()
+        }
+        if state.completed {
+            draw("✓", at: CGPoint(x: sentence.maxX + 12, y: sentence.midY - 10),
+                 font: .systemFont(ofSize: 18, weight: .bold), color: .systemGreen)
+        }
+    }
+
+    private func drawPointer() {
+        guard let pointer else { return }
+        NSColor.labelColor.setFill()
+        NSColor.white.withAlphaComponent(0.9).setStroke()
+        let dot = NSBezierPath(ovalIn: CGRect(x: pointer.x - 5, y: pointer.y - 5, width: 10, height: 10))
+        dot.lineWidth = 2; dot.fill(); dot.stroke()
+        guard fraction > 0 else { return }
+        let arc = NSBezierPath()
+        arc.appendArc(withCenter: pointer, radius: 17, startAngle: -90,
+                      endAngle: -90 + CGFloat(fraction) * 360, clockwise: false)
+        NSColor.systemMint.setStroke(); arc.lineWidth = 3; arc.lineCapStyle = .round; arc.stroke()
+    }
+
+    private func draw(_ text: String, at point: CGPoint, font: NSFont, color: NSColor) {
+        (text as NSString).draw(at: point, withAttributes: [.font: font, .foregroundColor: color])
+    }
+
+    private func draw(_ text: String, centeredIn rect: CGRect, font: NSFont, color: NSColor) {
+        let size = (text as NSString).size(withAttributes: [.font: font])
+        draw(text, at: CGPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2),
+             font: font, color: color)
     }
 }
 
