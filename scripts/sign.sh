@@ -33,7 +33,7 @@ case "$MODE" in
         SIGNING_DIR="${HAND_MOUSE_SIGNING_DIR:-$HOME/Library/Application Support/Hand Mouse/Signing}"
         if [ -L "$SIGNING_DIR" ]; then echo 'Signing state must not be a symbolic link.' >&2; exit 1; fi
         mkdir -p "$SIGNING_DIR"
-        SIGNING_DIR=$(cd "$SIGNING_DIR" && pwd)
+        SIGNING_DIR=$(cd "$SIGNING_DIR" && pwd -P)
         if [ ! -O "$SIGNING_DIR" ]; then echo 'Signing state must belong to the current user.' >&2; exit 1; fi
         chmod 700 "$SIGNING_DIR"
         if ! mkdir "$SIGNING_DIR/.lock" 2>/dev/null; then

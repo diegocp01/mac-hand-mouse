@@ -3,6 +3,7 @@ set -euo pipefail
 umask 077
 cd "$(dirname "$0")/.."
 TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/hand-mouse-signing-tests.XXXXXX")
+TEST_ROOT=$(cd "$TEST_ROOT" && pwd -P)
 cleanup() {
     for state in "$TEST_ROOT/state-a" "$TEST_ROOT/state-b"; do
         /usr/bin/security delete-keychain "$state/identity.keychain-db" >/dev/null 2>&1 || true
@@ -85,4 +86,7 @@ if sign_local "$TWO" "$TEST_ROOT/state-a" >/dev/null 2>&1; then
 fi
 test -d "$TEST_ROOT/state-a/.lock"
 rmdir "$TEST_ROOT/state-a/.lock"
+cleanup
+trap - EXIT
+test "$ORIGINAL_KEYCHAINS" = "$(/usr/bin/security list-keychains -d user)"
 echo 'Passed signing persistence, keychain preservation, cross-checkout update, signer isolation, legacy migration, downgrade refusal, private state, incomplete-state, and locking checks.'
