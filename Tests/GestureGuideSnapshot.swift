@@ -19,8 +19,8 @@ enum GestureGuideSnapshot {
         try render(
             name: "gesture-guide-narrow.png",
             size: NSSize(width: 620, height: 350),
-            selected: .scroll,
-            active: .scroll,
+            selected: .rightClick,
+            active: .rightClick,
             scrollingEnabled: true,
             selectionEnabled: false,
             destination: destination

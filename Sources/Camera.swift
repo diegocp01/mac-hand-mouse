@@ -13,6 +13,8 @@ struct HandFrame {
     var dragPinchRatio: Double?
     var palm: CGPoint?
     var scrollPoint: CGPoint?
+    var pointingPose: PointingPose?
+    var fiveFingerPinchRatio: Double?
     var tapPose: TapPose?
     var fingerSeparationRatio: Double?
     var isL = false
@@ -132,7 +134,7 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 session.startRunning()
                 if session.isRunning {
                     consecutiveVisionFailures = 0
-                    status("Show one hand, palm toward camera. Raise index + middle and hold still briefly.", token: token)
+                    status("Show one hand, palm toward camera. Raise only your index finger and hold still briefly.", token: token)
                 } else {
                     captureActive = false
                     invalidateConfiguration()
@@ -268,6 +270,21 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             guard [tip, pip, base].allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
                   let t = frame.points[tip], let p = frame.points[pip], let b = frame.points[base] else { return .uncertain }
             return ScrollPoseGeometry.shape(tip: t, pip: p, base: b, aspect: Double(aspect))
+        }
+        let indexShape = finger(.indexTip, .indexPIP, .indexMCP)
+        let middleShape = finger(.middleTip, .middlePIP, .middleMCP)
+        if indexShape == .extended,
+           finger(.ringTip, .ringPIP, .ringMCP) == .folded,
+           finger(.littleTip, .littlePIP, .littleMCP) == .folded {
+            if middleShape == .folded { frame.pointingPose = .move }
+            else if middleShape == .extended { frame.pointingPose = .click }
+        }
+        let tipJoints: [VNHumanHandPoseObservation.JointName] = [.thumbTip, .indexTip, .middleTip, .ringTip, .littleTip]
+        if (tipJoints + palmJoints).allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
+           let indexBase = frame.points[.indexMCP], let littleBase = frame.points[.littleMCP],
+           let wrist = frame.points[.wrist], let middleBase = frame.points[.middleMCP] {
+            frame.fiveFingerPinchRatio = FiveFingerPinchGeometry.ratio(tips: tipJoints.compactMap { frame.points[$0] },
+                indexBase: indexBase, littleBase: littleBase, wrist: wrist, middleBase: middleBase, aspect: Double(aspect))
         }
         let tapJoints: [VNHumanHandPoseObservation.JointName] = [.indexTip, .indexPIP, .indexMCP, .middleTip, .middlePIP, .middleMCP]
         if tapJoints.allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }) {

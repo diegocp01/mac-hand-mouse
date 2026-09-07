@@ -129,8 +129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var preview: PreviewView!
     private let titleLabel = NSTextField(labelWithString: "Hand Mouse")
     private let gestureGuide = GestureGuideView(frame: .zero)
-    private let startingPoseTitle = "Palm toward camera · Raise index + middle"
-    private let startingPoseDetail = "Palm toward camera · Index + middle raised · Hold still briefly."
+    private let startingPoseTitle = "Palm toward camera · Point with index"
+    private let startingPoseDetail = "Palm toward camera · Only index extended · Hold still briefly."
     private let optionsToggle = NSButton(title: "Settings", target: nil, action: nil)
     private var optionsRows: NSStackView!
     private let feedback = ClickFeedbackView(frame: .zero)
@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let precisionMode = NSButton(checkboxWithTitle: "Precision", target: nil, action: nil)
     private let steadyAim = NSButton(checkboxWithTitle: "Steady aim", target: nil, action: nil)
     private let allowClicks = NSButton(checkboxWithTitle: "Click", target: nil, action: nil)
-    private let clickModeControl = NSSegmentedControl(labels: ["Two-finger tap"], trackingMode: .selectOne, target: nil, action: nil)
+    private let clickModeControl = NSSegmentedControl(labels: ["Point and hold"], trackingMode: .selectOne, target: nil, action: nil)
     private let sensitivity = NSSegmentedControl(labels: ["Precise", "Balanced", "Easy"], trackingMode: .selectOne, target: nil, action: nil)
     private let clickTest = NSButton(title: "Test click: 0", target: nil, action: nil)
     private let pinchFeelLabel = NSTextField(labelWithString: "Pinch feel")
@@ -165,10 +165,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let dwellDurationLabel = NSTextField(labelWithString: "Hold time")
     private let displayStatus = NSTextField(labelWithString: "")
     private var lastClickLocation: CGPoint?
+    private var lastClickWasRight = false
     private var lastAnnouncement: String?
     private var lastAnnouncementTime = -Double.infinity
-    private var clickMode: ClickMode = .twoFingerTap
+    private var clickMode: ClickMode = .pointAndHold
     private var previewPhase: PinchPhase {
+        if clickMode == .pointAndHold {
+            if engine.rightGestureActive {
+                return engine.rightPinch.phase == .held ? .held : .confirming
+            }
+            if engine.scroll.phase != .idle { return .confirming }
+            switch engine.pointHold.phase {
+            case .needsMove: return .waitingForOpen
+            case .ready: return .ready
+            case .holding: return .confirming
+            case .clicked: return .held
+            }
+        }
         if clickMode == .twoFingerTap {
             switch engine.tap.phase {
             case .waiting: return .waitingForOpen
@@ -265,7 +278,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         allowClicks.state = ClickPreference.restored(saved: defaults.object(forKey: "allowClicks") as? Bool,
             legacy: defaults.object(forKey: "allowPinchClicks") as? Bool) ? .on : .off
         allowClicks.target = self; allowClicks.action = #selector(allowClicksChanged)
-        allowClicks.setAccessibilityLabel("Enable click gestures")
+        allowClicks.setAccessibilityLabel("Enable left-click and right-click gestures")
+        allowClicks.toolTip = "Raise index + middle and hold for one second to click. Pinch all five fingertips together to right-click."
         allowDragging.state = defaults.bool(forKey: "allowDragging") ? .on : .off
         allowDragging.target = self; allowDragging.action = #selector(draggingChanged)
         allowDragging.toolTip = "Start with one hand. Make an L with both thumbs + index fingers; fold the other fingers. Hold briefly, then move your original hand to drag. Open either hand to release."
@@ -306,7 +320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dwellDuration.setAccessibilityLabel("Forward click hold duration")
         dwellDuration.toolTip = "How long to hold the forward pose after it is recognized. Moving normally never starts this timer."
         sensitivityChanged()
-        clickMode = .twoFingerTap
+        clickMode = .pointAndHold
         allowPinchDragging.state = clickMode == .pinch && allowDragging.state != .on && defaults.bool(forKey: "allowPinchDragging") ? .on : .off
         allowPinchDragging.target = self; allowPinchDragging.action = #selector(pinchDraggingChanged)
         allowPinchDragging.toolTip = "Pinch + release to click. Hold + move your hand to drag or select text. Release to finish. Requires Allow clicks."
@@ -574,18 +588,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowDidChangeScreen(_ notification: Notification) { updateDisplayStatus() }
 
 
-    private func showFeedback(_ title: String, _ detail: String, progress: Double? = nil, clicked: Bool = false) {
+    private func showFeedback(_ title: String, _ detail: String, progress: Double? = nil,
+                              clicked: Bool = false, rightClicked: Bool = false) {
         // Visible feedback stays to one short status; VoiceOver receives the full detail.
         feedback.isHidden = false
         feedback.update(title: title, detail: detail, fraction: progress, clicked: clicked)
-        gestureGuide.update(active: activeGesture(clicked: clicked),
+        gestureGuide.update(active: rightClicked ? .rightClick : activeGesture(clicked: clicked),
                             scrollingEnabled: allowScrolling.state == .on,
                             selectionEnabled: selectionAvailable)
-        let announcement: String? = clicked ? "Click sent" : (["Looking for your hand", "Tracking interrupted", "Tracking delayed", "Enable Accessibility", "Paused"].contains(title) ? title : nil)
+        let announcement: String? = clicked
+            ? (practicing ? (rightClicked ? "Practice right click" : "Practice click") : (rightClicked ? "Right click sent" : "Click sent"))
+            : (["Looking for your hand", "Tracking interrupted", "Tracking delayed", "Enable Accessibility", "Paused"].contains(title) ? title : nil)
         if let announcement, lastAnnouncement != announcement {
             let now = ProcessInfo.processInfo.systemUptime
             // A click or explicit pause must not disappear behind the camera-status throttle.
-            if announcement == "Click sent" || announcement == "Paused" || now - lastAnnouncementTime > 0.4 {
+            if clicked || announcement == "Paused" || now - lastAnnouncementTime > 0.4 {
                 NSAccessibility.post(element: feedback, notification: .announcementRequested,
                     userInfo: [.announcement: announcement, .priority: NSAccessibilityPriorityLevel.low.rawValue])
                 lastAnnouncementTime = now
@@ -605,6 +622,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         if engine.scroll.phase != .idle { return .scroll }
+        if engine.settings.allowClicks && (engine.rightGestureActive || (clicked && lastClickWasRight)) { return .rightClick }
+        if engine.settings.allowClicks && engine.pointHold.shouldFreeze { return .click }
         if engine.settings.allowClicks && (clicked || engine.tap.shouldFreeze || engine.fingersTogether) { return .click }
         return cameraReady && engine.settings.pointerEnabled && engine.acquisition.active ? .move : nil
     }
@@ -614,22 +633,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func clearClickFeedback() {
-        cursorFeedback.hide(); clickedUntil = 0; lastClickLocation = nil
+        cursorFeedback.hide(); clickedUntil = 0; lastClickLocation = nil; lastClickWasRight = false
     }
 
     private func readyFeedback() {
         clearClickFeedback()
         if practicing {
-            showFeedback("Practice only · No system input", "Aim at green. Bend index + middle, then lift to click.")
+            showFeedback("Practice only · No system input", "Aim with your index. Raise your middle finger and hold still for one second to click. Pinch all five tips to practice right-clicking.")
         } else if !running {
-            showFeedback(startingPoseTitle, "Start the camera, then raise index + middle with your palm toward the camera.")
+            showFeedback(startingPoseTitle, "Start the camera, then extend only your index finger with your palm toward the camera.")
         } else if control.state != .on {
             showFeedback("Preview only", "Pointer and clicks off.")
         } else if allowClicks.state != .on {
-            showFeedback("Clicks off", "Point to move.")
+            showFeedback("Clicks off", "Extend only your index finger to move.")
+        } else if clickMode == .pointAndHold {
+            showFeedback("Point to move · Raise two to click", "Aim with only your index finger. Raise your middle finger too and hold still while the ring fills for one second. Lower your middle finger to prepare another click.")
         } else {
             showFeedback(clickMode == .forward ? "Point forward to click" : "Two-finger tap to click",
                          clickMode == .forward ? "Aim normally, point toward the camera, then hold. Pull back to cancel." : "Bend index + middle together, then lift to click.")
+        }
+    }
+
+    /// Practice and the system cursor use the same observed detector progress.
+    /// Only the system path supplies a location for the nonactivating overlay.
+    private func showPointHoldFeedback(at location: CGPoint? = nil, practiceOnly: Bool = false) {
+        let prefix = practiceOnly ? "Practice · " : ""
+        if engine.rightGestureActive {
+            let held = engine.rightPinch.phase == .held
+            let confirming = engine.rightPinch.phase == .confirming
+            let title = held ? "Open your hand" : (confirming ? "Hold five tips together" : "Open your hand to prepare")
+            let detail = held
+                ? "One right-click was completed. Open your hand, then point with only your index finger to move."
+                : (confirming ? "Keep all five fingertips together and visible. Hold briefly to right-click once."
+                    : "Open your hand with all five fingertips visible, then bring the fingertips together to right-click.")
+            showFeedback(prefix + title, detail)
+            if let location {
+                cursorFeedback.show(at: location, displayID: targetDisplay, progress: 0, remaining: 0,
+                    clicked: false, caption: held ? "Open your hand" : "Five tips together")
+            }
+            return
+        }
+        switch engine.pointHold.phase {
+        case .needsMove:
+            showFeedback(prefix + "Point with index only", "Lower your middle finger to move and prepare a click. Aim, then raise your middle finger and hold still for one second.")
+            cursorFeedback.hide()
+        case .ready:
+            showFeedback(prefix + "Raise middle to click", "Aim with your index, then raise your middle finger too. Hold still while the ring fills for one second.")
+            cursorFeedback.hide()
+        case .holding:
+            let remaining = engine.pointHold.remainingSeconds
+            showFeedback(prefix + String(format: "Click in %.1f s", max(0.1, remaining)),
+                "Keep index + middle raised and still. Lower the middle finger to cancel. One click when the ring fills.",
+                progress: engine.pointHold.progress)
+            if let location {
+                cursorFeedback.show(at: location, displayID: targetDisplay, progress: engine.pointHold.progress,
+                    remaining: remaining, clicked: false)
+            }
+        case .clicked:
+            showFeedback(prefix + "Lower middle to move", "One click was completed. Lower your middle finger to aim and prepare the next click.")
+            if let location {
+                cursorFeedback.show(at: location, displayID: targetDisplay, progress: 1, remaining: 0,
+                    clicked: false, caption: "Lower middle to move")
+            }
         }
     }
 
@@ -641,8 +706,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         clickModeControl.isEnabled = true
         clickModeLabel.textColor = .secondaryLabelColor
         // There is one click gesture, so it does not need a mode picker.
-        clickModeControl.superview?.isHidden = clickMode == .twoFingerTap
-        sensitivity.superview?.isHidden = clickMode == .twoFingerTap
+        clickModeControl.superview?.isHidden = clickMode == .pointAndHold || clickMode == .twoFingerTap
+        sensitivity.superview?.isHidden = clickMode == .pointAndHold || clickMode == .twoFingerTap
         sensitivity.isEnabled = clickMode == .pinch
         pinchFeelLabel.isHidden = clickMode != .pinch
         sensitivity.isHidden = clickMode != .pinch
@@ -671,7 +736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         preview.isHidden = practicing
         practiceButton.title = practicing ? "Finish practice" : "Practice"
         forwardInstructions.stringValue = practicing
-            ? "Practice only · \(practice.hits) targets hit. Finish whenever you like."
+            ? "Practice only · \(practice.hits) targets hit · \(practice.rightClicks) right clicks. Finish whenever you like."
             : "Point forward to click · No pose setup needed · Experimental"
     }
 
@@ -716,7 +781,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func handlePractice(_ frame: HandFrame, now: Double) {
         guard frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.20 else {
-            interruptInteraction(); cursorFeedback.hide(); return
+            interruptInteraction(); clearClickFeedback()
+            _ = practice.update(point: nil, progress: 0, clicked: false)
+            showFeedback("Practice · Tracking interrupted", startingPoseDetail)
+            return
         }
         lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
         cameraStatus.stringValue = "Practice only"
@@ -729,45 +797,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             cursorPosition: practiceCursor ?? CGPoint(x: screen.midX, y: screen.midY),
             handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
-            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio, scrollPinchRatio: frame.dragPinchRatio)
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio, scrollPinchRatio: frame.dragPinchRatio,
+            pointingPose: frame.pointingPose, fiveFingerPinchRatio: frame.fiveFingerPinchRatio)
         preview.controlRegion = engine.pointerControlRegion
         if let location = step.location { practiceCursor = location }
         let simulatedPoint = step.location.map {
             CGPoint(x: ($0.x - screen.minX) / screen.width * practice.bounds.width,
                     y: ($0.y - screen.minY) / screen.height * practice.bounds.height)
         }
-        let hit = practice.update(point: simulatedPoint, progress: engine.forward.progress, clicked: step.click, scrollY: step.scrollY, dragging: step.dragging)
-        if step.click {
-            let next = engine.fingersTogether ? "Separate index + middle to aim again." : "Move to aim again."
-            practiceMessage = hit ? "Target hit ✓ · \(next)" : "Try the green target · \(next)"
+        let isPointHold = clickMode == .pointAndHold
+        let progress = isPointHold ? engine.pointHold.progress : engine.forward.progress
+        let holding = isPointHold ? engine.pointHold.shouldFreeze : engine.forward.phase == .holding
+        let hit = practice.update(point: simulatedPoint, progress: progress, clicked: step.click,
+            rightClicked: step.rightClick, holding: holding, scrollY: step.scrollY, dragging: step.dragging)
+        if step.click || step.rightClick {
+            lastClickWasRight = step.rightClick
+            if step.rightClick {
+                practiceMessage = "Right click \(practice.rightClicks) ✓ · Open your hand to reset."
+            } else {
+                let next = isPointHold ? "Lower middle to aim again." : "Move to aim again."
+                practiceMessage = hit ? "Target hit ✓ · \(next)" : "Try the green target · \(next)"
+            }
             practiceMessageUntil = now + 1.2
             updatePractice()
         }
-        let instruction = step.blocked == .differentHand ? "Use the same hand, or finish and restart practice to switch hands."
-            : (step.blocked != nil ? "Raise index + middle, palm toward camera. Hold still briefly."
-                : (engine.scroll.phase != .idle ? "Keep thumb + index pinched and move your hand up/down to change the counter. Release to stop."
-                    : (clickMode == .forward ? "Move onto green. Point forward to start the timer; pull back to cancel."
-                       : "Move onto green, bend index + middle together, then lift. No pointer, clicks, or scroll events go to other apps.")))
-        let dragInstruction = engine.drag.phase == .needsRelease ? "Open either hand briefly to reset dragging, then make both L poses again." : step.dragging
-            ? "Dragging in practice. Move your original hand; break either L to release."
-            : "For dragging: make an L with both thumbs + index fingers, other fingers folded. The original hand moves the selection."
-        if engine.settings.allowPinchDragging && step.blocked == nil && engine.scroll.phase == .idle {
-            showFeedback("Practice only · No system input", now < practiceMessageUntil ? practiceMessage : pinchDragInstruction)
+        if let blocked = step.blocked {
+            let detail = blocked == .differentHand
+                ? "Use the same hand, or finish and restart practice to switch hands."
+                : startingPoseDetail
+            showFeedback("Practice · Point with index only", detail)
             return
         }
-        if step.blocked == nil && clickMode == .twoFingerTap && engine.scroll.phase == .idle
-                && !(engine.settings.allowDragging && (frame.companionPresent || engine.drag.phase != .idle)) {
-            let guidance = TapGuidance(tap: engine.tap, locked: engine.fingersTogether)
-            if now < practiceMessageUntil && !engine.tap.shouldFreeze && engine.tap.cancellation == nil {
-                showFeedback("Practice only · No system input", practiceMessage)
+        if engine.settings.allowDragging && (frame.companionPresent || engine.drag.phase != .idle) {
+            let instruction = engine.drag.phase == .needsRelease
+                ? "Open either hand briefly to reset dragging, then make both L poses again."
+                : (step.dragging ? "Move your original hand to drag. Open either L to release."
+                    : "Make an L with both thumbs + index fingers, keeping the other fingers folded.")
+            showFeedback("Practice · Select text", instruction)
+            return
+        }
+        if engine.scroll.phase != .idle {
+            showFeedback("Practice · Scrolling", "Keep thumb + index pinched and move your hand up/down to change the counter. Release to stop.")
+            return
+        }
+        if isPointHold {
+            if step.click || step.rightClick {
+                showFeedback("Practice · " + practiceMessage, "No system input was sent.",
+                    clicked: true, rightClicked: step.rightClick)
+            } else if now < practiceMessageUntil && engine.pointHold.phase != .holding
+                        && engine.rightPinch.phase != .confirming {
+                showFeedback("Practice · " + practiceMessage, "No system input is sent.")
             } else {
-                showFeedback("Practice · " + guidance.title, guidance.detail)
+                showPointHoldFeedback(practiceOnly: true)
             }
             return
         }
-        showFeedback("Practice only · No system input", engine.settings.allowDragging && (frame.companionPresent || engine.drag.phase != .idle)
-            ? dragInstruction : (now < practiceMessageUntil ? practiceMessage : instruction),
-            progress: engine.forward.phase == .holding ? engine.forward.progress : nil)
+        if engine.settings.allowPinchDragging {
+            showFeedback("Practice only · No system input", now < practiceMessageUntil ? practiceMessage : pinchDragInstruction)
+        } else if clickMode == .twoFingerTap {
+            let guidance = TapGuidance(tap: engine.tap, locked: engine.fingersTogether)
+            showFeedback("Practice · " + guidance.title, guidance.detail)
+        } else {
+            showFeedback("Practice only · No system input", now < practiceMessageUntil ? practiceMessage
+                : "Move onto green. Point forward to start the timer; pull back to cancel.",
+                progress: engine.forward.phase == .holding ? engine.forward.progress : nil)
+        }
     }
 
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
@@ -898,7 +992,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc private func clickModeChanged() {
         if practicing { practice.reset(); practiceCursor = nil; practiceMessageUntil = 0 }
-        clickMode = .twoFingerTap
+        clickMode = .pointAndHold
         if clickMode != .pinch { disablePinchDragging() }
         UserDefaults.standard.set(clickMode.rawValue, forKey: "clickMode")
         resetInteraction(); clickedUntil = 0
@@ -943,8 +1037,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             permissionStatus.stringValue = "Practice only · All system input off"
             // Optional practice needs no Accessibility access and has no OS output path.
             if cameraReady && ProcessInfo.processInfo.systemUptime - lastFrameTime > GestureTuning.trackingGraceSeconds {
-                interruptInteraction(); cursorFeedback.hide()
+                interruptInteraction(); clearClickFeedback(); practiceMessageUntil = 0
                 _ = practice.update(point: nil, progress: 0, clicked: false)
+                showFeedback("Practice · Tracking interrupted", startingPoseDetail + " No click is pending.")
             }
             return
         }
@@ -970,7 +1065,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if cameraReady && now - lastFrameTime > GestureTuning.trackingGraceSeconds {
             interruptInteraction(); clearClickFeedback(); preview.update(nil)
             cameraStatus.stringValue = "Tracking interrupted"
-            showFeedback("Tracking interrupted", "Raise index + middle, palm toward camera. Restart the camera if tracking does not resume.")
+            showFeedback("Tracking interrupted", "Point with only your index finger, palm toward camera. Restart the camera if tracking does not resume.")
             return
         }
         if !trusted || control.state != .on {
@@ -1021,7 +1116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                   running: running, trusted: AXIsProcessTrusted(), cursorPosition: CGEvent(source: nil)?.location,
                                   handSide: frame.handSide, scrollPoint: frame.scrollPoint,
             primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
-            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio, scrollPinchRatio: frame.dragPinchRatio)
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased, palm: frame.palm, tapPose: frame.tapPose, fingerSeparationRatio: frame.fingerSeparationRatio, scrollPinchRatio: frame.dragPinchRatio,
+            pointingPose: frame.pointingPose, fiveFingerPinchRatio: frame.fiveFingerPinchRatio)
         preview.controlRegion = engine.pointerControlRegion
         guard dragOutput.dispatch(step, post: postDragEvents) else { interruptInteraction(); return }
         if let blocked = step.blocked {
@@ -1047,7 +1143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if ownership.side == nil && capture.hands.count > 1 {
                     showFeedback("Start with one hand", "Lower the other hand until Pointer ready. Then bring it back as the drag modifier.")
                 } else {
-                    showFeedback("Looking for your hand", "Raise index + middle on your original pointer hand, palm toward camera.")
+                    showFeedback("Looking for your hand", "Point with only the index finger on your original pointer hand, palm toward camera.")
                 }
             case .acquiring, .differentHand, .cursorUnavailable:
                 lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
@@ -1076,11 +1172,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             event.post(tap: .cghidEventTap)
         }
         let clicksAllowed = engine.settings.allowClicks
-        if step.systemClick {
-            guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: location, mouseButton: .left),
-                  let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: location, mouseButton: .left) else {
+        if step.systemClick || step.systemRightClick {
+            let right = step.systemRightClick
+            let button: CGMouseButton = right ? .right : .left
+            let downType: CGEventType = right ? .rightMouseDown : .leftMouseDown
+            let upType: CGEventType = right ? .rightMouseUp : .leftMouseUp
+            guard let down = CGEvent(mouseEventSource: nil, mouseType: downType, mouseCursorPosition: location, mouseButton: button),
+                  let up = CGEvent(mouseEventSource: nil, mouseType: upType, mouseCursorPosition: location, mouseButton: button) else {
+                interruptInteraction()
                 clearClickFeedback()
-                showFeedback("Click unavailable", "No click was sent. Raise index + middle, then bend and lift to try again.")
+                showFeedback("Click unavailable", "No click was sent. Point with only your index finger to prepare another gesture.")
                 return
             }
             down.setIntegerValueField(.mouseEventClickState, value: 1)
@@ -1088,9 +1189,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
             clickedUntil = now + 0.35
             lastClickLocation = location
+            lastClickWasRight = right
         }
         if engine.pinchDrag.releasedClick {
-            clickedUntil = now + 0.35; lastClickLocation = location
+            clickedUntil = now + 0.35; lastClickLocation = location; lastClickWasRight = false
         }
         let clicked = now < clickedUntil
         preview.update(frame, phase: previewPhase, clicked: clicked)
@@ -1121,7 +1223,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 caption: active ? "Scrolling ↑↓" : "Pinch…")
         } else if !clicksAllowed {
             cursorFeedback.hide()
-            showFeedback("Clicks off", "Point to move.")
+            showFeedback("Clicks off", "Extend only your index finger to move.")
+        } else if clickMode == .pointAndHold {
+            if clicked && engine.pointHold.phase != .holding && engine.rightPinch.phase != .confirming {
+                let title = lastClickWasRight ? "Right clicked ✓" : "Clicked ✓"
+                let detail = lastClickWasRight ? "Open your hand, then point with your index to move."
+                    : "Lower your middle finger to move and prepare the next click."
+                showFeedback(title, detail, clicked: true, rightClicked: lastClickWasRight)
+                cursorFeedback.show(at: lastClickLocation ?? location, displayID: targetDisplay,
+                    progress: 1, remaining: 0, clicked: true,
+                    caption: lastClickWasRight ? "Right clicked ✓" : nil)
+            } else {
+                showPointHoldFeedback(at: location)
+            }
         } else if clicked && !(clickMode == .twoFingerTap && (engine.tap.shouldFreeze || engine.tap.cancellation != nil)) {
             showFeedback("Clicked ✓", clickMode == .forward ? "Return to your movement pose before pointing forward again." : "Raise index + middle before the next tap.", clicked: true)
             cursorFeedback.show(at: lastClickLocation ?? location, displayID: targetDisplay, progress: 1, remaining: 0, clicked: true)

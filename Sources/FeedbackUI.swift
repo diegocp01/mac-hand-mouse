@@ -39,8 +39,8 @@ final class DwellRingView: NSView {
 }
 
 final class ClickFeedbackView: NSView {
-    let title = NSTextField(labelWithString: "Palm toward camera · Raise index + middle")
-    let detail = NSTextField(wrappingLabelWithString: "Start the camera, then raise index + middle with your palm toward the camera.")
+    let title = NSTextField(labelWithString: "Palm toward camera · Point with index")
+    let detail = NSTextField(wrappingLabelWithString: "Start the camera, then extend only your index finger with your palm toward the camera.")
     private let progress = NSProgressIndicator()
     private let ring = DwellRingView()
     private var textInset: NSLayoutConstraint!
@@ -116,8 +116,11 @@ final class PracticeView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     private(set) var hits = 0
+    private(set) var rightClicks = 0
     private var pointer: CGPoint?
     private var fraction = 0.0
+    private var holding = false
+    private var lastWasRightClick = false
     private var scrollPosition = 250.0
     private var dragStart: CGPoint?
     private var dragEnd: CGPoint?
@@ -127,20 +130,25 @@ final class PracticeView: NSView {
                y: bounds.height * 0.5 - 42, width: 84, height: 84)
     }
     func reset() {
-        hits = 0; pointer = nil; fraction = 0; scrollPosition = 250
+        hits = 0; rightClicks = 0; pointer = nil; fraction = 0; holding = false
+        lastWasRightClick = false; scrollPosition = 250
         dragStart = nil; dragEnd = nil; wasDragging = false
         _ = update(point: nil, progress: 0, clicked: false)
     }
-    @discardableResult func update(point: CGPoint?, progress: Double, clicked: Bool, scrollY: Int32 = 0, dragging: Bool = false) -> Bool {
+    @discardableResult func update(point: CGPoint?, progress: Double, clicked: Bool,
+                                  rightClicked: Bool = false, holding: Bool = false,
+                                  scrollY: Int32 = 0, dragging: Bool = false) -> Bool {
         if dragging && !wasDragging { dragStart = point }
         if dragging { dragEnd = point }
         wasDragging = dragging
-        pointer = point; fraction = progress
+        pointer = point; fraction = min(1, max(0, progress)); self.holding = holding
+        if rightClicked, point != nil { rightClicks += 1; lastWasRightClick = true }
+        if clicked { lastWasRightClick = false }
         scrollPosition = min(500, max(0, scrollPosition - Double(scrollY)))
         let hit = clicked && point.map { hypot($0.x - target.midX, $0.y - target.midY) <= target.width / 2 } == true
         if hit { hits += 1 }
         needsDisplay = true
-        setAccessibilityLabel("Practice target. \(hits) successful practice clicks. Scroll position \(Int(scrollPosition)) of 500. \(dragging ? "Dragging selection." : "Drag released.") No system input is sent.")
+        setAccessibilityLabel("Practice target. \(hits) successful left-click targets. \(rightClicks) practice right clicks. Scroll position \(Int(scrollPosition)) of 500. \(dragging ? "Dragging selection." : "Drag released.") No system input is sent.")
         return hit
     }
     override func draw(_ dirtyRect: NSRect) {
@@ -150,7 +158,7 @@ final class PracticeView: NSView {
         NSBezierPath(ovalIn: target).fill()
         NSColor.systemMint.setStroke()
         let outline = NSBezierPath(ovalIn: target); outline.lineWidth = 3; outline.stroke()
-        let label = "Scroll: \(Int(scrollPosition)) / 500"
+        let label = "Targets: \(hits)   Right clicks: \(rightClicks)   Scroll: \(Int(scrollPosition)) / 500"
         (label as NSString).draw(at: CGPoint(x: 14, y: 12), withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor])
         if let start = dragStart, let end = dragEnd {
             let selection = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
@@ -161,9 +169,14 @@ final class PracticeView: NSView {
             let line = NSBezierPath(); line.move(to: start); line.line(to: end); line.lineWidth = 2; line.stroke()
         }
         if let pointer {
-            NSColor.labelColor.setFill()
+            (lastWasRightClick ? NSColor.systemPurple : NSColor.labelColor).setFill()
             NSBezierPath(ovalIn: CGRect(x: pointer.x - 5, y: pointer.y - 5, width: 10, height: 10)).fill()
-            if fraction > 0 {
+            if holding {
+                NSColor.systemMint.withAlphaComponent(0.25).setStroke()
+                let track = NSBezierPath(ovalIn: CGRect(x: pointer.x - 17, y: pointer.y - 17, width: 34, height: 34))
+                track.lineWidth = 3; track.stroke()
+            }
+            if holding && fraction > 0 {
                 let arc = NSBezierPath()
                 arc.appendArc(withCenter: pointer, radius: 17, startAngle: -90,
                               endAngle: -90 + CGFloat(fraction) * 360, clockwise: false)

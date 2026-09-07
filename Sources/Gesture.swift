@@ -14,6 +14,7 @@ enum GestureTuning {
 }
 
 enum ClickMode: String, CaseIterable {
+    case pointAndHold
     case twoFingerTap
     case pinch
     case forward

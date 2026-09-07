@@ -19,10 +19,11 @@ enum StartupStyle {
     }
 }
 
-/// The four actions presented by the visual gesture guide.
+/// The five actions presented by the visual gesture guide.
 enum GestureAction: CaseIterable {
     case move
     case click
+    case rightClick
     case scroll
     case select
 
@@ -30,6 +31,7 @@ enum GestureAction: CaseIterable {
         switch self {
         case .move: return "Move"
         case .click: return "Click"
+        case .rightClick: return "Right click"
         case .scroll: return "Scroll"
         case .select: return "Select text"
         }
@@ -37,8 +39,9 @@ enum GestureAction: CaseIterable {
 
     fileprivate var instruction: String {
         switch self {
-        case .move: return "Point & move"
-        case .click: return "Bend · lift"
+        case .move: return "One finger · Move"
+        case .click: return "Raise two · Hold 1 s"
+        case .rightClick: return "Five tips together"
         case .scroll: return "Pinch · move"
         case .select: return "Two L hands · move"
         }
@@ -47,9 +50,11 @@ enum GestureAction: CaseIterable {
     fileprivate var accessibilityDescription: String {
         switch self {
         case .move:
-            return "Hold one palm toward the camera with the index and middle fingers extended, then move the index fingertip."
+            return "Hold your palm toward the camera with only the index finger extended. Move the index fingertip to aim."
         case .click:
-            return "Begin with the index and middle fingers raised. Bend both fingers together, then raise both again to click. Touching the two fingertips together does not click."
+            return "Aim with the index finger, then raise the middle finger too. The pointer holds its target while a ring fills for one second, then clicks once. Lower the middle finger to move and prepare another click."
+        case .rightClick:
+            return "Bring all five fingertips together in a pinch, keeping them visible to the camera. Hold briefly to right-click once. Open the hand before the next right-click."
         case .scroll:
             return "Pinch the thumb and index fingertip, hold briefly, then move the hand vertically to scroll."
         case .select:
@@ -82,7 +87,7 @@ final class GestureGuideView: NSView {
             cards[action] = card
         }
 
-        let topRow = guideRow([.move, .click])
+        let topRow = guideRow([.move, .click, .rightClick])
         let bottomRow = guideRow([.scroll, .select])
         let grid = NSStackView(views: [topRow, bottomRow])
         grid.orientation = .vertical
@@ -124,7 +129,7 @@ final class GestureGuideView: NSView {
             switch action {
             case .scroll: card.featureEnabled = scrollingEnabled
             case .select: card.featureEnabled = selectionEnabled
-            case .move, .click: card.featureEnabled = true
+            case .move, .click, .rightClick: card.featureEnabled = true
             }
             card.isLive = active == action && card.featureEnabled
         }
@@ -299,7 +304,7 @@ private final class GestureCardButton: NSButton {
 }
 
 private final class GestureIllustrationView: NSView {
-    enum HandPose { case raised, bent, pinch, lShape, open }
+    enum HandPose { case point, raised, allPinch, pinch, lShape, open }
 
     let gestureAction: GestureAction
     var isLearningSelection = false {
@@ -334,23 +339,21 @@ private final class GestureIllustrationView: NSView {
         switch gestureAction {
         case .move:
             drawStep("1", at: point(14, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(91, 84, origin, scale), scale: 0.88 * scale, pose: .raised,
+            drawHand(at: point(91, 84, origin, scale), scale: 0.88 * scale, pose: .point,
                      mirrored: false, primary: true, ink: ink, accent: accent)
             drawMoveArrow(from: point(150, 46, origin, scale), to: point(228, 46, origin, scale),
                           color: accent, scale: scale)
             drawPointer(at: point(225, 47, origin, scale), color: accent, scale: scale)
         case .click:
-            drawStep("1", at: point(5, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(50, 82, origin, scale), scale: 0.62 * scale, pose: .raised,
+            drawHand(at: point(82, 84, origin, scale), scale: 0.88 * scale, pose: .raised,
                      mirrored: false, primary: true, ink: ink, accent: accent)
-            drawArrow(from: point(76, 43, origin, scale), to: point(101, 43, origin, scale), color: accent, scale: scale)
-            drawStep("2", at: point(91, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(137, 82, origin, scale), scale: 0.62 * scale, pose: .bent,
+            drawArrow(from: point(120, 46, origin, scale), to: point(149, 46, origin, scale), color: accent, scale: scale)
+            drawCountdown(at: point(196, 46, origin, scale), color: accent, scale: scale)
+        case .rightClick:
+            drawHand(at: point(93, 85, origin, scale), scale: 0.92 * scale, pose: .allPinch,
                      mirrored: false, primary: true, ink: ink, accent: accent)
-            drawArrow(from: point(164, 43, origin, scale), to: point(189, 43, origin, scale), color: accent, scale: scale)
-            drawStep("3", at: point(179, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(225, 82, origin, scale), scale: 0.62 * scale, pose: .raised,
-                     mirrored: false, primary: true, ink: ink, accent: accent)
+            drawArrow(from: point(134, 46, origin, scale), to: point(158, 46, origin, scale), color: accent, scale: scale)
+            drawContextMenu(at: point(179, 22, origin, scale), color: accent, scale: scale)
         case .scroll:
             drawStep("1", at: point(14, 14, origin, scale), accent: accent, scale: scale)
             drawHand(at: point(105, 82, origin, scale), scale: 0.88 * scale, pose: .pinch,
@@ -361,7 +364,7 @@ private final class GestureIllustrationView: NSView {
                                height: 58 * scale, color: accent, scale: scale)
         case .select:
             drawStep("1", at: point(2, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(43, 81, origin, scale), scale: 0.55 * scale, pose: .raised,
+            drawHand(at: point(43, 81, origin, scale), scale: 0.55 * scale, pose: .point,
                      mirrored: false, primary: true, ink: ink, accent: accent)
             drawArrow(from: point(65, 43, origin, scale), to: point(83, 43, origin, scale), color: accent, scale: scale)
             drawStep("2", at: point(77, 14, origin, scale), accent: accent, scale: scale)
@@ -402,6 +405,12 @@ private final class GestureIllustrationView: NSView {
         }
 
         switch pose {
+        case .point:
+            drawFinger(rect(-13, 31, 10, 42), radius: 5, fill: fill, stroke: stroke, scale: scale, rect: rect)
+            drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke)
+            drawThumb(anchor: anchor, scale: scale, mirrored: mirrored, extended: false, fill: fill, stroke: stroke)
+            drawPalmAndWrist()
+            drawTip(at: CGPoint(x: px(-8), y: py(72)), color: accent, scale: scale)
         case .raised:
             drawFinger(rect(-13, 31, 10, 42), radius: 5, fill: fill, stroke: stroke, scale: scale, rect: rect)
             drawFinger(rect(1, 32, 10, 38), radius: 5, fill: fill, stroke: stroke, scale: scale, rect: rect)
@@ -410,14 +419,21 @@ private final class GestureIllustrationView: NSView {
             drawPalmAndWrist()
             drawTip(at: CGPoint(x: px(-8), y: py(72)), color: accent, scale: scale)
             drawTip(at: CGPoint(x: px(6), y: py(68)), color: accent, scale: scale)
-        case .bent:
-            drawBentFinger(points: [(-8, 34), (-10, 51), (-1, 55)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
-            drawBentFinger(points: [(6, 34), (5, 49), (15, 51)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
-            drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke)
-            drawThumb(anchor: anchor, scale: scale, mirrored: mirrored, extended: true, fill: fill, stroke: stroke)
+        case .allPinch:
+            let fingers: [[(CGFloat, CGFloat)]] = [
+                [(-13, 31), (-19, 47), (-12, 57), (-7, 60)],
+                [(-3, 35), (-9, 54), (-6, 64), (-3, 66)],
+                [(8, 34), (11, 53), (7, 63), (2, 66)],
+                [(18, 29), (23, 45), (17, 56), (7, 61)],
+                [(-17, 19), (-29, 33), (-20, 48), (-8, 55)]
+            ]
+            for finger in fingers {
+                drawBentFinger(points: finger, anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
+            }
             drawPalmAndWrist()
-            drawTip(at: CGPoint(x: px(-1), y: py(55)), color: accent, scale: scale)
-            drawTip(at: CGPoint(x: px(15), y: py(51)), color: accent, scale: scale)
+            for finger in fingers {
+                if let tip = finger.last { drawTip(at: CGPoint(x: px(tip.0), y: py(tip.1)), color: accent, scale: scale) }
+            }
         case .pinch:
             drawBentFinger(points: [(-8, 34), (-9, 57), (2, 64), (12, 57)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
             drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke)
@@ -437,6 +453,36 @@ private final class GestureIllustrationView: NSView {
             }
             drawThumb(anchor: anchor, scale: scale, mirrored: mirrored, extended: true, fill: fill, stroke: stroke)
             drawPalmAndWrist()
+        }
+    }
+
+    private func drawCountdown(at center: CGPoint, color: NSColor, scale: CGFloat) {
+        let radius = 28 * scale
+        let track = NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius,
+                                               width: radius * 2, height: radius * 2))
+        color.withAlphaComponent(0.16).setStroke(); track.lineWidth = 5 * scale; track.stroke()
+        let progress = NSBezierPath()
+        progress.appendArc(withCenter: center, radius: radius, startAngle: -90, endAngle: 150, clockwise: false)
+        color.setStroke(); progress.lineWidth = 5 * scale; progress.lineCapStyle = .round; progress.stroke()
+        let label = NSAttributedString(string: "1 s", attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 17 * scale, weight: .semibold),
+            .foregroundColor: color
+        ])
+        let size = label.size()
+        label.draw(at: CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2))
+    }
+
+    private func drawContextMenu(at origin: CGPoint, color: NSColor, scale: CGFloat) {
+        let outline = NSBezierPath(roundedRect: NSRect(x: origin.x, y: origin.y, width: 57 * scale, height: 48 * scale),
+                                   xRadius: 6 * scale, yRadius: 6 * scale)
+        color.withAlphaComponent(0.08).setFill(); outline.fill()
+        color.withAlphaComponent(0.64).setStroke(); outline.lineWidth = max(1, 1.3 * scale); outline.stroke()
+        for index in 0..<3 {
+            let line = NSBezierPath()
+            line.move(to: CGPoint(x: origin.x + 11 * scale, y: origin.y + CGFloat(12 + index * 12) * scale))
+            line.line(to: CGPoint(x: origin.x + 44 * scale, y: origin.y + CGFloat(12 + index * 12) * scale))
+            color.withAlphaComponent(index == 0 ? 1 : 0.4).setStroke()
+            line.lineWidth = 3 * scale; line.lineCapStyle = .round; line.stroke()
         }
     }
 
@@ -479,6 +525,14 @@ private final class GestureIllustrationView: NSView {
     private func drawThumb(anchor: CGPoint, scale: CGFloat, mirrored: Bool, extended: Bool,
                            fill: NSColor, stroke: NSColor) {
         let direction: CGFloat = mirrored ? -1 : 1
+        if !extended {
+            let folded = NSBezierPath(roundedRect: NSRect(x: anchor.x - 19 * scale, y: anchor.y - 30 * scale,
+                                                         width: 22 * scale, height: 10 * scale),
+                                     xRadius: 5 * scale, yRadius: 5 * scale)
+            fill.setFill(); folded.fill(); stroke.setStroke()
+            folded.lineWidth = max(1, 1.4 * scale); folded.stroke()
+            return
+        }
         let path = NSBezierPath()
         path.move(to: CGPoint(x: anchor.x - 13 * direction * scale, y: anchor.y - 29 * scale))
         path.curve(to: CGPoint(x: anchor.x - 36 * direction * scale, y: anchor.y - 33 * scale),
