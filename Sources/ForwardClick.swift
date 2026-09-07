@@ -82,7 +82,7 @@ struct AutomaticForwardReference {
         if let lastTime, time <= lastTime || time - lastTime > GestureTuning.trackingGraceSeconds + 1e-9 { reset() }
         lastTime = time
         if let profile, profile.neutral.side != pose.side { reset(); lastTime = time }
-        let minimumReach = max(0.75, (profile?.neutral.reach ?? 0) * 0.9)
+        let minimumReach = max(1.05, (profile?.neutral.reach ?? 0) * 0.9)
         guard canAdapt, pose.reach >= minimumReach else { clearSamples(); return false }
         if let first, first.side != pose.side || abs(log(pose.scale / first.scale)) > 0.06 || abs(pose.reach - first.reach) > 0.12 {
             clearSamples()

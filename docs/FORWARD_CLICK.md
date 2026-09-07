@@ -11,7 +11,7 @@ before another click. Holding the movement pose alone never starts a timer.
 There are no capture buttons, taught poses, or practice requirements. The app
 estimates a hand reference automatically while the user aims, without requiring a
 stationary cursor. Practice is optional and can be finished with zero target hits.
-It sends no system pointer or click input and leaves real clicks off when finished.
+It sends no system pointer, click, or scroll input and leaves real clicks and scrolling off when finished.
 The Allow clicks preference otherwise persists across launches, as it does for Pinch.
 The old Dwell preference still migrates with clicks off once.
 
@@ -24,12 +24,14 @@ measured finger depth. It does not assume that every hand or camera looks identi
 `AutomaticForwardReference` observes an extended index with usable joints. It averages
 palm scale and index reach over at least 250 ms and four continuous observations.
 Finger reach is relative to palm size; distances are corrected for camera aspect.
-The pointer can move during this interval. Reference samples tolerate 6% logarithmic
+Reference adaptation can run while pointing moves. Initial cursor takeover and
+recovery after tracking loss separately require 250 ms of steady neutral pointing,
+then anchor to the existing cursor. See [cursor recovery](RECOVERY_AND_SCROLL.md). Reference samples tolerate 6% logarithmic
 scale variation and 0.12 palm units of reach variation; unknown hands, invalid data,
 and gaps over 120 ms reset observation. No frames, landmarks, or references are saved.
 
-A reference requires reach of at least 0.75 palm units, accommodating shorter visible
-pointing poses. Click evidence is the reduction of index reach relative to that
+A reference requires reach of at least 1.05 palm units so a returned forward hold
+does not become an aiming pose during pointer reacquisition. Click evidence is the reduction of index reach relative to that
 reference, with 45% shortening representing a full forward gesture. Palm enlargement
 contributes no positive click evidence; palm scale must remain between two-thirds
 and 1.5 times the reference. Greater shortening saturates at 125% instead of rejecting
@@ -72,8 +74,7 @@ exercise no-setup clicking with both hand sides, three hand scales, three index
 lengths, and 15/30/60 fps. Tests also cover moving while the reference is learned,
 ordinary pointing with noise, distance readaptation, starting with a forward pose,
 tracking interruption, click cancellation, rearming, and practice isolation. Additional
-regressions cover strong shortening with no palm enlargement, more compact aiming
-poses, excess distance changes, specific blocked-gesture feedback, and click-preference
+regressions cover strong shortening with no palm enlargement, excess distance changes, specific blocked-gesture feedback, and click-preference
 migration. Synthetic landmark chains also pass through ForwardPose.measure before
 the production interaction engine.
 

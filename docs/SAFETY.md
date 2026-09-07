@@ -30,7 +30,18 @@ at. Pointer motion alone is lower blast radius than click injection.
 - Optional practice returns before OS event dispatch; its results additionally expose no system
   location or click. Switching from practice to system output resets gesture intent.
 - Esc remains the panic kill-switch: pauses the camera and resets gesture/filter state.
-- Sleep, session deactivation, and display changes pause capture until Start camera is pressed again.
+- Sleep, session deactivation, and display changes pause capture. Start camera or the
+  configured global shortcut is required to resume; waking never resumes automatically.
+  Held keys cannot repeatedly toggle capture or become a fresh request after waking.
+- First activation and reacquisition require at least 250 ms of steady, open-hand
+  evidence. The pointer is anchored to the current system cursor before movement resumes.
+  Closed pinches, held scroll poses, a different left/right hand, missing cursor position,
+  or a cursor outside the chosen display cannot acquire control.
+- **Allow two-finger scrolling** defaults **OFF** and has its own saved opt-in. Scroll
+  confirmation suppresses clicks, freezes the pointer, and requires a deliberate pose.
+  Loss of the pose or tracking cancels scrolling with no queued motion or inertia.
+- Practice sends no system movement, clicks, or scrolling. Leaving practice disables
+  real clicks and scrolling; simulated success is not proof of physical reliability.
 - Forward clicking requires a neutral-to-forward pose transition, then a hold. Staying
   still alone cannot start the countdown. Withdrawal, lateral palm motion, uncertain
   landmarks, invalid frames, and stale delivery cancel it. A sustained return to the
@@ -44,5 +55,5 @@ at. Pointer motion alone is lower blast radius than click injection.
 ## Later ideas (not shipped)
 
 - Velocity / motion gate so a moving pinch cannot click mid-swipe.
-- Separate right-click / drag / scroll modes behind the same allow-clicks latch.
+- Separate right-click and drag modes with explicit permission and release behavior.
 - Tap-to-click (cut unless synthetic proofs hold).
