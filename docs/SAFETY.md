@@ -24,6 +24,9 @@ at. Pointer motion alone is lower blast radius than click injection.
 - **Pinch** is the default click *mode*; **Dwell** is shipped and opt-in via the Click
   mode control (not a wave-2 idea).
 - Esc remains the panic kill-switch: pauses the camera and resets pinch/dwell/filter state.
+- Sleep, session deactivation, and display changes pause capture until Start camera is pressed again.
+- Dwell requires movement after each click, including after a tracking interruption. Invalid or stale frames cannot advance it.
+- Camera errors and disconnects stop the session and require an explicit retry. No recovery path automatically restarts mouse control.
 
 ## Later ideas (not shipped)
 

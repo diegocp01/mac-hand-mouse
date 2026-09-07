@@ -11,7 +11,7 @@ Camera status and **Start / Pause camera** stay at the top. Pointer and click co
 1. **Permissions & setup:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. **Start camera** → allow camera access.
 3. Show **one hand**, palm visible; **index fingertip** moves the pointer inside the dashed guide.
-4. Leave **Allow clicks** off while you practice. When ready, enable it and pick **Pinch** or **Dwell** (click controls stay dimmed until clicks are allowed).
+4. Leave **Allow clicks** off while you practice. Choose **Pinch** or **Dwell** and adjust its settings, then enable **Allow clicks** when ready.
 
 Keep a trackpad or mouse nearby. **Esc** (or **Pause camera** / menu-bar hand) pauses capture.
 
@@ -44,7 +44,7 @@ cd mac-hand-mouse
 bash "Install Hand Mouse.command"
 ```
 
-The installer builds from source, installs **Hand Mouse** in `~/Applications`, and opens it. For editing, tests, and running a development build, see [development notes](docs/DEVELOPMENT.md).
+The installer builds from source, installs **Hand Mouse** in `~/Applications`, and opens it. **Next time, open Hand Mouse from your home folder's Applications folder or search for it in Spotlight.** For editing, tests, and running a development build, see [development notes](docs/DEVELOPMENT.md).
 
 ## Use
 
@@ -55,16 +55,17 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | Practice without moving the system pointer | Uncheck **Move the system pointer with my index finger**. |
 | Turn on clicks | Check **Allow clicks**. Your choice is saved. |
 | Left-click — Pinch | Select **Pinch**. Touch **thumb + index** together briefly, then separate before the next click. |
-| Left-click — Dwell | Select **Dwell**. Hold the pointer still ~0.65s. Move to cancel; move again before the next dwell. |
+| Left-click — Dwell | Select **Dwell**. Hold still until the ring fills. Move to cancel; move again before the next dwell. |
+| More time to aim | In **Dwell**, choose a **Hold time** of **0.65**, **1**, or **1.5 seconds** (saved). |
 | Easier pinches | Under **Pinch feel**, choose **Easy** (Pinch mode only; saved). |
 | Practice a click target | Aim at **Test click** and fire a click; the count rises when the button receives it. |
 | Pause | **Esc**, **Pause camera**, or the menu-bar hand icon. |
 
-**Tips:** one hand, palm visible, even lighting. Closing the window pauses capture. For multiple monitors, put the app window on the screen you want before starting.
+**Tips:** one hand, palm visible, even lighting. Closing the window pauses capture. For multiple monitors, put the app window on the screen you want before starting; the header names the display being controlled. Sleep, switching away from your Mac session, or a display configuration change pauses the camera. Start it again when ready.
 
 ### See the click coming
 
-In **Dwell** mode, a ring fills around the pointer and **Click in 0.6 s…** counts down in both the cursor caption and the app. Hold still until it completes to click. Move your hand to cancel; the next countdown starts fresh. After a click, a checkmark confirms it was sent, then the app asks you to move before clicking again.
+In **Dwell** mode, a ring fills around the pointer and **Click in 0.6 s…** counts down in both the cursor caption and the app, even while you work in another app. Hold still until it completes to click. The default hold is **0.65 seconds**; choose **1** or **1.5 seconds** for more time. Move your hand to cancel; the next countdown starts fresh. After a click, a checkmark confirms it was sent, then the app asks you to move before clicking again.
 
 The countdown uses tracked frames, so it clears if your hand disappears, tracking stalls, the camera pauses, permissions change, or clicks are turned off. With **Allow clicks** off, you can point freely without a countdown or a frozen pointer. The floating ring passes mouse clicks through to the target.
 
@@ -79,6 +80,7 @@ Dragging, scrolling, right-click, double-click, and tap-to-click are **not** inc
 ## Troubleshooting
 
 - **Camera blocked:** click **Camera Settings**, enable Hand Mouse, then restart if macOS requests it.
+- **Camera interrupted or disconnected:** reconnect it or close the other camera app, then click **Start camera** to retry. Hand Mouse rebuilds its capture session instead of silently restarting mouse control.
 - **Hand detected, but mouse won't move:** enable Accessibility for the installed app.
 - **Permission stopped working after an update:** expand **Permissions & setup** and click **Show in Finder** to identify the exact running copy, then remove the old permission entry and add that copy again. If toggling still does not work, see the [targeted permission reset](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the permission pane is called **Device Control and Data Access**.
 - **Tracking is intermittent:** improve lighting, keep your palm and fingertips visible, and show only one hand.
@@ -93,11 +95,12 @@ Hand Mouse processes camera frames on your Mac. It does not record or upload vid
 
 ```sh
 bash scripts/test.sh
+bash Tests/install.sh
 bash scripts/build.sh
 bash scripts/package.sh
 ```
 
-Packaging creates a universal Mac ZIP and checksum in `dist/`. These archives are locally signed and **not notarized**; downloaded binaries may be blocked by macOS. The source installer above is the supported setup path. See the [v1.2 audit and fixes](docs/AUDIT.md), [safety notes](docs/SAFETY.md), and [development notes](docs/DEVELOPMENT.md) for tuning, tests, and release details, and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
+Packaging creates a universal Mac ZIP and checksum in `dist/`. These archives are locally signed and **not notarized**; downloaded binaries may be blocked by macOS. The source installer above is the supported setup path. See the [v1.3 system audit](docs/SYSTEM_AUDIT.md), [safety notes](docs/SAFETY.md), and [development notes](docs/DEVELOPMENT.md) for tuning, tests, and release details, and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
 
 ## License
 

@@ -113,7 +113,7 @@ struct DwellSettings {
     var moveCancelPoints: Double = 18
     var cooldownSeconds: Double = 0.45
     /// After (re)arm, keep freeze off briefly so aim can track onto the stable target.
-    var armFreezeDelaySeconds: Double = 0.08
+    var armFreezeDelaySeconds: Double = 0.10
 }
 
 enum DwellPhase { case idle, arming, needMove }
@@ -168,26 +168,28 @@ struct DwellDetector {
         lastTimestamp = nil
     }
 
+    /// Cancel incomplete dwell work when the hand is not observed. A completed
+    /// click remains locked in `needMove`, including its cooldown and lock point.
+    mutating func trackingLost() {
+        origin = nil
+        armingSince = nil
+        lastObserved = nil
+        if phase == .arming { phase = .idle }
+    }
+
     /// `point` must be an *unfrozen* screen sample (finger target). Freeze only the click aim.
     mutating func update(point: CGPoint, time: Double, tracking: Bool) -> Bool {
-        guard time.isFinite else { reset(); return false }
-        if let previous = lastTimestamp, time <= previous { reset(); return false }
+        guard tracking else { trackingLost(); return false }
+        guard time.isFinite else { trackingLost(); return false }
+        if let previous = lastTimestamp, time <= previous { trackingLost(); return false }
+        guard point.x.isFinite, point.y.isFinite else { trackingLost(); return false }
         lastTimestamp = time
-
-        guard tracking else {
-            origin = nil
-            armingSince = nil
-            if phase == .arming { phase = .idle }
-            return false
-        }
 
         // A sparse callback stream cannot turn unobserved time into dwell progress.
         if phase == .arming,
            let previous = lastObserved,
-           time - previous > GestureTuning.trackingGraceSeconds {
-            origin = nil
-            armingSince = nil
-            phase = .idle
+           time - previous > GestureTuning.trackingGraceSeconds + 1e-9 {
+            trackingLost()
         }
         lastObserved = time
 

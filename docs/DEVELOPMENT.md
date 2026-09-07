@@ -8,31 +8,37 @@ For a fresh checkout:
 git clone https://github.com/diegocp01/mac-hand-mouse.git
 cd mac-hand-mouse
 bash scripts/test.sh
+bash Tests/install.sh
 bash scripts/build.sh
 open "build/Hand Mouse.app"
 ```
 
-If you already have a checkout, run the last three commands from its root. To install in `~/Applications` instead, use `bash "Install Hand Mouse.command"`; see the README's [developer setup](../README.md#developer-setup) and [first-launch steps](../README.md#first-launch).
+If you already have a checkout, quit the development copy, then run the test, build, and open commands from its root. `bash "Launch Hand Mouse.command"` builds the current source before opening it; if that exact build is already running, it opens that copy and asks you to quit before rebuilding. To install in `~/Applications` instead, use `bash "Install Hand Mouse.command"`; see the README's [developer setup](../README.md#developer-setup) and [first-launch steps](../README.md#first-launch).
 
-Builds explicitly target the minimum macOS version in `Info.plist`. The default build targets the current Mac's architecture. To build a universal app, run `HAND_MOUSE_ARCHS="arm64 x86_64" bash scripts/build.sh`. Quit running copies before replacing them; ad-hoc rebuilding may invalidate Accessibility approval.
+Builds explicitly target the minimum macOS version in `Info.plist`. The default build targets the current Mac's architecture. To build a universal app, run `HAND_MOUSE_ARCHS="arm64 x86_64" bash scripts/build.sh`. Build and install commands refuse to replace an executable that is running from their destination. They stage a fresh app before replacing it, so removed resources cannot linger. Ad-hoc rebuilding may invalidate Accessibility approval.
+
+To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/hand-mouse-review bash scripts/build.sh`. Remove temporary review bundles afterward so macOS does not confuse copies with the same bundle identifier.
 
 ## Code map
 
 | File | Responsibility |
 | --- | --- |
-| `Sources/Gesture.swift` | Pinch state machine, tuning, smoothing |
+| `Sources/Gesture.swift` | Pinch and dwell state machines, tuning, smoothing |
+| `Sources/InteractionEngine.swift` | Production frame-to-pointer pipeline, freshness/permission gates, gesture/filter ordering |
 | `Sources/Camera.swift` | Camera capture and Vision landmarks |
 | `Sources/FrameMailbox.swift` | Bounded delivery of the newest result |
 | `Sources/main.swift` | Window, camera lifecycle, feedback orchestration, permissions, mouse events |
 | `Sources/FeedbackUI.swift` | Determinate dwell ring, status card, nonactivating cursor overlay |
 | `Sources/FeedbackGeometry.swift` | Screen-edge caption placement with a ring centered on the click target |
 | `Tests/main.swift` | Deterministic gesture and pointer checks |
+| `Tests/InteractionEngineTests.swift` | Actual production pipeline at 15/30/60 fps, click gates, dwell timing and re-aiming |
+| `Tests/install.sh` | Isolated installer replacement, failure rollback, and running-app guards |
 
 Defaults: velocity-adaptive pointer smoothing from 8–50 ms; Balanced pinch threshold 0.42 hand-scale units, confirmation after at least two samples and 25 ms, reopening above 0.60 for 70 ms, and a 300 ms click cooldown. Precise uses 0.34 and Easy uses 0.50, with release 0.18 above each threshold. Confirmation tolerates 0.06 units of threshold jitter. The hand scale is the greater of palm width and 0.75 times wrist-to-middle-base distance, corrected for frame aspect ratio.
 
-Freeze is an aim latch, not a sensor blackout: each frame samples an unfrozen finger target, runs pinch/dwell detect, then updates the pointer (pinch injects at pre-pinch aim). Dwell cancel-on-move returns idle and **releases** freeze so aim can track to the new target; a short `armFreezeDelaySeconds` (~80 ms) lets the pointer settle before re-latching, and freeze holds again through arming/`needMove` (click). Missing pinch observations preserve readiness for at most 120 ms, but cancel confirmation evidence; longer gaps disarm. A pinch attempted during cooldown is consumed rather than delayed. Camera results are coalesced to the latest frame and callbacks from old sessions are rejected. Camera and inference latency are additional to smoothing time.
+`InteractionEngine` samples an unfrozen finger target, runs pinch/dwell detection, then updates the pointer (pinch injects at pre-pinch aim). Dwell cancel-on-move returns idle and **releases** freeze so aim can track to the new target; a 100 ms `armFreezeDelaySeconds` lets the pointer settle before re-latching, and freeze holds again through arming/`needMove` (click). Hold duration is configurable at 0.65, 1, or 1.5 seconds and persists as `dwellDurationPreset`. Changing settings cancels active progress. Missing pinch observations preserve readiness for at most 120 ms, but cancel confirmation evidence; longer gaps disarm. A pinch attempted during cooldown is consumed rather than delayed. Camera results are coalesced to the latest frame and callbacks from old sessions are rejected. Camera and inference latency are additional to smoothing time.
 
-Tests cover confirmation, gentle pinches, duplicate prevention, reopening, cooldown, tracking loss, pointer settling, overshoot, freezing, and display-coordinate mapping. They do not use a physical camera or send mouse clicks. CI is configured for Apple Silicon and Intel; its hosted results require an actual GitHub run.
+Tests cover confirmation, gentle pinches, duplicate prevention, reopening, cooldown, tracking loss, malformed observations, pointer settling, overshoot, freezing, and display-coordinate mapping. The integration suite runs the same `InteractionEngine` used by the app, including freshness and permission gates. It does not use a physical camera or send mouse clicks. CI runs these tests plus installer regressions, app builds, and signature checks on Apple Silicon and Intel.
 
 ## Install verification
 
@@ -43,7 +49,7 @@ HAND_MOUSE_INSTALL_DIR="$INSTALL_CHECK" HAND_MOUSE_NO_OPEN=1 bash "Install Hand 
 rm -rf "$INSTALL_CHECK"
 ```
 
-The installer builds in a temporary directory that it removes afterward, copies the app to `~/Applications` by default, verifies its signature, and opens it. Overrides above permit an isolated test without starting the camera or changing a user's installed app. To uninstall, quit Hand Mouse and move `~/Applications/Hand Mouse.app` to the Trash.
+The installer builds in a temporary directory, stages a fresh bundle beside the destination, verifies it, then replaces the old app with rollback if the replacement fails verification. It checks the destination executable before building and again before replacement. Temporary files are removed after success; if rollback itself fails, it reports the location of the recoverable previous app. Overrides above permit an isolated test without starting the camera or changing a user's installed app. To uninstall, quit Hand Mouse and move `~/Applications/Hand Mouse.app` to the Trash.
 
 ## Release package
 
@@ -65,15 +71,17 @@ If permission is on but the app still reports it missing, quit Hand Mouse. Reset
 tccutil reset Accessibility com.local.handmouse
 ```
 
-Reopen the app, click **Show this app in Finder**, then add that exact copy to Privacy & Security → Accessibility (called Device Control and Data Access on macOS 27). Enable it and restart Hand Mouse. This does not grant permission by itself or change other apps' permissions.
+Reopen the app, expand **Permissions & setup**, click **Show in Finder**, then add that exact copy to Privacy & Security → Accessibility (called Device Control and Data Access on macOS 27). Enable it and restart Hand Mouse. This does not grant permission by itself or change other apps' permissions.
 
 Ad-hoc signatures change with rebuilt code. Multiple development copies with the same bundle identifier can make System Settings show a different copy. Keep one active installed copy and remove temporary test bundles. Do not weaken signature checks or use a shared wildcard signing requirement to avoid permission prompts.
 
 
 ## Camera and dwell feedback
 
-`DwellDetector.progress` and `remainingSeconds` are read-only values derived from observed frame timestamps. Rendering never advances the detector or triggers a click. A gap longer than the tracking grace restarts an active dwell; reset, cancel, tracking loss, and post-click phases clear progress. The UI also hides stale feedback if delivery stops, using a 100 ms watchdog and the 120 ms tracking grace measured from the last received frame. Frames more than 200 ms old are rejected as before.
+`DwellDetector.progress` and `remainingSeconds` are read-only values derived from observed frame timestamps. Rendering never advances the detector or triggers a click. A gap longer than the tracking grace restarts an active dwell; reset, cancel, tracking loss, and post-click phases clear progress. Tracking loss and malformed observations preserve the post-click movement requirement and cooldown. The UI hides stale feedback if delivery stops, using a 100 ms watchdog in common run-loop modes and the 120 ms tracking grace measured from the last received frame. Frames at least 200 ms old, future-dated frames, and duplicate/out-of-order timestamps cannot move or click.
 
-The cursor panel ignores mouse events, never becomes key, and uses no screen recording. Quartz pointer coordinates convert to AppKit using the primary screen's top edge. The label stays inside the target screen, while the ring remains at the actual click location. Duplicate overlay content is excluded from accessibility; the app exposes a labeled progress indicator and text. No decorative progress animation runs ahead of detector state.
+The cursor panel ignores mouse events, never becomes key or main, and uses no screen recording. Quartz pointer coordinates convert to AppKit using the primary screen's top edge. The label stays inside the target screen, while the ring remains at the actual click location. The panel supports other applications' Spaces/full-screen contexts and hides when its target display is unavailable. Duplicate overlay content is excluded from accessibility; the app exposes a labeled progress indicator, percentage, and state announcements without announcing every countdown frame. No decorative progress animation runs ahead of detector state.
+
+Sleep, display sleep, user-session deactivation, and display configuration changes pause capture; resuming requires Start camera. Runtime capture errors, interruptions, selected-camera disconnects, and five consecutive Vision failures invalidate the session and offer an explicit retry. Pausing also releases the configured inputs/outputs, so the next Start discovers connected cameras again; callbacks from removed outputs are rejected. A normal no-hand frame is not treated as a processing failure. The built-in front camera remains preferred.
 
 Validation before release: with a live camera, confirm Start/Pause, no-hand recovery, Pinch, Dwell move/cancel/rearm, clicks off while arming, Escape, Accessibility loss, and cursor ring alignment on additional displays/full-screen apps. Use the app's Test click target rather than a consequential control. Synthetic tests do not verify physical tracking or delivery to other apps.

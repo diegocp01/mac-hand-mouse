@@ -102,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let cursorFeedback = CursorFeedback()
     private let cameraStatus = NSTextField(labelWithString: "Camera off")
     private var setupRows: NSStackView!
-    private let setupToggle = NSButton(checkboxWithTitle: "Permissions & setup", target: nil, action: nil)
+    private let setupToggle = NSButton(title: "", target: nil, action: nil)
     private var lastFrameTime = 0.0
     private var cameraReady = false
     private var previouslyTrusted: Bool?
@@ -119,21 +119,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let clickModeLabel = NSTextField(labelWithString: "How to click")
     private var statusItem: NSStatusItem!
     private var running = false
-    private var detector = PinchDetector()
-    private var dwell = DwellDetector()
+    private var engine = InteractionEngine()
+    private let dwellDuration = NSSegmentedControl(labels: ["0.65 s", "1 s", "1.5 s"], trackingMode: .selectOne, target: nil, action: nil)
+    private let dwellDurationLabel = NSTextField(labelWithString: "Hold time")
+    private let displayStatus = NSTextField(labelWithString: "")
+    private var lastClickLocation: CGPoint?
+    private var lastAnnouncement: String?
+    private var lastAnnouncementTime = -Double.infinity
     private var clickMode: ClickMode = .pinch
     private var previewPhase: PinchPhase {
         if clickMode == .dwell {
-            switch dwell.phase {
+            switch engine.dwell.phase {
             case .arming: return .confirming
             case .needMove: return .held
             case .idle: return .waitingForOpen
             }
         }
-        return detector.phase
+        return engine.pinch.phase
     }
-    private var filter = PointerFilter()
-    private var lastHand = 0.0
     private var clickedUntil = 0.0
     private var testClicks = 0
     private var targetDisplay = CGMainDisplayID()
@@ -197,6 +200,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let savedSensitivity = defaults.object(forKey: "clickSensitivity") as? Int ?? 1
         sensitivity.selectedSegment = min(2, max(0, savedSensitivity))
         sensitivity.target = self; sensitivity.action = #selector(sensitivityChanged)
+        dwellDuration.selectedSegment = min(2, max(0, defaults.object(forKey: "dwellDurationPreset") as? Int ?? 0))
+        dwellDuration.target = self; dwellDuration.action = #selector(dwellDurationChanged)
+        dwellDuration.setAccessibilityLabel("Dwell hold duration")
+        dwellDuration.toolTip = "How long to hold still before a click. Changing this cancels the current countdown."
         sensitivityChanged()
         let savedMode = defaults.string(forKey: "clickMode") ?? ClickMode.pinch.rawValue
         clickMode = ClickMode(rawValue: savedMode) ?? .pinch
@@ -204,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         clickModeControl.target = self; clickModeControl.action = #selector(clickModeChanged)
         clickTest.target = self; clickTest.action = #selector(testClick)
         clickTest.bezelStyle = .rounded
-        for label in [pinchFeelLabel, clickModeLabel] {
+        for label in [pinchFeelLabel, clickModeLabel, dwellDurationLabel] {
             label.font = .systemFont(ofSize: 12, weight: .medium)
             label.textColor = .secondaryLabelColor
         }
@@ -213,24 +220,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupRow.spacing = 10
         setupRows = NSStackView(views: [permissionStatus, setupRow])
         setupRows.orientation = .vertical; setupRows.alignment = .leading; setupRows.spacing = 8
+        setupToggle.setButtonType(.pushOnPushOff)
+        setupToggle.bezelStyle = .disclosure
+        setupToggle.setAccessibilityLabel("Permissions and setup")
         setupToggle.target = self; setupToggle.action = #selector(toggleSetup)
         setupToggle.state = AXIsProcessTrusted() ? .off : .on
-        setupRows.isHidden = setupToggle.state == .off
+        toggleSetup()
+        let setupLabel = NSTextField(labelWithString: "Permissions & setup")
+        setupLabel.setAccessibilityElement(false)
+        let setupDisclosure = NSStackView(views: [setupToggle, setupLabel])
+        setupDisclosure.spacing = 6
         let spacer = NSView()
         let primaryRow = NSStackView(views: [cameraStatus, spacer, toggle])
         primaryRow.spacing = 12
         let modeRow = NSStackView(views: [allowClicks, clickModeLabel, clickModeControl, clickTest])
         modeRow.spacing = 12
-        let tuningRow = NSStackView(views: [pinchFeelLabel, sensitivity])
+        let tuningRow = NSStackView(views: [pinchFeelLabel, sensitivity, dwellDurationLabel, dwellDuration])
         tuningRow.spacing = 10
         let hint = NSTextField(wrappingLabelWithString: "Esc pauses at any time · Camera frames stay on this Mac")
         hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
-        let header = NSStackView(views: [titleLabel, subtitle, primaryRow])
+        displayStatus.font = .systemFont(ofSize: 11)
+        displayStatus.textColor = .secondaryLabelColor
+        let header = NSStackView(views: [titleLabel, subtitle, primaryRow, displayStatus])
         header.orientation = .vertical; header.alignment = .leading; header.spacing = 10
         header.translatesAutoresizingMaskIntoConstraints = false
         let stack = NSStackView(views: [
             preview, feedback,
-            control, modeRow, tuningRow, setupToggle, setupRows, hint
+            control, modeRow, tuningRow, setupDisclosure, setupRows, hint
         ])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -294,18 +310,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         globalKey = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { self?.pause() }
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in self?.refresh() }
-        refresh(); showWindow()
+        let watchdog = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.refresh() }
+        RunLoop.main.add(watchdog, forMode: .common)
+        timer = watchdog
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification,
+                     NSWorkspace.sessionDidResignActiveNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(environmentPaused(_:)), name: name, object: nil)
+        }
+        configureInteraction(); refresh(); showWindow(); updateDisplayStatus()
+
     }
 
-    @objc private func toggleSetup() { setupRows.isHidden = setupToggle.state == .off }
+    @objc private func toggleSetup() {
+        setupRows.isHidden = setupToggle.state == .off
+        setupToggle.setAccessibilityExpanded(setupToggle.state == .on)
+    }
+
+    private func configureInteraction() {
+        engine.configure(InteractionSettings(mode: clickMode, allowClicks: allowClicks.state == .on,
+            pointerEnabled: control.state == .on,
+            pinchThreshold: [0.34, 0.42, 0.50][min(2, max(0, sensitivity.selectedSegment))],
+            dwellSeconds: [0.65, 1.0, 1.5][min(2, max(0, dwellDuration.selectedSegment))]))
+    }
+
+    private func updateDisplayStatus() {
+        guard let window else { return }
+        let screen = running ? NSScreen.screens.first {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == targetDisplay
+        } : window.screen
+        displayStatus.stringValue = (running ? "Controlling: " : "Target display: ") + (screen?.localizedName ?? "Unavailable")
+    }
+
+    @objc private func environmentPaused(_ notification: Notification) {
+        guard running else { return }
+        pause()
+        showFeedback("Paused for system change", "Camera and mouse control stopped. Start camera to resume when ready.")
+    }
+
+    func applicationDidChangeScreenParameters(_ notification: Notification) {
+        if running {
+            pause()
+            showFeedback("Displays changed · Paused", "Place this window on your target display, then start the camera again.")
+        }
+        updateDisplayStatus()
+    }
+    func windowDidChangeScreen(_ notification: Notification) { updateDisplayStatus() }
+
 
     private func showFeedback(_ title: String, _ detail: String, progress: Double? = nil, clicked: Bool = false) {
         feedback.update(title: title, detail: detail, fraction: progress, clicked: clicked)
+        let announcement: String? = clicked ? "Click sent" : (["Looking for your hand", "Tracking interrupted", "Tracking delayed", "Enable Accessibility", "Paused"].contains(title) ? title : nil)
+        if let announcement, lastAnnouncement != announcement {
+            let now = ProcessInfo.processInfo.systemUptime
+            // A click or explicit pause must not disappear behind the camera-status throttle.
+            if announcement == "Click sent" || announcement == "Paused" || now - lastAnnouncementTime > 0.4 {
+                NSAccessibility.post(element: feedback, notification: .announcementRequested,
+                    userInfo: [.announcement: announcement, .priority: NSAccessibilityPriorityLevel.low.rawValue])
+                lastAnnouncementTime = now
+                lastAnnouncement = announcement
+            }
+        } else if announcement == nil {
+            lastAnnouncement = nil
+        }
     }
 
     private func clearClickFeedback() {
-        cursorFeedback.hide(); clickedUntil = 0; movedUntil = 0
+        cursorFeedback.hide(); clickedUntil = 0; movedUntil = 0; lastClickLocation = nil
     }
 
     private func readyFeedback() {
@@ -324,16 +394,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func refreshClickChrome() {
         let clicksOn = allowClicks.state == .on
-        clickModeControl.isEnabled = clicksOn
-        clickModeLabel.textColor = clicksOn ? .secondaryLabelColor : .tertiaryLabelColor
-        sensitivity.isEnabled = clicksOn && clickMode == .pinch
+        configureInteraction()
+        clickModeControl.isEnabled = true
+        clickModeLabel.textColor = .secondaryLabelColor
+        sensitivity.isEnabled = clickMode == .pinch
         pinchFeelLabel.isHidden = clickMode != .pinch
         sensitivity.isHidden = clickMode != .pinch
         pinchFeelLabel.textColor = sensitivity.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor
+        dwellDuration.isHidden = clickMode != .dwell
+        dwellDurationLabel.isHidden = clickMode != .dwell
         clickTest.isEnabled = clicksOn
         if clicksOn {
             subtitle.stringValue = clickMode == .dwell
-                ? "Point with your index, then hold still ~0.65s to click. Move to cancel."
+                ? String(format: "Point, then hold still %.2g seconds to click. Move to cancel.", engine.settings.dwellSeconds)
                 : "Point with your index, then pinch thumb + index to click."
         } else {
             subtitle.stringValue = "Practice pointing first. Turn on Allow clicks only when you want real mouse clicks."
@@ -344,13 +417,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func toggleCamera() {
         if running { pause(); return }
         running = true; cameraReady = false
-        detector.reset(); dwell.reset(); filter.reset(); clearClickFeedback()
+        engine.reset(); clearClickFeedback()
         lastFrameTime = ProcessInfo.processInfo.systemUptime
-        lastHand = ProcessInfo.processInfo.systemUptime
         // Lock to the display containing this window for the duration of this session.
         if let number = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
             targetDisplay = CGDirectDisplayID(number.uint32Value)
         }
+        configureInteraction(); updateDisplayStatus()
         toggle.title = "Pause camera"
         cameraMenuItem.title = "Pause camera"
         cameraStatus.stringValue = "Starting camera…"
@@ -359,31 +432,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         camera.start()
     }
     @objc private func pause() {
-        running = false; camera.stop(); detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0; preview.update(nil)
+        running = false; camera.stop(); engine.reset(); clickedUntil = 0; preview.update(nil)
         clearClickFeedback(); cameraReady = false
         cameraStatus.stringValue = "Camera off · Paused"
         preview.showPlaceholder("Camera paused\nStart camera to see your hand here.")
         toggle.title = "Start camera"
         cameraMenuItem.title = "Start camera"
         showFeedback("Paused", "Use your mouse normally. Start the camera when you are ready.")
+        updateDisplayStatus()
     }
-    @objc private func controlChanged() { detector.reset(); dwell.reset(); filter.reset(); readyFeedback() }
+    @objc private func controlChanged() { configureInteraction(); engine.reset(); readyFeedback() }
     @objc private func allowClicksChanged() {
         UserDefaults.standard.set(allowClicks.state == .on, forKey: "allowClicks")
-        detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0
+        engine.reset(); clickedUntil = 0
         refreshClickChrome(); readyFeedback(); refresh()
     }
     @objc private func clickModeChanged() {
         clickMode = clickModeControl.selectedSegment == 1 ? .dwell : .pinch
         UserDefaults.standard.set(clickMode.rawValue, forKey: "clickMode")
-        detector.reset(); dwell.reset(); filter.reset(); clickedUntil = 0
+        engine.reset(); clickedUntil = 0
         refreshClickChrome(); readyFeedback(); refresh()
     }
     @objc private func sensitivityChanged() {
         let selected = min(2, max(0, sensitivity.selectedSegment))
-        detector.settings.closeRatio = [0.34, 0.42, 0.50][selected]
         UserDefaults.standard.set(selected, forKey: "clickSensitivity")
-        detector.reset(); dwell.reset(); clearClickFeedback()
+        configureInteraction(); engine.reset(); readyFeedback()
+    }
+    @objc private func dwellDurationChanged() {
+        UserDefaults.standard.set(min(2, max(0, dwellDuration.selectedSegment)), forKey: "dwellDurationPreset")
+        configureInteraction(); engine.reset(); clearClickFeedback()
+        refreshClickChrome(); readyFeedback()
     }
     @objc private func testClick() {
         testClicks += 1
@@ -404,8 +482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let trusted = AXIsProcessTrusted()
         if previouslyTrusted == true && !trusted {
             setupToggle.state = .on; toggleSetup()
-            detector.reset(); dwell.reset(); filter.reset(); clearClickFeedback()
-            showFeedback("Accessibility turned off", "Enable Hand Mouse below to resume pointer control.")
+            engine.reset(); clearClickFeedback()
         }
         previouslyTrusted = trusted
         if trusted {
@@ -423,8 +500,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         guard running else { return }
         let now = ProcessInfo.processInfo.systemUptime
+        // Camera health must stay accurate in preview mode and before Accessibility is enabled.
+        if cameraReady && now - lastFrameTime > GestureTuning.trackingGraceSeconds {
+            engine.trackingInterrupted(); clearClickFeedback(); preview.update(nil)
+            cameraStatus.stringValue = "Camera on · Tracking interrupted"
+            showFeedback("Tracking interrupted", "Countdown canceled. Pause and restart the camera if tracking does not resume.")
+            return
+        }
         if !trusted || control.state != .on {
-            detector.reset(); dwell.reset(); filter.reset(); clearClickFeedback()
+            engine.reset(); clearClickFeedback()
             showFeedback(trusted ? "Preview only" : "Enable Accessibility",
                          trusted ? "Pointer movement and clicks are off." : "Open Permissions & setup to allow this app to move the pointer.")
             return
@@ -432,61 +516,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if allowClicks.state != .on {
             clearClickFeedback()
         }
-        // No wall-clock countdown animation: expire stale feedback instead of implying a click.
-        if cameraReady && now - lastFrameTime > GestureTuning.trackingGraceSeconds {
-            detector.reset(); dwell.reset(); clearClickFeedback(); preview.update(nil)
-            cameraStatus.stringValue = "Camera on · Tracking interrupted"
-            showFeedback("Tracking interrupted", "Countdown canceled. Keep your hand visible to try again.")
-        }
     }
     private func handle(_ frame: HandFrame) {
         guard running else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        guard now - frame.timestamp < 0.20 else {
-            detector.reset(); dwell.reset(); filter.reset(); clearClickFeedback(); preview.update(nil)
-            cameraStatus.stringValue = "Camera on · Tracking delayed"
-            showFeedback("Tracking delayed", "Countdown canceled. Hold still briefly to reacquire your hand.")
+        guard CGDisplayIsActive(targetDisplay) != 0 else {
+            pause(); showFeedback("Display disconnected", "Choose a connected display and start the camera again.")
             return
         }
-        lastFrameTime = now
-        cameraReady = true; preview.showPlaceholder(nil)
-        let hasHand = frame.points[.indexTip] != nil
-        cameraStatus.stringValue = hasHand ? "Camera on · Hand tracked" : "Camera on · Looking for hand"
-        let trusted = AXIsProcessTrusted()
-        guard control.state == .on && trusted else {
-            detector.reset(); dwell.reset(); filter.reset(); clearClickFeedback(); preview.update(frame)
-            showFeedback(control.state == .on ? "Enable Accessibility" : "Preview only",
-                         control.state == .on ? "Open Permissions & setup to allow this app to move the pointer." : "Pointer movement and clicks are off.")
+        let step = engine.process(index: frame.points[.indexTip], pinchRatio: frame.pinchRatio,
+                                  timestamp: frame.timestamp, now: now, bounds: CGDisplayBounds(targetDisplay),
+                                  running: running, trusted: AXIsProcessTrusted())
+        if let blocked = step.blocked {
+            clearClickFeedback()
+            switch blocked {
+            case .staleFrame:
+                preview.update(nil)
+                cameraStatus.stringValue = "Camera on · Tracking delayed"
+                showFeedback("Tracking delayed", "Countdown canceled. Hold still briefly to reacquire your hand.")
+            case .invalidDisplay:
+                pause(); showFeedback("Display unavailable", "Choose a connected display, then start camera.")
+            case .permission, .previewOnly:
+                if frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.20 {
+                    lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
+                    cameraStatus.stringValue = frame.points[.indexTip] == nil
+                        ? "Camera on · Looking for hand" : "Camera on · Hand tracked"
+                }
+                showFeedback(blocked == .permission ? "Enable Accessibility" : "Preview only",
+                    blocked == .permission ? "Open Permissions & setup to allow this app to move the pointer." : "Pointer movement and clicks are off.")
+            case .missingHand:
+                lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
+                cameraStatus.stringValue = "Camera on · Looking for hand"
+                showFeedback("Looking for your hand", "Keep your index finger and palm visible. Any countdown is canceled.")
+            case .paused: break
+            }
             return
         }
-        guard let index = frame.points[.indexTip] else {
-            _ = detector.update(ratio: nil, time: frame.timestamp)
-            _ = dwell.update(point: .zero, time: frame.timestamp, tracking: false)
-            if frame.timestamp - lastHand > GestureTuning.trackingGraceSeconds { filter.reset() }
-            clearClickFeedback(); preview.update(frame)
-            showFeedback("Looking for your hand", "Countdown canceled. Keep your index finger and palm visible.")
-            return
-        }
-        lastHand = frame.timestamp
-        let bounds = CGDisplayBounds(targetDisplay)
-        let sample = filter.unfrozenTarget(point: index, bounds: bounds)
-        let clicksAllowed = allowClicks.state == .on
-        let gestureFired: Bool
-        if !clicksAllowed {
-            detector.reset(); dwell.reset(); gestureFired = false
-        } else if clickMode == .dwell {
-            let wasArming = dwell.phase == .arming
-            gestureFired = dwell.update(point: sample, time: frame.timestamp, tracking: true)
-            if wasArming && dwell.phase == .idle { movedUntil = frame.timestamp + 0.3 }
-        } else {
-            gestureFired = detector.update(ratio: frame.pinchRatio, time: frame.timestamp)
-        }
-        let freeze = clicksAllowed && (clickMode == .dwell ? dwell.shouldFreeze : detector.shouldFreeze)
-        let location = filter.update(point: index, bounds: bounds, time: frame.timestamp, freeze: freeze)
+        guard let location = step.location else { return }
+        lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil)
+        cameraStatus.stringValue = "Camera on · Hand tracked"
+        if step.restartedDwell { movedUntil = now + 0.3 }
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left)?.post(tap: .cghidEventTap)
-        let inject = SafetyPolicy.shouldInjectClick(gestureFired: gestureFired, allowClicks: clicksAllowed,
-                                                    axTrusted: trusted, pointerControlEnabled: control.state == .on)
-        if inject {
+        let clicksAllowed = engine.settings.allowClicks
+        if step.click {
             guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: location, mouseButton: .left),
                   let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: location, mouseButton: .left) else {
                 clearClickFeedback()
@@ -496,29 +568,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             down.setIntegerValueField(.mouseEventClickState, value: 1)
             up.setIntegerValueField(.mouseEventClickState, value: 1)
             down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)
-            clickedUntil = frame.timestamp + 0.35
+            clickedUntil = now + 0.35
+            lastClickLocation = location
         }
-        let clicked = frame.timestamp < clickedUntil
+        let clicked = now < clickedUntil
         preview.update(frame, phase: previewPhase, clicked: clicked)
         if !clicksAllowed {
             cursorFeedback.hide()
             showFeedback("Pointing only · Clicks off", "Move your index finger. Enable Allow clicks when you are ready.")
         } else if clicked {
             showFeedback("Clicked ✓", clickMode == .dwell ? "Move to a new spot before the next countdown." : "Separate thumb + index before the next click.", clicked: true)
-            cursorFeedback.show(at: location, displayID: targetDisplay, progress: 1, remaining: 0, clicked: true)
+            cursorFeedback.show(at: lastClickLocation ?? location, displayID: targetDisplay, progress: 1, remaining: 0, clicked: true)
         } else if clickMode == .dwell {
-            switch dwell.phase {
+            switch engine.dwell.phase {
             case .idle:
                 cursorFeedback.hide()
                 showFeedback("Move to aim", "Hold still to start a new countdown. Movement cancels the previous one.")
             case .arming:
-                let remaining = dwell.remainingSeconds
-                let detail = frame.timestamp < movedUntil
+                let remaining = engine.dwell.remainingSeconds
+                let detail = now < movedUntil
                     ? "Restarted after movement · Keep still to click · Esc pauses"
                     : "Keep still to click · Move to cancel · Esc pauses"
-                showFeedback(String(format: "Click in %.1f s", max(0.1, remaining)), detail, progress: dwell.progress)
-                cursorFeedback.show(at: location, displayID: targetDisplay, progress: dwell.progress,
-                                    remaining: remaining, clicked: false, restarted: frame.timestamp < movedUntil)
+                showFeedback(String(format: "Click in %.1f s", max(0.1, remaining)), detail, progress: engine.dwell.progress)
+                cursorFeedback.show(at: location, displayID: targetDisplay, progress: engine.dwell.progress,
+                                    remaining: remaining, clicked: false, restarted: now < movedUntil)
             case .needMove:
                 cursorFeedback.hide()
                 showFeedback("Move to click again", "The last click is complete. Move your hand to start a new countdown.")
@@ -528,7 +601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if frame.pinchRatio == nil {
                 showFeedback("Pointing", "Show your thumb and palm to enable a pinch click.")
             } else {
-                switch detector.phase {
+                switch engine.pinch.phase {
                 case .waitingForOpen: showFeedback("Open your hand", "Separate thumb + index to get ready.")
                 case .ready: showFeedback("Ready to pinch", "Aim, then touch thumb + index. Try the Test click button.")
                 case .confirming: showFeedback("Pinch detected", "Hold your fingertips together briefly.")
@@ -542,6 +615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showWindow(); return true }
     func applicationWillTerminate(_ notification: Notification) {
         cursorFeedback.hide(); camera.stop(); timer?.invalidate()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         if let globalKey { NSEvent.removeMonitor(globalKey) }
         if let localKey { NSEvent.removeMonitor(localKey) }
     }

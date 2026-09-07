@@ -19,11 +19,15 @@ final class DwellRingView: NSView {
         track.lineWidth = 8; track.stroke()
         NSColor.white.withAlphaComponent(0.55).setStroke()
         track.lineWidth = 4; track.stroke()
-        let arc = NSBezierPath()
-        arc.appendArc(withCenter: center, radius: radius, startAngle: 90,
-                      endAngle: 90 - CGFloat(clicked ? 1 : min(1, max(0, progress))) * 360, clockwise: true)
-        (clicked ? NSColor.white : NSColor.systemMint).setStroke()
-        arc.lineWidth = 4; arc.lineCapStyle = .round; arc.stroke()
+        let fraction = clicked ? 1 : min(1, max(0, progress))
+        // Avoid relying on AppKit's equal-angle arc behavior for zero progress.
+        if fraction > 0 {
+            let arc = NSBezierPath()
+            arc.appendArc(withCenter: center, radius: radius, startAngle: 90,
+                          endAngle: 90 - CGFloat(fraction) * 360, clockwise: true)
+            (clicked ? NSColor.white : NSColor.systemMint).setStroke()
+            arc.lineWidth = 4; arc.lineCapStyle = .round; arc.stroke()
+        }
         if clicked {
             let check = NSBezierPath()
             check.move(to: CGPoint(x: center.x - 7, y: center.y))
@@ -86,28 +90,37 @@ final class ClickFeedbackView: NSView {
     func update(title: String, detail: String, fraction: Double? = nil, clicked: Bool = false) {
         self.title.stringValue = title
         self.detail.stringValue = detail
-        ring.progress = fraction ?? 0; ring.clicked = clicked
-        progress.doubleValue = fraction ?? 0
+        let clamped = fraction.map { min(1, max(0, $0)) }
+        ring.progress = clamped ?? 0; ring.clicked = clicked
+        progress.doubleValue = clamped ?? 0
         progress.isHidden = fraction == nil
+        progress.setAccessibilityValueDescription(clamped.map { "\(Int(($0 * 100).rounded())) percent" })
         ring.isHidden = fraction == nil && !clicked
         setAccessibilityLabel(title + ". " + detail)
     }
 }
 
+/// The cursor indicator must never become an input target or activate Hand Mouse.
+private final class CursorFeedbackPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 /// Nonactivating and click-through; it never intercepts the click it previews.
 final class CursorFeedback {
-    private let panel: NSPanel
+    private let panel: CursorFeedbackPanel
     private let ring = DwellRingView(frame: CGRect(x: 50, y: 30, width: 50, height: 50))
     private let label = NSTextField(labelWithString: "")
 
     init() {
-        panel = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 150, height: 110),
-                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel = CursorFeedbackPanel(contentRect: CGRect(x: 0, y: 0, width: 150, height: 110),
+                                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false; panel.backgroundColor = .clear
         panel.hasShadow = false; panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
+        panel.animationBehavior = .none
         panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications, .fullScreenAuxiliary, .ignoresCycle]
         let content = NSView(frame: panel.frame)
         content.setAccessibilityElement(false)
         content.setAccessibilityChildren([])
@@ -121,13 +134,13 @@ final class CursorFeedback {
 
     func show(at point: CGPoint, displayID: CGDirectDisplayID, progress: Double, remaining: Double,
               clicked: Bool, restarted: Bool = false) {
-        guard let primary = NSScreen.screens.first else { hide(); return }
+        guard let primary = NSScreen.screens.first,
+              let screen = NSScreen.screens.first(where: {
+                  ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
+              }) else { hide(); return }
         // CG mouse coordinates start at the primary display's top-left; AppKit starts bottom-left.
         let center = CursorFeedbackLayout.appKitPoint(point, primaryTop: primary.frame.maxY)
         // Use the locked target display, including its exact upper/right boundary.
-        let screen = NSScreen.screens.first {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
-        } ?? primary
         let layout = CursorFeedbackLayout(center: center, screen: screen.frame)
         panel.setFrameOrigin(layout.origin)
         ring.setFrameOrigin(layout.ringOrigin)

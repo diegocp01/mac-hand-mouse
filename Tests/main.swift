@@ -293,6 +293,71 @@ _ = firedProgress.update(point: progressPoint, time: 50.4, tracking: true)
 check(firedProgress.phase == .needMove && firedProgress.progress == 0 && firedProgress.remainingSeconds == 0,
       "Cooldown cannot expose queued dwell progress")
 
+// Tracking and malformed observations cancel only incomplete work. Once fired,
+// needMove and cooldown are safety state and survive until real movement or reset.
+var protectedNeedMove = DwellDetector()
+protectedNeedMove.settings.dwellSeconds = 0.20
+protectedNeedMove.settings.cooldownSeconds = 0.45
+_ = protectedNeedMove.update(point: progressPoint, time: 60.0, tracking: true)
+_ = protectedNeedMove.update(point: progressPoint, time: 60.1, tracking: true)
+check(protectedNeedMove.update(point: progressPoint, time: 60.21, tracking: true),
+      "Safety-state fixture fires once")
+protectedNeedMove.trackingLost()
+check(protectedNeedMove.phase == .needMove && protectedNeedMove.shouldFreeze,
+      "Tracking loss preserves the post-click movement lock")
+check(!protectedNeedMove.update(point: progressPoint, time: 60.8, tracking: true),
+      "Reacquiring the same stationary hand cannot repeat a click")
+
+check(!protectedNeedMove.update(point: progressPoint, time: 60.8, tracking: true),
+      "Duplicate timestamp cannot clear needMove")
+check(protectedNeedMove.phase == .needMove, "Duplicate timestamp preserves post-click safety state")
+check(!protectedNeedMove.update(point: progressPoint, time: 60.7, tracking: true),
+      "Out-of-order timestamp cannot clear needMove")
+check(protectedNeedMove.phase == .needMove, "Out-of-order timestamp preserves post-click safety state")
+check(!protectedNeedMove.update(point: progressPoint, time: .nan, tracking: true),
+      "NaN timestamp cannot clear needMove")
+check(protectedNeedMove.phase == .needMove, "NaN timestamp preserves post-click safety state")
+check(!protectedNeedMove.update(point: CGPoint(x: CGFloat.nan, y: 40), time: 60.9, tracking: true),
+      "Invalid point cannot clear needMove")
+check(!protectedNeedMove.update(point: CGPoint(x: 40, y: CGFloat.infinity), time: 60.9, tracking: true),
+      "Infinite point cannot clear needMove")
+check(protectedNeedMove.phase == .needMove && protectedNeedMove.progress == 0,
+      "Malformed points preserve the movement lock without visible progress")
+
+_ = protectedNeedMove.update(point: CGPoint(x: 80, y: 40), time: 60.9, tracking: true)
+check(protectedNeedMove.phase == .arming && protectedNeedMove.progress == 0,
+      "Real movement after tracking loss starts a fresh arm")
+_ = protectedNeedMove.update(point: CGPoint(x: 80, y: 40), time: 61.0, tracking: true)
+check(protectedNeedMove.update(point: CGPoint(x: 80, y: 40), time: 61.11, tracking: true),
+      "Fresh dwell after required movement can click")
+
+var invalidInitialPosition = DwellDetector()
+invalidInitialPosition.settings.dwellSeconds = 0.20
+check(!invalidInitialPosition.update(point: CGPoint(x: CGFloat.nan, y: CGFloat.infinity), time: 70.0, tracking: true),
+      "Invalid initial position cannot arm or click")
+check(invalidInitialPosition.phase == .idle && invalidInitialPosition.progress == 0 &&
+      invalidInitialPosition.remainingSeconds == 0 && !invalidInitialPosition.shouldFreeze,
+      "Invalid initial position leaves the detector fully idle")
+check(!invalidInitialPosition.update(point: progressPoint, time: 70.0, tracking: true),
+      "A valid sample at the same timestamp can start the first real observation")
+check(invalidInitialPosition.phase == .arming && invalidInitialPosition.progress == 0,
+      "The valid position, not the malformed one, becomes the arm origin")
+
+var graceBoundary = DwellDetector()
+graceBoundary.settings.dwellSeconds = 0.50
+_ = graceBoundary.update(point: progressPoint, time: 80.0, tracking: true)
+for sample in 1...4 {
+    _ = graceBoundary.update(point: progressPoint,
+                             time: 80.0 + Double(sample) * GestureTuning.trackingGraceSeconds,
+                             tracking: true)
+}
+check(graceBoundary.phase == .arming && graceBoundary.progress > 0.95,
+      "Nominal samples exactly at tracking grace accumulate consistently")
+check(graceBoundary.update(point: progressPoint,
+                           time: 80.0 + 5 * GestureTuning.trackingGraceSeconds,
+                           tracking: true),
+      "Floating-point rounding at the grace boundary cannot restart a valid dwell")
+
 struct DwellSim {
     var detector = DwellDetector()
     var now = 0.0
@@ -573,6 +638,42 @@ let distB = hypot(clickAim.x - targetB.x, clickAim.y - targetB.y)
 let distA = hypot(clickAim.x - aimAtA.x, clickAim.y - aimAtA.y)
 check(distB < 25, "Click aim is at B after A→B re-aim")
 check(distA > 80, "Click aim is not stuck at old A")
+
+// A slow 60 fps approach repeatedly crosses the cancel radius. It must not fire
+// while moving, and the brief freeze delay must leave the eventual click at B.
+var smoothDwell = DwellDetector()
+smoothDwell.settings.dwellSeconds = 0.65
+smoothDwell.settings.moveCancelPoints = 18
+var smoothFilter = PointerFilter()
+var smoothTime = 0.0
+var smoothLocation = CGPoint.zero
+var smoothClick = CGPoint.zero
+var firedDuringApproach = false
+let smoothFinalIndex = CGPoint(x: 0.70, y: 0.50)
+for frame in 0..<120 {
+    smoothTime += 1.0 / 60
+    let fraction = Double(frame) / 119
+    let index = CGPoint(x: 0.30 + 0.40 * fraction, y: 0.50)
+    let sample = smoothFilter.unfrozenTarget(point: index, bounds: pipelineBounds)
+    let fired = smoothDwell.update(point: sample, time: smoothTime, tracking: true)
+    smoothLocation = smoothFilter.update(point: index, bounds: pipelineBounds, time: smoothTime,
+                                         freeze: smoothDwell.shouldFreeze)
+    if fired { firedDuringApproach = true }
+}
+check(!firedDuringApproach, "A smooth 60 fps approach cannot fire before settling")
+var smoothFired = false
+for _ in 0..<60 where !smoothFired {
+    smoothTime += 1.0 / 60
+    let sample = smoothFilter.unfrozenTarget(point: smoothFinalIndex, bounds: pipelineBounds)
+    smoothFired = smoothDwell.update(point: sample, time: smoothTime, tracking: true)
+    smoothLocation = smoothFilter.update(point: smoothFinalIndex, bounds: pipelineBounds, time: smoothTime,
+                                         freeze: smoothDwell.shouldFreeze)
+    if smoothFired { smoothClick = smoothLocation }
+}
+let smoothTarget = smoothFilter.unfrozenTarget(point: smoothFinalIndex, bounds: pipelineBounds)
+check(smoothFired, "A 60 fps smooth approach can click after a full settled dwell")
+check(hypot(smoothClick.x - smoothTarget.x, smoothClick.y - smoothTarget.y) < 8,
+      "A 60 fps smooth approach clicks at the final target")
 
 // --- CursorFeedbackLayout: clamp captions without displacing the target ring ---
 check(CursorFeedbackLayout.appKitPoint(CGPoint(x: 200, y: 0), primaryTop: 900) == CGPoint(x: 200, y: 900),
