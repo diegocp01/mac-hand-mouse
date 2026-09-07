@@ -58,6 +58,7 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | Preview only | Uncheck **Move pointer**. |
 | Practice safely | Try simulated Pinch or Point forward targets and a scroll counter. No system pointer, click, or scroll input is sent. |
 | Turn on clicks | Check **Allow clicks**. Enabled on new installs; an existing saved choice is preserved. No pose capture or practice targets are required. |
+| Drag / select text (opt-in, experimental) | Enable **Allow two-hand L dragging** in **Gesture settings**. Aim with one hand first. Make an **L with thumb + index on both hands**, other fingers folded. Hold briefly, then move your **original pointer hand** to drag. Open either hand to release. Requires **Allow clicks**. |
 | Left-click — Pinch | Select **Pinch**. Touch **thumb + index** together briefly, then separate before the next click. |
 | Left-click — Point forward (experimental) | Aim with your index extended, then point toward the camera as if touching the screen. Hold the forward pose until the ring fills. Pull back to cancel or rearm. |
 | Adjust forward hold time | Choose **0.65**, **1**, or **1.5 seconds** (saved). A confirmed forward gesture starts this timer; ordinary stillness does not. |
@@ -67,7 +68,21 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | Pause / resume from another app | **⌃⌥⌘H** by default. Choose **⌃⌥⌘M** or **Off** in **Permissions** if needed. |
 | Scroll (opt-in) | In **Gesture settings**, enable **Allow two-finger scrolling**. Hold index + middle extended with ring + little folded, then move up/down. Lower the middle finger to return to pointing. |
 
-**Tips:** one hand, palm visible, even lighting. Closing the window pauses capture. For multiple monitors, put the app window on the screen you want before starting; the header names the display being controlled. Sleep, switching away from your Mac session, or a display configuration change pauses the camera. Start it again when ready.
+**Tips:** start with one hand, palm visible, even lighting. Add the other hand only as the drag modifier; it never becomes a second pointer. Closing the window pauses capture. For multiple monitors, put the app window on the screen you want before starting; the header names the display being controlled. Sleep, switching away from your Mac session, or a display configuration change pauses the camera. Start it again when ready.
+
+### Two-hand dragging and text selection (experimental)
+
+This feature starts **off**. In **Gesture settings**, enable **Allow two-hand L dragging** and **Allow clicks**. Try **Practice safely** first; enable the practice dragging checkbox there. Finishing practice turns dragging, clicks, and scrolling off.
+
+1. Start with **one hand** and wait for **Pointer ready**. Aim at the beginning of the text or the item to drag.
+2. Bring your other hand into view. The original hand keeps the pointer; the second hand is a **drag modifier**. With two-hand dragging enabled, single-hand clicking and scrolling are suspended while the second hand is visible.
+3. On **both hands**, extend thumb and index into an **L**, with middle, ring, and little fingers folded. Keep palms visible. Hold for about **a quarter second**. A ring beside the cursor shows confirmation progress, then **Dragging** appears.
+4. Move the **original pointer hand** to extend the selection or drag the item. The second hand holds the gesture and never moves the pointer.
+5. **Open either hand** to release. You can also lower a hand or press **Esc**. After release or lost tracking, open either hand briefly (at least 0.12 seconds with reliable tracking), then form the pair again. An uncertain pose releases the button but does not rearm it.
+
+This works with either Pinch or Point forward selected and uses **Allow clicks** to enable button input. **Practice safely** shows a simulated selection trail without sending system input. If both hands appear before the pointer is acquired, lower one to establish the owner first. Pause/restart to switch the owner.
+
+Tracking loss, stale frames, camera pause, settings changes, and leaving practice release or cancel a drag. Losing the original hand never transfers control to the remaining hand. Ownership uses left/right handedness, not biometric identity. L recognition needs physical testing across users and cameras; see [two-hand design and checks](docs/TWO_HAND_DRAG.md).
 
 ### Point forward — no pose setup
 
@@ -91,7 +106,7 @@ Camera status stays separate from click instructions: **Starting camera**, **Han
 
 ## What it does *not* do (yet)
 
-Dragging, right-click, double-click, and tap-to-click are **not** included. Keep your physical mouse/trackpad available.
+Right-click, double-click, and tap-to-click are **not** included. Two-hand dragging and text selection are available with the L gesture above. Keep your physical mouse/trackpad available.
 
 ## Troubleshooting
 
@@ -102,7 +117,7 @@ Dragging, right-click, double-click, and tap-to-click are **not** included. Keep
 - **Shortcut unavailable:** another app may own that combination. Choose the other shortcut or **Off** in **Permissions**. Hand Mouse must be running, and the Mac must be awake and in your active session.
 - **Updating from v1.3.0 or earlier:** a one-time Accessibility repair is needed when moving to the persistent signing identity. Use **Show in Finder** to locate the new app, remove the old Hand Mouse entry in Accessibility, then add and enable that exact copy. Future source updates reuse its signer. [Why this changed](docs/SIGNING.md).
 - **Permission is on but the pointer still won't move:** confirm that Accessibility lists the exact running app. If its entry is stale, replace it; toggling the old entry may not help. See the [targeted repair](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the pane is called **Device Control and Data Access**.
-- **Tracking is intermittent:** improve lighting, keep your palm and fingertips visible, and show only one hand.
+- **Tracking is intermittent:** improve lighting, keep your palm and fingertips visible. Start pointer control with one hand; show both hands for dragging.
 - **Escape doesn't pause outside the app:** global Escape needs Accessibility permission; use the window or menu-bar pause button.
 - **Unexpected clicks:** turn **Allow clicks** off. See [safety notes](docs/SAFETY.md).
 

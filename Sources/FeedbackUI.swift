@@ -117,21 +117,28 @@ final class PracticeView: NSView {
     private var pointer: CGPoint?
     private var fraction = 0.0
     private var scrollPosition = 250.0
+    private var dragStart: CGPoint?
+    private var dragEnd: CGPoint?
+    private var wasDragging = false
     private var target: CGRect {
         CGRect(x: bounds.width * (hits % 2 == 0 ? 0.30 : 0.70) - 42,
                y: bounds.height * 0.5 - 42, width: 84, height: 84)
     }
     func reset() {
         hits = 0; pointer = nil; fraction = 0; scrollPosition = 250
+        dragStart = nil; dragEnd = nil; wasDragging = false
         _ = update(point: nil, progress: 0, clicked: false)
     }
-    @discardableResult func update(point: CGPoint?, progress: Double, clicked: Bool, scrollY: Int32 = 0) -> Bool {
+    @discardableResult func update(point: CGPoint?, progress: Double, clicked: Bool, scrollY: Int32 = 0, dragging: Bool = false) -> Bool {
+        if dragging && !wasDragging { dragStart = point }
+        if dragging { dragEnd = point }
+        wasDragging = dragging
         pointer = point; fraction = progress
         scrollPosition = min(500, max(0, scrollPosition - Double(scrollY)))
         let hit = clicked && point.map { hypot($0.x - target.midX, $0.y - target.midY) <= target.width / 2 } == true
         if hit { hits += 1 }
         needsDisplay = true
-        setAccessibilityLabel("Practice target. \(hits) successful practice clicks. Scroll position \(Int(scrollPosition)) of 500. No system input is sent.")
+        setAccessibilityLabel("Practice target. \(hits) successful practice clicks. Scroll position \(Int(scrollPosition)) of 500. \(dragging ? "Dragging selection." : "Drag released.") No system input is sent.")
         return hit
     }
     override func draw(_ dirtyRect: NSRect) {
@@ -143,6 +150,14 @@ final class PracticeView: NSView {
         let outline = NSBezierPath(ovalIn: target); outline.lineWidth = 3; outline.stroke()
         let label = "Scroll: \(Int(scrollPosition)) / 500"
         (label as NSString).draw(at: CGPoint(x: 14, y: 12), withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor])
+        if let start = dragStart, let end = dragEnd {
+            let selection = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                width: max(2, abs(end.x - start.x)), height: max(8, abs(end.y - start.y)))
+            NSColor.systemBlue.withAlphaComponent(0.25).setFill()
+            NSBezierPath(rect: selection).fill()
+            NSColor.systemBlue.setStroke()
+            let line = NSBezierPath(); line.move(to: start); line.line(to: end); line.lineWidth = 2; line.stroke()
+        }
         if let pointer {
             NSColor.labelColor.setFill()
             NSBezierPath(ovalIn: CGRect(x: pointer.x - 5, y: pointer.y - 5, width: 10, height: 10)).fill()

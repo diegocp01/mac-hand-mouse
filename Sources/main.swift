@@ -112,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let practice = PracticeView()
     private var practiceCursor: CGPoint?
     private let practiceButton = NSButton(title: "Practice safely", target: nil, action: nil)
+    private let allowDragging = NSButton(checkboxWithTitle: "Allow two-hand L dragging (experimental)", target: nil, action: nil)
     private let allowScrolling = NSButton(checkboxWithTitle: "Allow two-finger scrolling", target: nil, action: nil)
     private let shortcutChoice = NSPopUpButton(frame: .zero, pullsDown: false)
     private let shortcutStatus = NSTextField(wrappingLabelWithString: "")
@@ -152,6 +153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var running = false
     private var engine = InteractionEngine()
+    private var ownership = HandOwnership()
+    private var dragOutput = DragOutput()
+    private var dragReleaseEvent: CGEvent?
     private let dwellDuration = NSSegmentedControl(labels: ["0.65 s", "1 s", "1.5 s"], trackingMode: .selectOne, target: nil, action: nil)
     private let dwellDurationLabel = NSTextField(labelWithString: "Hold time")
     private let displayStatus = NSTextField(labelWithString: "")
@@ -234,6 +238,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         allowClicks.state = ClickPreference.restored(saved: defaults.object(forKey: "allowClicks") as? Bool,
             legacy: defaults.object(forKey: "allowPinchClicks") as? Bool) ? .on : .off
         allowClicks.target = self; allowClicks.action = #selector(allowClicksChanged)
+        allowDragging.state = defaults.bool(forKey: "allowDragging") ? .on : .off
+        allowDragging.target = self; allowDragging.action = #selector(draggingChanged)
+        allowDragging.toolTip = "Start with one hand. Make an L with both thumbs + index fingers; fold the other fingers. Hold briefly, then move your original hand to drag. Open either hand to release."
         allowScrolling.state = defaults.bool(forKey: "allowScrolling") ? .on : .off
         allowScrolling.target = self; allowScrolling.action = #selector(scrollingChanged)
         allowScrolling.toolTip = "Hold index + middle extended with ring + little folded, then move up/down. Clicks pause during scrolling."
@@ -315,7 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         optionsToggle.target = self; optionsToggle.action = #selector(toggleOptions)
         optionsToggle.setAccessibilityLabel("Gesture settings")
         optionsToggle.state = clickMode == .forward ? .on : .off
-        optionsRows = StartupStyle.column([modeRow, tuningRow, allowScrolling, forwardControls, displayStatus])
+        optionsRows = StartupStyle.column([modeRow, tuningRow, allowScrolling, allowDragging, forwardControls, displayStatus])
         toggleOptions()
         let controls = NSStackView(views: [control, NSView(), allowClicks])
         controls.spacing = 12
@@ -459,16 +466,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 : (clickMode == .forward ? "Point toward the camera and hold to click. Pull back to cancel or click again."
                     : "Touch thumb + index to click, then separate them before the next click.")
             pointerGuide.update(title: practicing ? "Practice pointer ready · Move to aim" : "Pointer ready · Move to aim",
-                detail: "Move your index finger to aim at the target.\n" + next)
+                detail: "Move your index finger to aim at the target.\n" + next + (engine.settings.allowDragging ? " Two L-shaped hands drag/select; open either hand to release." : ""))
         }
     }
 
     private func configureInteraction() {
-        engine.configure(InteractionSettings(mode: clickMode, allowClicks: practicing || allowClicks.state == .on,
+        let settings = InteractionSettings(mode: clickMode, allowClicks: practicing || allowClicks.state == .on,
             pointerEnabled: practicing || control.state == .on,
             pinchThreshold: [0.34, 0.42, 0.50][min(2, max(0, sensitivity.selectedSegment))],
             dwellSeconds: [0.65, 1.0, 1.5][min(2, max(0, dwellDuration.selectedSegment))],
-            allowScrolling: allowScrolling.state == .on))
+            allowScrolling: allowScrolling.state == .on, allowDragging: allowDragging.state == .on)
+        if settings != engine.settings { releaseDrag() }
+        engine.configure(settings)
     }
 
     private func updateDisplayStatus() {
@@ -509,9 +518,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                : "\(shortcutChoice.titleOfSelectedItem ?? "") pauses or resumes the camera from another app. Esc pauses.")
     }
 
+    @objc private func draggingChanged() {
+        UserDefaults.standard.set(allowDragging.state == .on, forKey: "allowDragging")
+        configureInteraction(); resetInteraction(); clearClickFeedback(); readyFeedback()
+    }
+
     @objc private func scrollingChanged() {
         UserDefaults.standard.set(allowScrolling.state == .on, forKey: "allowScrolling")
-        configureInteraction(); engine.reset(); clearClickFeedback(); readyFeedback()
+        configureInteraction(); resetInteraction(); clearClickFeedback(); readyFeedback()
     }
 
     func applicationDidChangeScreenParameters(_ notification: Notification) {
@@ -575,6 +589,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dwellDuration.isHidden = clickMode != .forward
         dwellDurationLabel.isHidden = clickMode != .forward
         let learning = practicing
+        allowDragging.title = learning ? "Try two-hand L dragging in practice" : "Allow two-hand L dragging (experimental)"
         allowScrolling.title = learning ? "Try two-finger scrolling in practice" : "Allow two-finger scrolling"
         clickTest.isEnabled = clicksOn && !learning
         allowClicks.isEnabled = !learning
@@ -598,8 +613,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard activation.canResume else { return }
         allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
         disableScrolling()
+        allowDragging.state = .off; UserDefaults.standard.set(false, forKey: "allowDragging")
         practicing = true
-        engine.reset(); practice.reset(); practiceCursor = nil; clearClickFeedback(); practiceMessageUntil = 0
+        resetInteraction(); practice.reset(); practiceCursor = nil; clearClickFeedback(); practiceMessageUntil = 0
         optionsToggle.state = .on; toggleOptions()
         if !running { toggleCamera() }
         refreshClickChrome()
@@ -607,11 +623,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func finishPractice() {
         practicing = false
-        engine.reset(); clearClickFeedback(); practice.reset(); practiceCursor = nil
+        resetInteraction(); clearClickFeedback(); practice.reset(); practiceCursor = nil
         disableScrolling()
+        allowDragging.state = .off; UserDefaults.standard.set(false, forKey: "allowDragging")
         allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
         refreshClickChrome()
-        showFeedback("Practice finished", "Clicks and scrolling are off. Enable them when you want to control other apps.")
+        showFeedback("Practice finished", "Clicks, scrolling, and dragging are off. Enable them when you want to control other apps.")
     }
 
     private func disableScrolling() {
@@ -621,7 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func handlePractice(_ frame: HandFrame, now: Double) {
         guard frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.20 else {
-            engine.trackingInterrupted(); cursorFeedback.hide(); return
+            interruptInteraction(); cursorFeedback.hide(); return
         }
         lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
         cameraStatus.stringValue = "Practice only"
@@ -632,13 +649,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             forwardPose: frame.forwardPose, timestamp: frame.timestamp, now: now,
             bounds: screen, running: running, trusted: false, destination: .practice,
             cursorPosition: practiceCursor ?? CGPoint(x: screen.midX, y: screen.midY),
-            handSide: frame.handSide, scrollPoint: frame.scrollPoint)
+            handSide: frame.handSide, scrollPoint: frame.scrollPoint,
+            primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased)
         if let location = step.location { practiceCursor = location }
         let simulatedPoint = step.location.map {
             CGPoint(x: ($0.x - screen.minX) / screen.width * practice.bounds.width,
                     y: ($0.y - screen.minY) / screen.height * practice.bounds.height)
         }
-        let hit = practice.update(point: simulatedPoint, progress: engine.forward.progress, clicked: step.click, scrollY: step.scrollY)
+        let hit = practice.update(point: simulatedPoint, progress: engine.forward.progress, clicked: step.click, scrollY: step.scrollY, dragging: step.dragging)
         if step.click {
             let release = clickMode == .forward ? "Pull back" : "Separate thumb + index"
             practiceMessage = hit ? "Target hit ✓ · \(release), then aim at the next target." : "Missed the target · \(release), then aim again."
@@ -650,7 +669,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 : (engine.scroll.phase != .idle ? "Move two fingers up/down to change the counter. Lower the middle finger to return to pointing."
                     : (clickMode == .forward ? "Move onto green. Point forward to start the timer; pull back to cancel."
                        : "Move onto green, then pinch. No pointer, clicks, or scroll events go to other apps.")))
-        showFeedback("Practice only · No system input", now < practiceMessageUntil ? practiceMessage : instruction,
+        let dragInstruction = engine.drag.phase == .needsRelease ? "Open either hand briefly to reset dragging, then make both L poses again." : step.dragging
+            ? "Dragging in practice. Move your original hand; break either L to release."
+            : "For dragging: make an L with both thumbs + index fingers, other fingers folded. The original hand moves the selection."
+        showFeedback("Practice only · No system input", engine.settings.allowDragging && (frame.companionPresent || engine.drag.phase != .idle)
+            ? dragInstruction : (now < practiceMessageUntil ? practiceMessage : instruction),
             progress: engine.forward.phase == .holding ? engine.forward.progress : nil)
     }
 
@@ -659,7 +682,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if running { pause(); return }
         guard activation.canResume else { return }
         running = true; cameraReady = false
-        engine.reset(); clearClickFeedback()
+        ownership.reset()
+        resetInteraction(); clearClickFeedback()
         lastFrameTime = ProcessInfo.processInfo.systemUptime
         // Lock to the display containing this window for the duration of this session.
         if let number = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
@@ -676,7 +700,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         camera.start()
     }
     @objc private func pause() {
-        running = false; camera.stop(); engine.reset(); clickedUntil = 0; preview.update(nil)
+        running = false; camera.stop(); resetInteraction(); clickedUntil = 0; preview.update(nil)
         clearClickFeedback(); cameraReady = false
         cameraStatus.stringValue = "Camera off"
         preview.showPlaceholder("")
@@ -688,27 +712,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateDisplayStatus()
         if practicing { finishPractice() }
     }
-    @objc private func controlChanged() { configureInteraction(); engine.reset(); readyFeedback() }
+    @objc private func controlChanged() { configureInteraction(); resetInteraction(); readyFeedback() }
     @objc private func allowClicksChanged() {
         UserDefaults.standard.set(allowClicks.state == .on, forKey: "allowClicks")
-        engine.reset(); clickedUntil = 0
+        resetInteraction(); clickedUntil = 0
         refreshClickChrome(); readyFeedback(); refresh()
     }
     @objc private func clickModeChanged() {
         if practicing { practice.reset(); practiceCursor = nil; practiceMessageUntil = 0 }
         clickMode = clickModeControl.selectedSegment == 1 ? .forward : .pinch
         UserDefaults.standard.set(clickMode.rawValue, forKey: "clickMode")
-        engine.reset(); clickedUntil = 0
+        resetInteraction(); clickedUntil = 0
         refreshClickChrome(); readyFeedback(); refresh()
     }
     @objc private func sensitivityChanged() {
         let selected = min(2, max(0, sensitivity.selectedSegment))
         UserDefaults.standard.set(selected, forKey: "clickSensitivity")
-        configureInteraction(); engine.reset(); readyFeedback()
+        configureInteraction(); resetInteraction(); readyFeedback()
     }
     @objc private func dwellDurationChanged() {
         UserDefaults.standard.set(min(2, max(0, dwellDuration.selectedSegment)), forKey: "dwellDurationPreset")
-        configureInteraction(); engine.reset(); clearClickFeedback()
+        configureInteraction(); resetInteraction(); clearClickFeedback()
         refreshClickChrome(); readyFeedback()
     }
     @objc private func testClick() {
@@ -732,7 +756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let trusted = AXIsProcessTrusted()
         if previouslyTrusted == true && !trusted {
             setupToggle.state = .on; toggleSetup()
-            engine.reset(); clearClickFeedback()
+            resetInteraction(); clearClickFeedback()
         }
         previouslyTrusted = trusted
         refreshSetupSteps(trusted: trusted)
@@ -740,7 +764,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             permissionStatus.stringValue = "Practice only · All system input off"
             // Optional practice needs no Accessibility access and has no OS output path.
             if cameraReady && ProcessInfo.processInfo.systemUptime - lastFrameTime > GestureTuning.trackingGraceSeconds {
-                engine.trackingInterrupted(); cursorFeedback.hide()
+                interruptInteraction(); cursorFeedback.hide()
                 _ = practice.update(point: nil, progress: 0, clicked: false)
             }
             return
@@ -762,13 +786,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let now = ProcessInfo.processInfo.systemUptime
         // Camera health must stay accurate in preview mode and before Accessibility is enabled.
         if cameraReady && now - lastFrameTime > GestureTuning.trackingGraceSeconds {
-            engine.trackingInterrupted(); clearClickFeedback(); preview.update(nil)
+            interruptInteraction(); clearClickFeedback(); preview.update(nil)
             cameraStatus.stringValue = "Tracking interrupted"
             showFeedback("Tracking interrupted", "Countdown canceled. Pause and restart the camera if tracking does not resume.")
             return
         }
         if !trusted || control.state != .on {
-            engine.reset(); clearClickFeedback()
+            resetInteraction(); clearClickFeedback()
             showFeedback(trusted ? "Preview only" : "Enable Accessibility",
                          trusted ? "Pointer and clicks off." : "Open Permissions to enable control.")
             return
@@ -777,14 +801,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             clearClickFeedback()
         }
     }
-    private func handle(_ frame: HandFrame) {
+    private func handle(_ capture: HandCapture) {
+        var frame = HandFrame(points: [:], pinchRatio: nil, timestamp: capture.timestamp, aspect: capture.aspect)
+        frame.source = capture.source
+        if let selected = ownership.primaryIndex(in: capture.hands.map { $0.handSide }) {
+            frame = capture.hands[selected]
+            let others = capture.hands.indices.filter { $0 != selected }
+            frame.companionPresent = !others.isEmpty
+            if others.count == 1, let other = others.first {
+                let companion = capture.hands[other]
+                let oppositeSide = companion.handSide != nil && companion.handSide != frame.handSide
+                frame.companionL = oppositeSide && companion.isL
+                frame.companionReleased = oppositeSide && companion.lReleased
+            }
+        }
+        defer { ownership.lock(engine.acquisition.owner) }
+
         guard running else { return }
         let now = ProcessInfo.processInfo.systemUptime
         if frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.20 {
             let sourceChanged = lastCameraSource != nil && lastCameraSource != frame.source
             lastCameraSource = frame.source
             if sourceChanged {
-                engine.reset(); clearClickFeedback()
+                resetInteraction(); clearClickFeedback()
                 showFeedback("Camera changed", "Point normally to resume. The gesture adapts automatically.")
                 return
             }
@@ -797,7 +836,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let step = engine.process(index: frame.points[.indexTip], pinchRatio: frame.pinchRatio, forwardPose: frame.forwardPose,
                                   timestamp: frame.timestamp, now: now, bounds: CGDisplayBounds(targetDisplay),
                                   running: running, trusted: AXIsProcessTrusted(), cursorPosition: CGEvent(source: nil)?.location,
-                                  handSide: frame.handSide, scrollPoint: frame.scrollPoint)
+                                  handSide: frame.handSide, scrollPoint: frame.scrollPoint,
+            primaryL: frame.isL, companionPresent: frame.companionPresent, companionL: frame.companionL,
+            primaryReleased: frame.lReleased, companionReleased: frame.companionReleased)
+        guard dragOutput.dispatch(step, post: postDragEvents) else { interruptInteraction(); return }
         if let blocked = step.blocked {
             clearClickFeedback()
             switch blocked {
@@ -818,7 +860,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case .missingHand:
                 lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
                 cameraStatus.stringValue = "Looking for hand"
-                showFeedback("Looking for your hand", "Raise your index finger, palm toward camera, thumb apart. Keep your hand inside the guide.")
+                if ownership.side == nil && capture.hands.count > 1 {
+                    showFeedback("Start with one hand", "Lower the other hand until Pointer ready. Then bring it back as the drag modifier.")
+                } else {
+                    showFeedback("Looking for your hand", "Return your original pointer hand, palm visible. The other hand cannot take over.")
+                }
             case .acquiring, .differentHand, .cursorUnavailable:
                 lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
                 cameraStatus.stringValue = "Waiting to resume"
@@ -836,7 +882,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let location = step.systemLocation else { return }
         lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil)
         cameraStatus.stringValue = "Hand tracked"
-        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left)?.post(tap: .cghidEventTap)
+        if !step.systemDragging {
+            CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left)?.post(tap: .cghidEventTap)
+        }
         if step.systemScrollY != 0,
            let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
                                wheel1: step.systemScrollY, wheel2: 0, wheel3: 0) {
@@ -859,7 +907,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let clicked = now < clickedUntil
         preview.update(frame, phase: previewPhase, clicked: clicked)
-        if engine.scroll.phase != .idle {
+        if engine.settings.allowDragging && (frame.companionPresent || engine.drag.phase != .idle) {
+            let title = engine.drag.phase == .needsRelease ? "Open either hand to reset dragging" : (step.dragging ? "Dragging / selecting" : (engine.drag.phase == .confirming ? "Hold both L poses briefly"
+                : (!frame.isL ? "Make an L with your pointer hand" : "Make an L with your second hand")))
+            let detail = engine.drag.phase == .needsRelease
+                ? "Open either hand briefly, then form both L poses again."
+                : "Make an L with each thumb + index; fold the other fingers. Move your original hand to drag. Open either hand to release."
+            showFeedback(clicksAllowed ? title : "Dragging off", clicksAllowed ? detail : "Enable Allow clicks to use two-hand dragging.")
+            let confirming = engine.drag.phase == .confirming
+            let caption = !clicksAllowed ? "Dragging off" : (engine.drag.phase == .needsRelease ? "Open hand to reset"
+                : (step.dragging ? "Dragging" : (confirming ? "Starting drag" : "Both hands: L")))
+            cursorFeedback.show(at: location, displayID: targetDisplay,
+                progress: confirming ? engine.drag.progress : 0,
+                remaining: confirming ? 0.25 * (1 - engine.drag.progress) : 0, clicked: false, caption: caption)
+        } else if engine.scroll.phase != .idle {
             let active = engine.scroll.phase == .scrolling
             showFeedback(active ? "Scrolling ↑↓" : "Hold two fingers briefly",
                 "Move index + middle up/down to scroll. Lower the middle finger to return to pointing. Clicks are paused.")
@@ -912,10 +973,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func resetInteraction() {
+        releaseDrag()
+        engine.reset()
+    }
+
+    private func interruptInteraction() {
+        releaseDrag()
+        engine.trackingInterrupted()
+    }
+
+    private func releaseDrag() { _ = postDragEvents(dragOutput.release()) }
+
+    @discardableResult private func postDragEvents(_ events: [DragEvent]) -> Bool {
+        for action in events {
+            if action.kind == .up {
+                // Allocate the release before mouse-down, so cleanup does not need
+                // to allocate an event after a later failure or permission change.
+                dragReleaseEvent?.location = action.location
+                dragReleaseEvent?.post(tap: .cghidEventTap)
+                dragReleaseEvent = nil
+                continue
+            }
+            let type: CGEventType
+            switch action.kind {
+            case .down: type = .leftMouseDown
+            case .moved: type = .leftMouseDragged
+            case .up: type = .leftMouseUp
+            }
+            guard let event = CGEvent(mouseEventSource: nil, mouseType: type,
+                                      mouseCursorPosition: action.location, mouseButton: .left) else { return false }
+            if action.kind == .down {
+                guard let release = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                    mouseCursorPosition: action.location, mouseButton: .left) else { return false }
+                release.setIntegerValueField(.mouseEventClickState, value: 1)
+                dragReleaseEvent = release
+            }
+            event.setIntegerValueField(.mouseEventClickState, value: 1)
+            event.post(tap: .cghidEventTap)
+        }
+        return true
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool { pause(); return true }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showWindow(); return true }
     func applicationWillTerminate(_ notification: Notification) {
-        cursorFeedback.hide(); camera.stop(); timer?.invalidate()
+        releaseDrag(); cursorFeedback.hide(); camera.stop(); timer?.invalidate()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         if let globalKey { NSEvent.removeMonitor(globalKey) }
         if let localKey { NSEvent.removeMonitor(localKey) }
