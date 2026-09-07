@@ -228,7 +228,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if defaults.object(forKey: "allowClicks") == nil, let legacy = defaults.object(forKey: "allowPinchClicks") as? Bool {
             defaults.set(legacy, forKey: "allowClicks")
         }
-        allowClicks.state = (defaults.object(forKey: "allowClicks") as? Bool ?? false) ? .on : .off
+        allowClicks.state = ClickPreference.restored(saved: defaults.object(forKey: "allowClicks") as? Bool,
+            legacy: defaults.object(forKey: "allowPinchClicks") as? Bool) ? .on : .off
         allowClicks.target = self; allowClicks.action = #selector(allowClicksChanged)
         allowScrolling.state = defaults.bool(forKey: "allowScrolling") ? .on : .off
         allowScrolling.target = self; allowScrolling.action = #selector(scrollingChanged)
@@ -849,7 +850,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             cursorFeedback.show(at: lastClickLocation ?? location, displayID: targetDisplay, progress: 1, remaining: 0, clicked: true)
         } else if clickMode == .forward && frame.forwardPose == nil {
             cursorFeedback.hide()
-            showFeedback("Finger pose unclear", "Countdown canceled. Keep your palm visible and turn your index slightly so its joints are visible.")
+            let hint = ForwardClickHint.current(pose: nil, profile: engine.forwardProfile)
+            showFeedback(hint.title, hint.detail)
         } else if clickMode == .forward {
             switch engine.forward.phase {
             case .ready:
@@ -857,7 +859,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 showFeedback("Move to aim", "Point toward the camera when you want to click. Staying still does nothing.")
             case .needsNeutral:
                 cursorFeedback.hide()
-                showFeedback("Point to move", "Keep your index extended while aiming, then point toward the camera to click.")
+                let hint = ForwardClickHint.current(pose: frame.forwardPose, profile: engine.forwardProfile)
+                showFeedback(hint.title, hint.detail)
             case .confirming:
                 cursorFeedback.hide()
                 showFeedback("Forward gesture detected", "Keep that pose briefly. Pull back or move sideways to cancel.")

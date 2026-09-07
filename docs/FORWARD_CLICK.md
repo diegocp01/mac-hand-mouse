@@ -2,7 +2,8 @@
 
 ## User flow
 
-Select Point forward, start the camera, and enable Allow clicks. Move your extended
+Select Point forward and start the camera. Allow clicks defaults on for new installs;
+a saved off choice is preserved. Move your extended
 index to aim; point it toward the camera as if touching the screen to start the
 cursor timer. Pull back or move sideways to cancel. Return to ordinary pointing
 before another click. Holding the movement pose alone never starts a timer.
@@ -29,11 +30,13 @@ then anchor to the existing cursor. See [cursor recovery](RECOVERY_AND_SCROLL.md
 scale variation and 0.12 palm units of reach variation; unknown hands, invalid data,
 and gaps over 120 ms reset observation. No frames, landmarks, or references are saved.
 
-A reference requires reach of at least 1.05 palm units. The expected forward feature
-uses 55% of the observed index reach and 112% of palm scale. These shared relative
-thresholds replace manually recorded poses. The existing projection and off-axis
-checks require a coherent forward change; simple enlargement of an extended hand
-is not sufficient. Extended pointing automatically readapts to changed distance
+A reference requires reach of at least 1.05 palm units so a returned forward hold
+does not become an aiming pose during pointer reacquisition. Click evidence is the reduction of index reach relative to that
+reference, with 45% shortening representing a full forward gesture. Palm enlargement
+contributes no positive click evidence; palm scale must remain between two-thirds
+and 1.5 times the reference. Greater shortening saturates at 125% instead of rejecting
+a stronger point. The previous fixed scale/reach projection could reject a direct
+point without palm enlargement or a deeply foreshortened index. Extended pointing automatically readapts to changed distance
 when the reference differs by at least 8% in log scale or 0.15 palm units in reach.
 Adaptation requires at least 90% of the previous extended reach and is disabled
 during gesture confirmation, countdown, and the completed-click state. Updating
@@ -56,13 +59,24 @@ Seven joints still require Vision confidence of at least 0.6. Folded, nearly occ
 unknown-side, or malformed hands fail closed. Removing the wizard does not remove
 these input checks, Accessibility permission, or the explicit Allow clicks control.
 
+## Feedback when no click starts
+
+The app distinguishes missing finger landmarks, an automatic reference that is not
+yet available, a required return to aiming, and a large hand-distance change. None of
+these states shows a countdown. The camera skeleton indicates hand tracking only;
+it does not prove a forward gesture was recognized. No screenshot or personal
+camera data is bundled in the repository.
+
 ## Validation and limits
 
 The production-engine tests use no injected profile or pose-capture calls. They
 exercise no-setup clicking with both hand sides, three hand scales, three index
 lengths, and 15/30/60 fps. Tests also cover moving while the reference is learned,
 ordinary pointing with noise, distance readaptation, starting with a forward pose,
-tracking interruption, click cancellation, rearming, and practice isolation.
+tracking interruption, click cancellation, rearming, and practice isolation. Additional
+regressions cover strong shortening with no palm enlargement, excess distance changes, specific blocked-gesture feedback, and click-preference
+migration. Synthetic landmark chains also pass through ForwardPose.measure before
+the production interaction engine.
 
 These are synthetic observations, not measured physical success or false-positive
 rates. Hand rotation can resemble foreshortening; pointing into the lens can hide

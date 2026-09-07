@@ -3,11 +3,15 @@ import CoreGraphics
 
 struct InteractionSettings: Equatable {
     var mode: ClickMode = .pinch
-    var allowClicks = false
+    var allowClicks = true
     var pointerEnabled = true
     var pinchThreshold = 0.42
     var dwellSeconds = 0.65
     var allowScrolling = false
+}
+
+enum ClickPreference {
+    static func restored(saved: Bool?, legacy: Bool?) -> Bool { saved ?? legacy ?? true }
 }
 
 enum InteractionBlock {
@@ -110,7 +114,7 @@ struct InteractionEngine {
         let neutral: Bool
         if settings.mode == .forward {
             if let profile = forwardProfile, let pose = forwardPose, let position = profile.position(of: pose) {
-                neutral = position.amount > -0.4 && position.amount < 0.25 && position.offAxis < 0.5
+                neutral = position.amount > -0.4 && position.amount < 0.25 && position.scaleDeviation < 0.5
             } else { neutral = false }
         } else { neutral = pinchRatio.map { $0.isFinite && $0 > settings.pinchThreshold + 0.18 } ?? false }
         guard acquisition.update(point: index, cursor: cursorPosition, side: handSide, neutral: neutral && scrollPoint == nil, time: timestamp) else {
