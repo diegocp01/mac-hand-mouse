@@ -7,13 +7,6 @@ enum StartupStyle {
     static let accent = NSColor(srgbRed: 0.35, green: 0.88, blue: 0.96, alpha: 1)
     static let muted = NSColor(srgbRed: 0.66, green: 0.74, blue: 0.80, alpha: 1)
 
-    static func caption(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
-        label.textColor = accent
-        return label
-    }
-
     static func column(_ views: [NSView], spacing: CGFloat = 10) -> NSStackView {
         let stack = NSStackView(views: views)
         stack.orientation = .vertical
@@ -29,7 +22,6 @@ final class SetupStepView: NSView {
     private var presentation = ""
     private let badge = NSTextField(labelWithString: "")
     private let title = NSTextField(labelWithString: "")
-    private let detail = NSTextField(wrappingLabelWithString: "")
 
     init(number: String, title: String) {
         self.number = number
@@ -41,19 +33,16 @@ final class SetupStepView: NSView {
         self.title.stringValue = title
         self.title.font = .systemFont(ofSize: 13, weight: .semibold)
         badge.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
-        detail.font = .systemFont(ofSize: 11)
-        detail.textColor = StartupStyle.muted
         let heading = NSStackView(views: [badge, self.title])
         heading.spacing = 8
-        let text = StartupStyle.column([heading, detail], spacing: 6)
+        let text = heading
         text.translatesAutoresizingMaskIntoConstraints = false
         addSubview(text)
         NSLayoutConstraint.activate([
             text.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             text.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             text.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            text.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            detail.widthAnchor.constraint(equalTo: text.widthAnchor)
+            text.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
         ])
         update(complete: false, active: false, detail: "")
     }
@@ -66,7 +55,6 @@ final class SetupStepView: NSView {
         presentation = nextPresentation
         let badgeText = complete ? "✓" : number
         if badge.stringValue != badgeText { badge.stringValue = badgeText }
-        if self.detail.stringValue != detail { self.detail.stringValue = detail }
         badge.textColor = complete || active ? StartupStyle.accent : StartupStyle.muted
         layer?.backgroundColor = StartupStyle.surface.cgColor
         layer?.borderColor = (active || contrast ? StartupStyle.accent : StartupStyle.muted.withAlphaComponent(0.22)).cgColor

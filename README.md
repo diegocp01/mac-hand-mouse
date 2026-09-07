@@ -6,9 +6,9 @@
 
 ## First launch
 
-The dark startup panel walks you through **Allow control → Start camera → Point & practice**. Each step reflects the current permission and camera state. **Start / Pause camera** stays visible while you scroll; **Gesture settings** keeps extra controls out of the way until you need them.
+The dark startup panel walks you through **Permissions → Camera → Practice**. Each step reflects the current permission and camera state. **Start / Pause camera** stays visible while you scroll; **Gesture settings** keeps extra controls out of the way until you need them.
 
-1. **Permissions & setup:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
+1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. **Start camera** → allow camera access.
 3. Show **one hand**, palm visible; **index fingertip** moves the pointer inside the dashed guide.
 4. Leave **Allow clicks** off while you practice. Expand **Gesture settings** to choose **Pinch**, or complete **Set up forward click** and its practice targets. Enable **Allow clicks** when ready.
@@ -52,7 +52,7 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | --- | --- |
 | Move the pointer | Move your **index fingertip** inside the dashed box. Soft edges — no hard wall at the crop. |
 | Practice without clicking | Leave **Allow clicks** unchecked (default). Aim freely; no mouse click is sent. |
-| Practice without moving the system pointer | Uncheck **Move pointer with index finger**. |
+| Practice without moving the system pointer | Uncheck **Move pointer**. |
 | Turn on clicks | Check **Allow clicks**. Forward clicking requires setup and practice first; its clicks reset to off when the app relaunches. |
 | Left-click — Pinch | Select **Pinch**. Touch **thumb + index** together briefly, then separate before the next click. |
 | Left-click — Point forward (experimental) | Set up your two poses, aim, then point toward the camera as if touching the screen. Hold the forward pose until the ring fills. Pull back to cancel or rearm. |
