@@ -68,9 +68,12 @@ See [source-update behavior and safeguards](docs/UPDATES.md) for details.
 
 The pointer freezes during the tap. **Lift to click** appears beside the system cursor, including over other apps. A completed tap clicks once; holding still never clicks. Keep both fingers and their knuckles visible. Missing tracking, a long hold, or **Esc** cancels the pending tap. Raise both fingers again before retrying.
 
-**Two-finger tap replaces Pinch and Point forward clicking.** Existing Allow clicks choices remain saved. Two-finger scrolling and one-hand pinch dragging are unavailable in this mode; their saved preferences are retained but do not activate. The same fingers must not scroll and click together.
+**Two-finger tap replaces Pinch and Point forward clicking.** Existing Allow clicks choices remain saved. One-hand pinch dragging is unavailable in this mode. Thumb + index pinching is reserved for scrolling; index + middle still perform the tap click.
 
 - **Practice safely:** rehearse taps on targets without sending mouse events to other apps. Finishing practice leaves clicks off.
+- **Pointer lock:** bring index + middle together to hold the target. A **🔒 Pointer locked** indicator appears beside the cursor; separate them to move again.
+- **Precision mode:** enable **Precision mode · slower pointer** in Gesture settings for roughly 35% of normal hand-to-pointer travel. Lower and raise your hand to reposition when needed. The setting is saved.
+- **Pinch to scroll:** enable it in Gesture settings, touch thumb + index and hold steady for about a quarter second, then move your hand up/down. The cursor stays put and clicks are suppressed. Release the pinch to stop immediately and resume aiming without a jump. Scrolling also works with Allow clicks off.
 - **Allow clicks:** turn off to aim without clicking.
 - **Rest/reposition:** lower your hand, then raise index + middle centrally and hold briefly. The pointer resumes where you left it.
 - **Pause:** Esc, Pause camera, or the menu-bar hand icon. **⌃⌥⌘H** pauses/resumes from another app (configurable in Permissions).

@@ -98,6 +98,64 @@ import CoreGraphics
             feed(0.2, x: 0.6)
             check(cursor.x > before.x && clicks == 1, "clicks off bypasses proximity lock")
         }
+        // Pinch scrolling uses the production engine, including arbitration and release.
+        for practice in [false, true] {
+            for clicksAllowed in [false, true] {
+                var engine = InteractionEngine()
+                engine.configure(InteractionSettings(mode: .twoFingerTap, allowClicks: clicksAllowed, allowScrolling: true))
+                var cursor = CGPoint(x: 500, y: 500)
+                var time = 0.0
+                var totalScroll: Int32 = 0
+                func feed(_ ratio: Double?, y: Double = 0.5, pose: TapPose = .raised) -> InteractionStep {
+                    time += 1.0 / 30
+                    let step = engine.process(index: CGPoint(x: 0.5, y: y), pinchRatio: nil,
+                        timestamp: time, now: time, bounds: CGRect(x: 0, y: 0, width: 1000, height: 1000),
+                        running: true, trusted: !practice, destination: practice ? .practice : .system,
+                        cursorPosition: cursor, handSide: "left", scrollPoint: CGPoint(x: 0.5, y: y),
+                        palm: CGPoint(x: 0.5, y: y), tapPose: pose, scrollPinchRatio: ratio)
+                    if let location = step.location { cursor = location }
+                    totalScroll += step.scrollY
+                    check(!step.click, "scroll never clicks")
+                    if practice { check(step.systemScrollY == 0 && step.systemLocation == nil, "scroll practice isolation") }
+                    return step
+                }
+                for _ in 0..<30 { _ = feed(0.8) }
+                check(engine.scroll.phase == .idle && totalScroll == 0, "extended fingers without pinch cannot scroll")
+                let aim = cursor
+                _ = feed(0.2, pose: .bent)
+                check(cursor == aim && engine.scroll.phase == .confirming, "pinch freezes immediately and cancels tap")
+                for _ in 0..<10 { _ = feed(0.2, pose: .bent) }
+                check(engine.scroll.phase == .scrolling, "steady pinch arms scrolling")
+                _ = feed(0.5, y: 0.48, pose: .bent)
+                check(totalScroll > 0 && cursor == aim, "pinch hysteresis scrolls without cursor motion")
+                let beforeRelease = totalScroll
+                _ = feed(0.8, y: 0.46)
+                check(totalScroll == beforeRelease && cursor == aim && engine.scroll.phase == .idle, "release stops immediately without jump")
+                _ = feed(0.8, y: 0.44)
+                check(cursor.y < aim.y, "aiming resumes after pinch release")
+                for _ in 0..<11 { _ = feed(0.2, y: 0.44) }
+                let beforeLoss = totalScroll
+                _ = feed(nil, y: 0.42)
+                check(totalScroll == beforeLoss && engine.scroll.phase == .idle, "missing pinch evidence stops scroll")
+                engine.configure(InteractionSettings(mode: .twoFingerTap, allowClicks: false, allowScrolling: false))
+                for _ in 0..<30 { _ = feed(0.2) }
+                _ = feed(0.2, y: 0.48)
+                check(totalScroll == beforeLoss && engine.scroll.phase == .idle, "disabled scrolling ignores pinch")
+            }
+        }
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+        var normal = PointerFilter(), precise = PointerFilter()
+        let center = CGPoint(x: 500, y: 500)
+        normal.reanchor(point: CGPoint(x: 0.5, y: 0.5), cursor: center, bounds: bounds, time: 0)
+        precise.reanchor(point: CGPoint(x: 0.5, y: 0.5), cursor: center, bounds: bounds, time: 0)
+        var normalPoint = center, precisePoint = center
+        for i in 1...30 {
+            normalPoint = normal.update(point: CGPoint(x: 0.55, y: 0.5), bounds: bounds, time: Double(i)/30, freeze: false)
+            precisePoint = precise.update(point: CGPoint(x: 0.55, y: 0.5), bounds: bounds, time: Double(i)/30, precision: true, freeze: false)
+        }
+        check(precisePoint.x > center.x && precisePoint.x - center.x < (normalPoint.x - center.x) * 0.4, "precision reduces travel to about 35 percent")
+        let frozen = precise.update(point: CGPoint(x: 0.7, y: 0.5), bounds: bounds, time: 1.1, precision: true, freeze: true)
+        check(frozen == precisePoint, "precision respects target lock")
         print("Passed \(checks) two-finger tap checks")
     }
 }
