@@ -369,16 +369,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         lastHand = frame.timestamp
-        let freeze = clickMode == .dwell ? dwell.shouldFreeze : detector.shouldFreeze
-        let location = filter.update(point: index, bounds: CGDisplayBounds(targetDisplay),
-                                     time: frame.timestamp, freeze: freeze)
-        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left)?.post(tap: .cghidEventTap)
+        let bounds = CGDisplayBounds(targetDisplay)
+        // Order-of-ops (Olympiad):
+        // 1) Unfrozen sample for dwell cancel / proofs.
+        // 2) Gesture detect BEFORE pointer update so pinch freeze holds pre-pinch aim.
+        // 3) Filter with post-gesture freeze; inject at frozen aim only.
+        let sample = filter.unfrozenTarget(point: index, bounds: bounds)
         let gestureFired: Bool
         if clickMode == .dwell {
-            gestureFired = dwell.update(point: location, time: frame.timestamp, tracking: true)
+            gestureFired = dwell.update(point: sample, time: frame.timestamp, tracking: true)
         } else {
             gestureFired = detector.update(ratio: frame.pinchRatio, time: frame.timestamp)
         }
+        let freeze = clickMode == .dwell ? dwell.shouldFreeze : detector.shouldFreeze
+        let location = filter.update(point: index, bounds: bounds,
+                                     time: frame.timestamp, freeze: freeze)
+        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left)?.post(tap: .cghidEventTap)
         let inject = SafetyPolicy.shouldInjectClick(
             gestureFired: gestureFired,
             allowClicks: allowClicks.state == .on,

@@ -126,7 +126,7 @@ struct DwellDetector {
     private var lastFire = -Double.infinity
     private var lastTimestamp: Double?
 
-    var shouldFreeze: Bool { phase == .arming }
+    var shouldFreeze: Bool { phase == .arming || phase == .needMove }
 
     mutating func reset() {
         phase = .idle
@@ -137,7 +137,7 @@ struct DwellDetector {
         lastTimestamp = nil
     }
 
-    /// `point` is filtered screen position. Returns true once when dwell fires.
+    /// `point` must be an *unfrozen* screen sample (finger target). Freeze only the click aim.
     mutating func update(point: CGPoint, time: Double, tracking: Bool) -> Bool {
         guard time.isFinite else { reset(); return false }
         if let previous = lastTimestamp, time <= previous { reset(); return false }
@@ -254,11 +254,16 @@ struct PointerFilter {
 
     mutating func reset() { position = nil; lastTime = nil; lastTarget = nil }
 
-    mutating func update(point: CGPoint, bounds: CGRect, time: Double, freeze: Bool) -> CGPoint {
+    /// Soft-mapped screen target with no EMA / freeze — use for dwell cancel sampling.
+    func unfrozenTarget(point: CGPoint, bounds: CGRect) -> CGPoint {
         let x = SoftMargin.normalize(Double(point.x))
         let y = SoftMargin.normalize(Double(point.y))
-        let target = CGPoint(x: bounds.minX + x * (bounds.width - 1),
-                             y: bounds.minY + y * (bounds.height - 1))
+        return CGPoint(x: bounds.minX + x * (bounds.width - 1),
+                       y: bounds.minY + y * (bounds.height - 1))
+    }
+
+    mutating func update(point: CGPoint, bounds: CGRect, time: Double, freeze: Bool) -> CGPoint {
+        let target = unfrozenTarget(point: point, bounds: bounds)
         let dt = max(0, min(0.1, time - (lastTime ?? time)))
         lastTime = time
         guard let previous = position else {

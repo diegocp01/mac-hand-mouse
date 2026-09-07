@@ -305,4 +305,143 @@ check(!SafetyPolicy.shouldInjectClick(gestureFired: true, allowClicks: true, axT
       "Pointer control off blocks inject")
 
 
-print("Passed \(checks) gesture, pointer, geometry, frame-delivery, safety, and dwell checks.")
+
+// --- Order-of-ops integration (PR review bugs) ---
+// Bug A: pointer update before pinch detect → freeze engages one frame late → click drift.
+// Bug B: dwell samples frozen aim → cancel-on-move never sees motion.
+let pipelineBounds = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+
+struct BuggyPinchLoop {
+    var detector = PinchDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    var lastAim = CGPoint.zero
+    mutating func ready() {
+        for _ in 0..<5 {
+            now += 1.0 / 30
+            _ = detector.update(ratio: 0.9, time: now)
+        }
+    }
+    /// Historical (broken) order: freeze from *previous* phase, then detect.
+    mutating func step(index: CGPoint, ratio: Double) -> (aim: CGPoint, fired: Bool) {
+        now += 1.0 / 30
+        let freeze = detector.shouldFreeze
+        let aim = filter.update(point: index, bounds: pipelineBounds, time: now, freeze: freeze)
+        let fired = detector.update(ratio: ratio, time: now)
+        lastAim = aim
+        return (aim, fired)
+    }
+}
+
+struct FixedPinchLoop {
+    var detector = PinchDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    mutating func ready() {
+        for _ in 0..<5 {
+            now += 1.0 / 30
+            _ = detector.update(ratio: 0.9, time: now)
+        }
+    }
+    /// Correct order: detect first, then filter with post-gesture freeze.
+    mutating func step(index: CGPoint, ratio: Double) -> (aim: CGPoint, fired: Bool) {
+        now += 1.0 / 30
+        let fired = detector.update(ratio: ratio, time: now)
+        let aim = filter.update(point: index, bounds: pipelineBounds, time: now, freeze: detector.shouldFreeze)
+        return (aim, fired)
+    }
+}
+
+var buggyPinch = BuggyPinchLoop(); buggyPinch.ready()
+let pinchAim = CGPoint(x: 0.50, y: 0.50)
+_ = buggyPinch.step(index: pinchAim, ratio: 0.9)
+let preClose = buggyPinch.lastAim
+// Closing fingers + hand drifts toward camera edge while pinch confirms.
+var buggyClick = CGPoint.zero
+var buggyFired = false
+for (i, ratio) in [0.40, 0.40, 0.40].enumerated() {
+    let drifted = CGPoint(x: 0.50 - Double(i + 1) * 0.08, y: 0.50)
+    let r = buggyPinch.step(index: drifted, ratio: ratio)
+    if r.fired { buggyFired = true; buggyClick = r.aim }
+}
+check(buggyFired, "Buggy loop still fires a pinch (repro harness)")
+let buggyDrift = hypot(buggyClick.x - preClose.x, buggyClick.y - preClose.y)
+check(buggyDrift > 40, "Repro: buggy order lets pinch aim drift (was ~126px class)")
+
+var fixedPinch = FixedPinchLoop(); fixedPinch.ready()
+_ = fixedPinch.step(index: pinchAim, ratio: 0.9)
+var fixedPre = CGPoint.zero
+var fixedClick = CGPoint.zero
+var fixedFired = false
+for (i, ratio) in [0.40, 0.40, 0.40].enumerated() {
+    let drifted = CGPoint(x: 0.50 - Double(i + 1) * 0.08, y: 0.50)
+    // Capture aim entering confirm: after first close, freeze must hold.
+    let r = fixedPinch.step(index: drifted, ratio: ratio)
+    if i == 0 { fixedPre = r.aim }
+    if r.fired { fixedFired = true; fixedClick = r.aim }
+}
+check(fixedFired, "Fixed loop fires pinch")
+let fixedDrift = hypot(fixedClick.x - fixedPre.x, fixedClick.y - fixedPre.y)
+check(fixedDrift < 1.0, "Fixed order: click aim equals pre-pinch freeze (no drift)")
+check(fixedDrift < buggyDrift * 0.05, "Fixed drift << buggy drift")
+
+struct BuggyDwellLoop {
+    var dwell = DwellDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    mutating func step(index: CGPoint) -> (aim: CGPoint, fired: Bool, phase: DwellPhase) {
+        now += 1.0 / 30
+        let freeze = dwell.shouldFreeze
+        let aim = filter.update(point: index, bounds: pipelineBounds, time: now, freeze: freeze)
+        // Bug: feed frozen aim into dwell — motion is invisible while arming.
+        let fired = dwell.update(point: aim, time: now, tracking: true)
+        return (aim, fired, dwell.phase)
+    }
+}
+
+struct FixedDwellLoop {
+    var dwell = DwellDetector()
+    var filter = PointerFilter()
+    var now = 0.0
+    mutating func step(index: CGPoint) -> (aim: CGPoint, fired: Bool, phase: DwellPhase) {
+        now += 1.0 / 30
+        let sample = filter.unfrozenTarget(point: index, bounds: pipelineBounds)
+        let fired = dwell.update(point: sample, time: now, tracking: true)
+        let aim = filter.update(point: index, bounds: pipelineBounds, time: now, freeze: dwell.shouldFreeze)
+        return (aim, fired, dwell.phase)
+    }
+}
+
+let dwellStart = CGPoint(x: 0.50, y: 0.50)
+let movedFinger = CGPoint(x: 0.62, y: 0.50) // >> 18pt on 1000pt screen after soft map
+
+// Arm 0.40s, move far, hold 0.30s more. Wall-clock 0.70s ≥ dwell, but cancel must reset.
+var buggyDwell = BuggyDwellLoop()
+buggyDwell.dwell.settings.dwellSeconds = 0.65
+buggyDwell.dwell.settings.moveCancelPoints = 18
+for _ in 0..<12 { _ = buggyDwell.step(index: dwellStart) }
+check(buggyDwell.dwell.shouldFreeze, "Dwell arming freezes aim")
+for _ in 0..<3 { _ = buggyDwell.step(index: movedFinger) }
+var earlyFire = false
+for _ in 0..<9 {
+    if buggyDwell.step(index: movedFinger).fired { earlyFire = true }
+}
+check(earlyFire, "Repro: buggy dwell ignores move and fires on pre-move arm time")
+
+var fixedDwell = FixedDwellLoop()
+fixedDwell.dwell.settings.dwellSeconds = 0.65
+fixedDwell.dwell.settings.moveCancelPoints = 18
+for _ in 0..<12 { _ = fixedDwell.step(index: dwellStart) }
+for _ in 0..<3 { _ = fixedDwell.step(index: movedFinger) }
+var fixedEarly = false
+for _ in 0..<9 {
+    if fixedDwell.step(index: movedFinger).fired { fixedEarly = true }
+}
+check(!fixedEarly, "Fixed dwell: move cancels arm; 0.30s post-move hold does not fire")
+var fixedLate = false
+for _ in 0..<25 {
+    if fixedDwell.step(index: movedFinger).fired { fixedLate = true }
+}
+check(fixedLate, "Fixed dwell: full re-arm after cancel still fires once")
+
+print("Passed \(checks) gesture, pointer, geometry, frame-delivery, safety, dwell, and order-of-ops checks.")
