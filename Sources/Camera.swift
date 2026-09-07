@@ -6,6 +6,8 @@ struct HandFrame {
     var pinchRatio: Double?
     var timestamp: Double
     var aspect: CGFloat
+    var forwardPose: ForwardPose? = nil
+    var source = ""
 }
 
 final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
@@ -19,6 +21,7 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var generation = 0 // Main thread only.
     private var activeGeneration = 0 // Capture queue only.
     private var captureActive = false // Capture queue only.
+    private var sourceID = "" // Capture queue only; never persisted or logged.
     private var observers: [NSObjectProtocol] = []
     private var consecutiveVisionFailures = 0 // Capture queue only.
     private let delivery = LatestFrameBuffer<(frame: HandFrame, token: Int)>()
@@ -105,6 +108,7 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                         connection.isVideoMirrored = false
                     }
                     configured = true
+                    sourceID = device.uniqueID
                 }
                 session.startRunning()
                 if session.isRunning {
@@ -175,6 +179,7 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         for input in session.inputs { session.removeInput(input) }
         session.commitConfiguration()
         configured = false
+        sourceID = ""
         consecutiveVisionFailures = 0
     }
 
@@ -196,6 +201,7 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         guard dimensions.width > 0, dimensions.height > 0 else { return }
         let aspect = CGFloat(dimensions.width) / CGFloat(dimensions.height)
         var frame = HandFrame(points: [:], pinchRatio: nil, timestamp: now, aspect: aspect)
+        frame.source = "\(sourceID):\(dimensions.width)x\(dimensions.height)"
         defer {
             if delivery.offer((frame, token)) {
                 DispatchQueue.main.async { [weak self] in
@@ -218,6 +224,15 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             // A hidden thumb or pinky must not prevent index-finger movement.
             guard (all[.indexTip]?.confidence ?? 0) >= 0.45 else {
                 frame.points.removeValue(forKey: .indexTip); return
+            }
+            let required: [VNHumanHandPoseObservation.JointName] = [.indexTip, .indexPIP, .indexDIP, .indexMCP, .littleMCP, .middleMCP, .wrist]
+            if required.allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
+               let index = frame.points[.indexTip], let pip = frame.points[.indexPIP], let dip = frame.points[.indexDIP],
+               let base = frame.points[.indexMCP], let little = frame.points[.littleMCP],
+               let middle = frame.points[.middleMCP], let wrist = frame.points[.wrist] {
+                let side = hand.chirality == .left ? "left" : (hand.chirality == .right ? "right" : "unknown")
+                frame.forwardPose = ForwardPose.measure(index: index, pip: pip, dip: dip, base: base,
+                    littleBase: little, middleBase: middle, wrist: wrist, aspect: Double(aspect), side: side)
             }
             guard let thumb = frame.points[.thumbTip], let index = frame.points[.indexTip] else { return }
             frame.pinchRatio = HandGeometry.pinchRatio(thumb: thumb, index: index,

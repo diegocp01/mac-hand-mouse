@@ -47,7 +47,7 @@ for ARCH in "${ARCHS[@]}"; do
     BINARY="$BUILD_DIR/bin/HandMouse-$ARCH"
     xcrun swiftc -swift-version 5 -O -target "$ARCH-apple-macosx$MIN_MACOS" \
         -module-cache-path "$BUILD_DIR/module-cache" \
-        Sources/Gesture.swift Sources/InteractionEngine.swift Sources/FrameMailbox.swift Sources/Camera.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/main.swift \
+        Sources/Gesture.swift Sources/ForwardClick.swift Sources/InteractionEngine.swift Sources/FrameMailbox.swift Sources/Camera.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/main.swift \
         -framework AppKit -framework AVFoundation -framework Vision -framework ApplicationServices \
         -o "$BINARY"
     BINARIES+=("$BINARY")

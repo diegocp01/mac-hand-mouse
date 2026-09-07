@@ -57,7 +57,7 @@ final class ClickFeedbackView: NSView {
         progress.isIndeterminate = false
         progress.minValue = 0; progress.maxValue = 1
         progress.style = .bar
-        progress.setAccessibilityLabel("Time held toward dwell click")
+        progress.setAccessibilityLabel("Time held after a deliberate click gesture")
         let text = NSStackView(views: [title, detail, progress])
         text.orientation = .vertical; text.alignment = .leading; text.spacing = 5
         for view in [ring, text] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
@@ -100,6 +100,45 @@ final class ClickFeedbackView: NSView {
     }
 }
 
+/// Harmless practice: this view draws a simulated pointer and never posts OS events.
+final class ForwardPracticeView: NSView {
+    override var isFlipped: Bool { true }
+    private(set) var hits = 0
+    private var pointer: CGPoint?
+    private var fraction = 0.0
+    private var target: CGRect {
+        CGRect(x: bounds.width * (hits % 2 == 0 ? 0.30 : 0.70) - 42,
+               y: bounds.height * 0.5 - 42, width: 84, height: 84)
+    }
+    func reset() { hits = 0; pointer = nil; fraction = 0; needsDisplay = true }
+    @discardableResult func update(point: CGPoint?, progress: Double, clicked: Bool) -> Bool {
+        pointer = point; fraction = progress
+        let hit = clicked && point.map { hypot($0.x - target.midX, $0.y - target.midY) <= target.width / 2 } == true
+        if hit { hits += 1 }
+        needsDisplay = true
+        setAccessibilityLabel("Practice target. \(hits) successful practice clicks. No system clicks are sent.")
+        return hit
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.controlBackgroundColor.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
+        NSColor.systemMint.withAlphaComponent(0.2).setFill()
+        NSBezierPath(ovalIn: target).fill()
+        NSColor.systemMint.setStroke()
+        let outline = NSBezierPath(ovalIn: target); outline.lineWidth = 3; outline.stroke()
+        if let pointer {
+            NSColor.labelColor.setFill()
+            NSBezierPath(ovalIn: CGRect(x: pointer.x - 5, y: pointer.y - 5, width: 10, height: 10)).fill()
+            if fraction > 0 {
+                let arc = NSBezierPath()
+                arc.appendArc(withCenter: pointer, radius: 17, startAngle: -90,
+                              endAngle: -90 + CGFloat(fraction) * 360, clockwise: false)
+                NSColor.systemMint.setStroke(); arc.lineWidth = 3; arc.stroke()
+            }
+        }
+    }
+}
+
 /// The cursor indicator must never become an input target or activate Hand Mouse.
 private final class CursorFeedbackPanel: NSPanel {
     override var canBecomeKey: Bool { false }
@@ -133,7 +172,7 @@ final class CursorFeedback {
     }
 
     func show(at point: CGPoint, displayID: CGDirectDisplayID, progress: Double, remaining: Double,
-              clicked: Bool, restarted: Bool = false) {
+              clicked: Bool) {
         guard let primary = NSScreen.screens.first,
               let screen = NSScreen.screens.first(where: {
                   ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
@@ -147,7 +186,7 @@ final class CursorFeedback {
         label.setFrameOrigin(layout.labelOrigin)
         ring.progress = progress; ring.clicked = clicked
         label.stringValue = clicked ? "Clicked ✓"
-            : String(format: restarted ? "Restarted · %.1f s" : "Click in %.1f s", max(0.1, remaining))
+            : String(format: "Click in %.1f s", max(0.1, remaining))
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
     func hide() { panel.orderOut(nil) }
