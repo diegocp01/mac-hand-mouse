@@ -219,4 +219,90 @@ check(buffer.take() == 100, "Main thread receives the newest frame, not the back
 check(buffer.take() == nil, "Delivered results cannot replay")
 check(buffer.offer(101), "Next frame schedules a new delivery")
 check(buffer.take() == 101, "Next delivery is current")
-print("Passed \(checks) gesture, pointer, geometry, and frame-delivery checks.")
+
+
+// --- DwellDetector: separate physics from pinch's 25ms hold ---
+check(ClickMode.pinch.rawValue == "pinch" && ClickMode.dwell.rawValue == "dwell", "ClickMode cases exist")
+check(DwellSettings().dwellSeconds >= 0.5 && DwellSettings().dwellSeconds <= 0.8, "Default dwell in CTO 0.5–0.8s band")
+
+struct DwellSim {
+    var detector = DwellDetector()
+    var now = 0.0
+    var clicks = 0
+    init() {
+        detector.settings.dwellSeconds = 0.55
+        detector.settings.cooldownSeconds = 0.40
+        detector.settings.moveCancelPoints = 18
+    }
+    @discardableResult mutating func step(_ point: CGPoint, after interval: Double = 1.0 / 30, tracking: Bool = true) -> Bool {
+        now += interval
+        let click = detector.update(point: point, time: now, tracking: tracking)
+        if click { clicks += 1 }
+        return click
+    }
+    mutating func hold(_ point: CGPoint, seconds: Double, fps: Double = 30) {
+        let frames = Int((seconds * fps).rounded(.up))
+        for _ in 0..<frames { step(point, after: 1 / fps) }
+    }
+}
+
+let dwellAim = CGPoint(x: 100, y: 100)
+var d = DwellSim()
+d.hold(dwellAim, seconds: 0.40)
+check(d.clicks == 0 && d.detector.phase == .arming, "Sub-threshold dwell does not fire")
+check(d.detector.shouldFreeze, "Arming freezes the aim point")
+d.hold(dwellAim, seconds: 0.30)
+check(d.clicks == 1 && d.detector.phase == .needMove, "Dwell fires once after threshold")
+d.hold(dwellAim, seconds: 1.0)
+check(d.clicks == 1, "No auto-repeat while still after fire")
+
+d = DwellSim()
+d.hold(dwellAim, seconds: 0.70)
+check(d.clicks == 1, "Fresh dwell session clicks")
+d.step(CGPoint(x: 200, y: 100), after: 0.45)  // move + clear cooldown
+d.hold(CGPoint(x: 200, y: 100), seconds: 0.70)
+check(d.clicks == 2, "Second dwell after move + settle")
+
+var cancel = DwellSim()
+cancel.hold(dwellAim, seconds: 0.30)
+check(cancel.detector.phase == .arming, "Arming before cancel")
+cancel.step(CGPoint(x: 130, y: 100), after: 1.0 / 30)
+check(cancel.clicks == 0 && cancel.detector.phase == .arming, "Cancel-on-move restarts arm, no click")
+cancel.hold(CGPoint(x: 130, y: 100), seconds: 0.30)
+check(cancel.clicks == 0, "Partial re-arm after cancel does not inherit old time")
+cancel.hold(CGPoint(x: 130, y: 100), seconds: 0.40)
+check(cancel.clicks == 1, "Full dwell after cancel-on-move fires once")
+
+var dwellLost = DwellSim()
+dwellLost.hold(dwellAim, seconds: 0.30)
+dwellLost.step(dwellAim, after: 1.0 / 30, tracking: false)
+check(dwellLost.detector.phase == .idle, "Tracking loss disarms dwell")
+dwellLost.detector.reset()
+check(dwellLost.detector.phase == .idle && !dwellLost.detector.shouldFreeze, "Esc/pause reset clears armed dwell")
+
+var cool = DwellSim()
+cool.detector.settings.dwellSeconds = 0.50
+cool.detector.settings.cooldownSeconds = 0.45
+cool.hold(dwellAim, seconds: 0.60)
+check(cool.clicks == 1, "Configured 0.5s dwell fires")
+cool.step(CGPoint(x: 200, y: 100), after: 0.10)
+cool.hold(CGPoint(x: 200, y: 100), seconds: 0.60)
+check(cool.clicks == 1, "Cooldown blocks a queued late click")
+cool.step(CGPoint(x: 260, y: 100), after: 0.50)
+cool.hold(CGPoint(x: 260, y: 100), seconds: 0.60)
+check(cool.clicks == 2, "After cooldown + move, dwell can fire again")
+
+// SafetyPolicy: all four latches required; any single false blocks click injection.
+check(SafetyPolicy.shouldInjectClick(gestureFired: true, allowClicks: true, axTrusted: true, pointerControlEnabled: true),
+      "Inject only when every latch is closed")
+check(!SafetyPolicy.shouldInjectClick(gestureFired: false, allowClicks: true, axTrusted: true, pointerControlEnabled: true),
+      "No gesture means no inject")
+check(!SafetyPolicy.shouldInjectClick(gestureFired: true, allowClicks: false, axTrusted: true, pointerControlEnabled: true),
+      "allowClicks off blocks inject")
+check(!SafetyPolicy.shouldInjectClick(gestureFired: true, allowClicks: true, axTrusted: false, pointerControlEnabled: true),
+      "AX untrusted blocks inject")
+check(!SafetyPolicy.shouldInjectClick(gestureFired: true, allowClicks: true, axTrusted: true, pointerControlEnabled: false),
+      "Pointer control off blocks inject")
+
+
+print("Passed \(checks) gesture, pointer, geometry, frame-delivery, safety, and dwell checks.")

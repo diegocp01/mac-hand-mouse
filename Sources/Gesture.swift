@@ -13,6 +13,11 @@ enum GestureTuning {
     static let trackingGraceSeconds = 0.12
 }
 
+enum ClickMode: String, CaseIterable {
+    case pinch
+    case dwell
+}
+
 struct PinchSettings {
     var closeRatio: Double = 0.42
     var releaseRatio: Double { closeRatio + 0.18 }
@@ -101,6 +106,103 @@ struct PinchDetector {
     }
 }
 
+struct DwellSettings {
+    /// CTO band 0.5–0.8s. Midpoint default — not pinch's 25ms hold.
+    var dwellSeconds: Double = 0.65
+    /// Screen points from arm origin; move past this cancels and restarts.
+    var moveCancelPoints: Double = 18
+    var cooldownSeconds: Double = 0.45
+}
+
+enum DwellPhase { case idle, arming, needMove }
+
+/// Separate dwell physics. Cancel-on-move, one shot, cooldown, no auto-repeat.
+struct DwellDetector {
+    var settings = DwellSettings()
+    private(set) var phase: DwellPhase = .idle
+    private var origin: CGPoint?
+    private var armingSince: Double?
+    private var postFireLock: CGPoint?
+    private var lastFire = -Double.infinity
+    private var lastTimestamp: Double?
+
+    var shouldFreeze: Bool { phase == .arming }
+
+    mutating func reset() {
+        phase = .idle
+        origin = nil
+        armingSince = nil
+        postFireLock = nil
+        lastFire = -Double.infinity
+        lastTimestamp = nil
+    }
+
+    /// `point` is filtered screen position. Returns true once when dwell fires.
+    mutating func update(point: CGPoint, time: Double, tracking: Bool) -> Bool {
+        guard time.isFinite else { reset(); return false }
+        if let previous = lastTimestamp, time <= previous { reset(); return false }
+        lastTimestamp = time
+
+        guard tracking else {
+            origin = nil
+            armingSince = nil
+            if phase == .arming { phase = .idle }
+            return false
+        }
+
+        // Cooldown consumes stillness — never queue a late click.
+        if time - lastFire < settings.cooldownSeconds {
+            origin = nil
+            armingSince = nil
+            return false
+        }
+
+        // No auto-repeat: must move after a fire before the next arm.
+        if phase == .needMove {
+            if let lock = postFireLock,
+               hypot(point.x - lock.x, point.y - lock.y) > settings.moveCancelPoints {
+                phase = .idle
+                postFireLock = nil
+            } else {
+                return false
+            }
+        }
+
+        if let origin {
+            let moved = hypot(point.x - origin.x, point.y - origin.y)
+            if moved > settings.moveCancelPoints {
+                self.origin = point
+                armingSince = time
+                phase = .arming
+                return false
+            }
+        } else {
+            origin = point
+            armingSince = time
+            phase = .arming
+            return false
+        }
+
+        guard let started = armingSince else {
+            armingSince = time
+            phase = .arming
+            return false
+        }
+
+        if time - started >= settings.dwellSeconds {
+            lastFire = time
+            postFireLock = point
+            phase = .needMove
+            origin = nil
+            armingSince = nil
+            return true
+        }
+
+        phase = .arming
+        return false
+    }
+}
+
 /// Distances use the actual frame aspect ratio, so rotation and widescreen capture
 /// do not distort pinch measurements. Palm length backs up a foreshortened width.
 struct HandGeometry {
@@ -184,3 +286,11 @@ struct PointerFilter {
         return result
     }
 }
+
+enum SafetyPolicy {
+    /// CGEvent click injection only when every latch is closed.
+    static func shouldInjectClick(gestureFired: Bool, allowClicks: Bool, axTrusted: Bool, pointerControlEnabled: Bool) -> Bool {
+        gestureFired && allowClicks && axTrusted && pointerControlEnabled
+    }
+}
+
