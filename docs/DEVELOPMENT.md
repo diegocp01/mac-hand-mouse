@@ -33,11 +33,13 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `Sources/FrameMailbox.swift` | Bounded delivery of the newest result |
 | `Sources/main.swift` | Window, camera lifecycle, feedback orchestration, permissions, mouse events |
 | `Sources/FeedbackUI.swift` | Determinate click ring, status card, simulated practice canvas, nonactivating cursor overlay |
-| `Sources/StartupUI.swift` | Startup palette, visible setup milestones, persistent starting-pose guide, and static standby artwork |
+| `Sources/StartupUI.swift` | Startup palette, four-card gesture guide, setup state, and static camera-off artwork |
 | `Sources/FeedbackGeometry.swift` | Screen-edge caption placement with a ring centered on the click target |
 | `Tests/main.swift` | Deterministic gesture and pointer checks |
 | `Tests/RecoveryScrollTests.swift` | Hand return, physical mouse takeover, scrolling, practice isolation, and activation gates |
 | `Tests/InteractionEngineTests.swift` | Production pipeline at 15/30/60 fps, intent/cancel/rearm, automatic reference and practice isolation |
+| `Tests/GestureGuideSnapshot.swift` | Camera-free default and narrow gesture-guide review states |
+| `Tests/UIRenderSupport.swift` | AppKit layout assertions and PNG raster support for UI review |
 | `Tests/install.sh` | Isolated installer replacement, failure rollback, and running-app guards |
 | `scripts/sign.sh` | Persistent local signing identity, explicit certificate mode, and disposable ad-hoc mode |
 | `scripts/verify-update-identity.sh` | Reject updates that would discard an existing certificate-backed identity |
@@ -93,7 +95,7 @@ Practice uses the actual target display bounds in the same engine, then scales i
 
 The cursor panel ignores mouse events, never becomes key or main, and uses no screen recording. Quartz pointer coordinates convert to AppKit using the primary screen's top edge. The label stays inside the target screen, while the ring remains at the actual click location. The panel supports other applications' Spaces/full-screen contexts and hides when its target display is unavailable. Duplicate overlay content is excluded from accessibility; the app exposes a labeled progress indicator, percentage, and state announcements without announcing every countdown frame. No decorative progress animation runs ahead of detector state.
 
-Sleep, display sleep, user-session deactivation, and display configuration changes pause capture; resuming requires an explicit Start camera or global shortcut action. Runtime capture errors, interruptions, selected-camera disconnects, and five consecutive Vision failures invalidate the session and offer an explicit retry. Pausing also releases the configured inputs/outputs, so the next Start discovers connected cameras again; callbacks from removed outputs are rejected. A normal no-hand frame is not treated as a processing failure. The built-in front camera remains preferred.
+Sleep, display sleep, user-session deactivation, and display configuration changes pause capture; resuming requires the explicit Start action or global shortcut. Runtime capture errors, interruptions, selected-camera disconnects, and five consecutive Vision failures invalidate the session and offer an explicit retry. Pausing also releases the configured inputs/outputs, so the next Start discovers connected cameras again; callbacks from removed outputs are rejected. A normal no-hand frame is not treated as a processing failure. The built-in front camera remains preferred.
 
 ## Recovery, scrolling, and keyboard activation
 
@@ -101,16 +103,37 @@ See [v1.5 interaction recovery](RECOVERY_AND_SCROLL.md) for the activation polic
 
 Validation before release: with a live camera, confirm Start/Pause, no-hand recovery, Pinch, setup-free forward clicks, optional practice, cancel/rearm, clicks off during a countdown, Escape, Accessibility loss, and cursor ring alignment on additional displays/full-screen apps. Use the practice canvas and app's Test click target. Synthetic tests do not verify physical tracking or delivery to other apps.
 
-## Starting-pose guidance
+## Gesture interface review
 
-The header keeps the index-up, palm-facing-camera, thumb-apart instructions visible
-before capture and during acquisition. It changes to aiming/clicking instructions
-only when `engine.acquisition.active` is true, or to scrolling instructions during
-that mode. Setup cards display their status details visually as well as through
-Accessibility. The pointer milestone becomes complete after acquisition, not merely
-because the camera sees a hand or Allow clicks is enabled. This presentation does
-not authorize movement, change gesture thresholds, or advance a click timer.
+The main window opens at 900×800 points and supports a 720×650-point minimum. Its
+four-card guide separates the card selected for learning from the gesture that is
+currently live. Move and Click are always available; Scroll and Select text show
+their off state until the corresponding control is enabled. The camera remains off
+until Start is activated. These visuals never authorize movement, change gesture
+thresholds, advance a detector, or claim that tracking is live.
 
-UI review: verify the paused starting pose, starting camera, waiting for a hand,
-reacquisition, Pointer ready, preview-only mode, and practice. Resize to 620×540 and
-scroll the settings; the starting-pose guide and camera controls must remain visible.
+The camera-free guide renderer exercises the production `GestureGuideView` at a
+900×370 default size and a 620×350 narrow size. It asserts resolved Auto Layout and
+checks for fully clipped controls before writing review images:
+
+```sh
+mkdir -p build/ui-review
+xcrun swiftc -swift-version 5 Sources/StartupUI.swift Tests/UIRenderSupport.swift Tests/GestureGuideSnapshot.swift -o /tmp/hand-mouse-gesture-render
+/tmp/hand-mouse-gesture-render "$PWD/build/ui-review"
+```
+
+Before release, also review the complete native window at both supported window
+sizes and use keyboard navigation and VoiceOver with camera off. Then exercise
+Start/Pause, Practice, Permissions, settings disclosure, live gesture badges, and
+each physical gesture. Static renders validate layout and gesture wording; they do
+not validate camera recognition, native-window focus, or event delivery.
+
+The September 7, 2026 review rendered both guide sizes without ambiguous layout or
+fully clipped controls. `bash scripts/test.sh` passed 187 core, 465 interaction,
+3,377 recovery/scroll, 526 two-hand drag, 415 one-hand drag, 16 source-update, and
+1,002 two-finger tap checks, plus the update shell regressions. An isolated arm64
+application build completed with ad hoc signing and passed strict code-signature
+verification. The Mac login was
+locked, so a layer-backed full-window offscreen raster was blank and was excluded
+from visual evidence; native full-window and interaction review remains required on
+an unlocked session.
