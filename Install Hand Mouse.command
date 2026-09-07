@@ -65,6 +65,7 @@ INSTALL_STAGE=$(mktemp -d "$INSTALL_DIR/.hand-mouse-install.XXXXXX")
 STAGED_APP="$INSTALL_STAGE/Hand Mouse.app"
 ditto --norsrc --noextattr "$BUILT_APP" "$STAGED_APP"
 codesign --verify --deep --strict "$STAGED_APP"
+bash scripts/verify-update-identity.sh "$TARGET_APP" "$STAGED_APP"
 
 refuse_running_target
 if [ -e "$TARGET_APP" ]; then

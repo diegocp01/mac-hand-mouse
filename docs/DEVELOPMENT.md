@@ -9,13 +9,14 @@ git clone https://github.com/diegocp01/mac-hand-mouse.git
 cd mac-hand-mouse
 bash scripts/test.sh
 bash Tests/install.sh
+bash Tests/signing.sh
 bash scripts/build.sh
 open "build/Hand Mouse.app"
 ```
 
 If you already have a checkout, quit the development copy, then run the test, build, and open commands from its root. `bash "Launch Hand Mouse.command"` builds the current source before opening it; if that exact build is already running, it opens that copy and asks you to quit before rebuilding. To install in `~/Applications` instead, use `bash "Install Hand Mouse.command"`; see the README's [developer setup](../README.md#developer-setup) and [first-launch steps](../README.md#first-launch).
 
-Builds explicitly target the minimum macOS version in `Info.plist`. The default build targets the current Mac's architecture. To build a universal app, run `HAND_MOUSE_ARCHS="arm64 x86_64" bash scripts/build.sh`. Build and install commands refuse to replace an executable that is running from their destination. They stage a fresh app before replacing it, so removed resources cannot linger. Ad-hoc rebuilding may invalidate Accessibility approval.
+Builds explicitly target the minimum macOS version in `Info.plist`. The default build targets the current Mac's architecture. To build a universal app, run `HAND_MOUSE_ARCHS="arm64 x86_64" bash scripts/build.sh`. Build and install commands refuse to replace an executable that is running from their destination. They stage a fresh app before replacing it, so removed resources cannot linger. Source builds reuse a per-user signing identity, and updates must satisfy the installed app's previous signing requirement. See [signing and permission persistence](SIGNING.md).
 
 To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/hand-mouse-review bash scripts/build.sh`. Remove temporary review bundles afterward so macOS does not confuse copies with the same bundle identifier.
 
@@ -33,6 +34,9 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `Tests/main.swift` | Deterministic gesture and pointer checks |
 | `Tests/InteractionEngineTests.swift` | Actual production pipeline at 15/30/60 fps, click gates, dwell timing and re-aiming |
 | `Tests/install.sh` | Isolated installer replacement, failure rollback, and running-app guards |
+| `scripts/sign.sh` | Persistent local signing identity, explicit certificate mode, and disposable ad-hoc mode |
+| `scripts/verify-update-identity.sh` | Reject updates that would discard an existing certificate-backed identity |
+| `Tests/signing.sh` | Changed binaries retain identity; different signers and ad-hoc downgrades are rejected |
 
 Defaults: velocity-adaptive pointer smoothing from 8–50 ms; Balanced pinch threshold 0.42 hand-scale units, confirmation after at least two samples and 25 ms, reopening above 0.60 for 70 ms, and a 300 ms click cooldown. Precise uses 0.34 and Easy uses 0.50, with release 0.18 above each threshold. Confirmation tolerates 0.06 units of threshold jitter. The hand scale is the greater of palm width and 0.75 times wrist-to-middle-base distance, corrected for frame aspect ratio.
 
@@ -59,7 +63,7 @@ bash scripts/package.sh
 
 Produces `dist/Hand-Mouse-<version>-macos-universal.zip` and a SHA-256 file, containing both `arm64` and `x86_64` slices plus documentation and license. Packaging uses a temporary build directory that it removes afterward, verifies the signature and architectures, and does not publish anything. Generated apps, caches, archives, and local environment files are ignored by Git.
 
-Packages are **ad-hoc signed, not Developer ID signed or notarized**. Gatekeeper may block downloaded binaries. Building from reviewed source is the supported installation path; a broadly distributed binary release should use Developer ID signing and notarization. No signing certificate or private key belongs in the repository.
+Packages and CI artifacts default to **ad-hoc signing**, while normal builds/installs default to **persistent local signing**. Gatekeeper may block downloaded binaries. Building from reviewed source is the supported installation path; a broadly distributed binary release should use Developer ID signing and notarization. See [release signing options](SIGNING.md#developer-and-release-modes). No private signing material belongs in the repository.
 
 Current live testing is on Apple Silicon. Intel and older supported macOS versions need physical hardware testing even after cross-compilation and automated tests succeed.
 
@@ -73,7 +77,7 @@ tccutil reset Accessibility com.local.handmouse
 
 Reopen the app, expand **Permissions & setup**, click **Show in Finder**, then add that exact copy to Privacy & Security → Accessibility (called Device Control and Data Access on macOS 27). Enable it and restart Hand Mouse. This does not grant permission by itself or change other apps' permissions.
 
-Ad-hoc signatures change with rebuilt code. Multiple development copies with the same bundle identifier can make System Settings show a different copy. Keep one active installed copy and remove temporary test bundles. Do not weaken signature checks or use a shared wildcard signing requirement to avoid permission prompts.
+Before v1.3.1, ad-hoc signatures changed with rebuilt code. Migrating that old approval to the persistent signer requires one final repair. Subsequent source builds retain the signer stored outside the checkout. Multiple development copies with the same bundle identifier can still make System Settings show a different copy; keep one active installation. Never replace the certificate requirement with a wildcard or identifier-only rule. The app and installer do not modify the TCC database or reset approvals automatically.
 
 
 ## Camera and dwell feedback

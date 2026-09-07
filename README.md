@@ -32,7 +32,7 @@ Open the installed app and guide me through enabling Accessibility and
 camera access. Show me where to launch it next time.
 ```
 
-Codex can handle cloning, building, and installing. You may need to finish Apple's tools installer and approve macOS permissions yourself. No ZIP download needed.
+Codex can handle cloning, building, and installing. You may need to finish Apple's tools installer and approve macOS permissions yourself. The installer keeps a local signing identity so normal source updates can retain that approval. No ZIP download needed.
 
 ## Developer setup
 
@@ -82,7 +82,8 @@ Dragging, scrolling, right-click, double-click, and tap-to-click are **not** inc
 - **Camera blocked:** click **Camera Settings**, enable Hand Mouse, then restart if macOS requests it.
 - **Camera interrupted or disconnected:** reconnect it or close the other camera app, then click **Start camera** to retry. Hand Mouse rebuilds its capture session instead of silently restarting mouse control.
 - **Hand detected, but mouse won't move:** enable Accessibility for the installed app.
-- **Permission stopped working after an update:** expand **Permissions & setup** and click **Show in Finder** to identify the exact running copy, then remove the old permission entry and add that copy again. If toggling still does not work, see the [targeted permission reset](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the permission pane is called **Device Control and Data Access**.
+- **Updating from v1.3.0 or earlier:** a one-time Accessibility repair is needed when moving to the persistent signing identity. Use **Show in Finder** to locate the new app, remove the old Hand Mouse entry in Accessibility, then add and enable that exact copy. Future source updates reuse its signer. [Why this changed](docs/SIGNING.md).
+- **Permission is on but the pointer still won't move:** confirm that Accessibility lists the exact running app. If its entry is stale, replace it; toggling the old entry may not help. See the [targeted repair](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the pane is called **Device Control and Data Access**.
 - **Tracking is intermittent:** improve lighting, keep your palm and fingertips visible, and show only one hand.
 - **Escape doesn't pause outside the app:** global Escape needs Accessibility permission; use the window or menu-bar pause button.
 - **Unexpected clicks:** turn **Allow clicks** off (default). See [safety notes](docs/SAFETY.md).
@@ -96,6 +97,7 @@ Hand Mouse processes camera frames on your Mac. It does not record or upload vid
 ```sh
 bash scripts/test.sh
 bash Tests/install.sh
+bash Tests/signing.sh
 bash scripts/build.sh
 bash scripts/package.sh
 ```

@@ -8,3 +8,8 @@ dist/
 xcuserdata/
 .codex/
 .agents/
+*.keychain
+*.keychain-db
+*.p12
+*.pfx
+*.pem
