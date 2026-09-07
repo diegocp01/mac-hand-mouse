@@ -1,14 +1,24 @@
 import AppKit
 
-/// A quiet instrument-panel palette. All status information also has text labels.
+/// Neutral surfaces follow the Mac's appearance; color is reserved for state.
 enum StartupStyle {
-    static let background = NSColor(srgbRed: 0.035, green: 0.055, blue: 0.08, alpha: 1)
-    static let surface = NSColor(srgbRed: 0.065, green: 0.09, blue: 0.12, alpha: 1)
-    static let raisedSurface = NSColor(srgbRed: 0.085, green: 0.12, blue: 0.15, alpha: 1)
-    static let accent = NSColor(srgbRed: 0.35, green: 0.88, blue: 0.96, alpha: 1)
-    static let mint = NSColor(srgbRed: 0.38, green: 0.94, blue: 0.76, alpha: 1)
-    static let text = NSColor(srgbRed: 0.93, green: 0.97, blue: 0.98, alpha: 1)
-    static let muted = NSColor(srgbRed: 0.66, green: 0.74, blue: 0.80, alpha: 1)
+    static let background = NSColor.windowBackgroundColor
+    static let surface = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(white: 0.17, alpha: 1)
+            : NSColor(white: 0.985, alpha: 1)
+    }
+    static let raisedSurface = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(white: 0.22, alpha: 1)
+            : NSColor(white: 1, alpha: 1)
+    }
+    static let accent = NSColor.controlAccentColor
+    // Kept as an alias for existing live-state consumers.
+    static let mint = NSColor.controlAccentColor
+    static let text = NSColor.labelColor
+    static let muted = NSColor.secondaryLabelColor
+    static let border = NSColor.separatorColor
 
     static func column(_ views: [NSView], spacing: CGFloat = 10) -> NSStackView {
         let stack = NSStackView(views: views)
@@ -16,6 +26,83 @@ enum StartupStyle {
         stack.alignment = .leading
         stack.spacing = spacing
         return stack
+    }
+}
+
+/// One glass surface for the primary controls. Native materials adapt to the
+/// system's appearance and transparency preferences, including on older Macs.
+final class GlassControlSurface: NSView {
+    private var displayObserver: NSObjectProtocol?
+
+    init(content: NSView, cornerRadius: CGFloat = 24) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = cornerRadius
+        layer?.borderWidth = 1
+
+        let material = Self.makeMaterial(content: content, cornerRadius: cornerRadius)
+        material.translatesAutoresizingMaskIntoConstraints = false
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(material)
+        NSLayoutConstraint.activate([
+            material.leadingAnchor.constraint(equalTo: leadingAnchor),
+            material.trailingAnchor.constraint(equalTo: trailingAnchor),
+            material.topAnchor.constraint(equalTo: topAnchor),
+            material.bottomAnchor.constraint(equalTo: bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: material.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: material.trailingAnchor),
+            content.topAnchor.constraint(equalTo: material.topAnchor),
+            content.bottomAnchor.constraint(equalTo: material.bottomAnchor)
+        ])
+        displayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.refreshAppearance() }
+        refreshAppearance()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let displayObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayObserver) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshAppearance()
+    }
+
+    private static func makeMaterial(content: NSView, cornerRadius: CGFloat) -> NSView {
+        // Xcode versions before 26 do not declare NSGlassEffectView. A runtime
+        // availability check alone would still fail to compile with their SDKs.
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame: .zero)
+            glass.style = .regular
+            glass.cornerRadius = cornerRadius
+            glass.contentView = content
+            return glass
+        }
+#endif
+        let frost = NSVisualEffectView(frame: .zero)
+        frost.material = .sidebar
+        frost.blendingMode = .behindWindow
+        frost.state = .followsWindowActiveState
+        frost.wantsLayer = true
+        frost.layer?.cornerRadius = cornerRadius
+        frost.layer?.masksToBounds = true
+        frost.addSubview(content)
+        return frost
+    }
+
+    private func refreshAppearance() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            layer?.backgroundColor = (reduceTransparency ? NSColor.controlBackgroundColor : .clear).cgColor
+            layer?.borderColor = (NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+                ? NSColor.labelColor.withAlphaComponent(0.65)
+                : StartupStyle.border).cgColor
+        }
     }
 }
 
@@ -66,6 +153,11 @@ final class GestureGuideView: NSView {
 
     private var selectedAction: GestureAction = .move
     private var cards: [GestureAction: GestureCardButton] = [:]
+    private var arrangementConstraints: [NSLayoutConstraint] = []
+    private var guideHeight: NSLayoutConstraint!
+    private var singleRow: Bool?
+
+    static func idealHeight(for width: CGFloat) -> CGFloat { width >= 760 ? 174 : 344 }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -75,41 +167,28 @@ final class GestureGuideView: NSView {
 
         for action in GestureAction.allCases {
             let card = GestureCardButton(action: action)
+            card.translatesAutoresizingMaskIntoConstraints = false
             card.onActivate = { [weak self] selected in
                 self?.select(selected)
                 self?.onSelect?(selected)
             }
             cards[action] = card
+            addSubview(card)
         }
-
-        let topRow = guideRow([.move, .click])
-        let bottomRow = guideRow([.scroll, .select])
-        let grid = NSStackView(views: [topRow, bottomRow])
-        grid.orientation = .vertical
-        grid.alignment = .leading
-        grid.distribution = .fillEqually
-        grid.spacing = 12
-        grid.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(grid)
-
-        NSLayoutConstraint.activate([
-            grid.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            grid.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            grid.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            grid.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-            topRow.widthAnchor.constraint(equalTo: grid.widthAnchor),
-            bottomRow.widthAnchor.constraint(equalTo: grid.widthAnchor),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 340),
-            heightAnchor.constraint(lessThanOrEqualToConstant: 390)
-        ])
-
+        guideHeight = heightAnchor.constraint(equalToConstant: Self.idealHeight(for: frameRect.width))
+        guideHeight.isActive = true
+        updateArrangement(for: frameRect.width)
         select(.move)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Selects the card shown as the current learning topic. This does not claim
-    /// that a gesture is live; live state is supplied independently by `update`.
+    override func layout() {
+        updateArrangement(for: bounds.width)
+        super.layout()
+    }
+
+    /// Selects a learning topic. Live state is supplied independently by `update`.
     func select(_ action: GestureAction) {
         selectedAction = action
         for (cardAction, card) in cards {
@@ -117,8 +196,6 @@ final class GestureGuideView: NSView {
         }
     }
 
-    /// Updates live tracking and feature availability without changing the card
-    /// the person selected for learning.
     func update(active: GestureAction?, scrollingEnabled: Bool, selectionEnabled: Bool) {
         for (action, card) in cards {
             switch action {
@@ -130,16 +207,39 @@ final class GestureGuideView: NSView {
         }
     }
 
-    private func guideRow(_ actions: [GestureAction]) -> NSStackView {
-        let row = NSStackView(views: actions.compactMap { cards[$0] })
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.distribution = .fillEqually
-        row.spacing = 12
-        for action in actions {
-            cards[action]?.heightAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
+    private func updateArrangement(for width: CGFloat) {
+        let nextSingleRow = width >= 760
+        guard singleRow != nextSingleRow else { return }
+        singleRow = nextSingleRow
+        NSLayoutConstraint.deactivate(arrangementConstraints)
+        arrangementConstraints.removeAll()
+        guideHeight.constant = Self.idealHeight(for: width)
+        let orderedCards = GestureAction.allCases.compactMap { cards[$0] }
+        let columns = nextSingleRow ? 4 : 2
+        for (index, card) in orderedCards.enumerated() {
+            let column = index % columns
+            let row = index / columns
+            arrangementConstraints.append(card.heightAnchor.constraint(greaterThanOrEqualToConstant: 150))
+            if index > 0 {
+                arrangementConstraints.append(contentsOf: [
+                    card.widthAnchor.constraint(equalTo: orderedCards[0].widthAnchor),
+                    card.heightAnchor.constraint(equalTo: orderedCards[0].heightAnchor)
+                ])
+            }
+            arrangementConstraints.append(column == 0
+                ? card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4)
+                : card.leadingAnchor.constraint(equalTo: orderedCards[index - 1].trailingAnchor, constant: 12))
+            if column == columns - 1 {
+                arrangementConstraints.append(card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4))
+            }
+            arrangementConstraints.append(row == 0
+                ? card.topAnchor.constraint(equalTo: topAnchor, constant: 4)
+                : card.topAnchor.constraint(equalTo: orderedCards[index - columns].bottomAnchor, constant: 12))
+            if index >= orderedCards.count - columns {
+                arrangementConstraints.append(card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4))
+            }
         }
-        return row
+        NSLayoutConstraint.activate(arrangementConstraints)
     }
 }
 
@@ -172,6 +272,7 @@ private final class GestureCardButton: NSButton {
     private let statusBadge = NSTextField(labelWithString: "LIVE")
     private var isHovered = false { didSet { refreshPresentation() } }
     private var trackingAreaReference: NSTrackingArea?
+    private var displayObserver: NSObjectProtocol?
 
     init(action: GestureAction) {
         gestureAction = action
@@ -190,16 +291,16 @@ private final class GestureCardButton: NSButton {
         self.action = #selector(activateCard)
 
         titleLabel.stringValue = action.title
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = StartupStyle.text
         titleLabel.setAccessibilityElement(false)
 
         instructionLabel.stringValue = action.instruction
-        instructionLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        instructionLabel.font = .systemFont(ofSize: 11)
         instructionLabel.textColor = StartupStyle.muted
         instructionLabel.setAccessibilityElement(false)
 
-        statusBadge.font = .monospacedSystemFont(ofSize: 8, weight: .bold)
+        statusBadge.font = .systemFont(ofSize: 8, weight: .semibold)
         statusBadge.textColor = StartupStyle.background
         statusBadge.alignment = .center
         statusBadge.wantsLayer = true
@@ -233,10 +334,27 @@ private final class GestureCardButton: NSButton {
         setAccessibilityRole(.button)
         setAccessibilityLabel(action.title)
         setAccessibilityHelp(action.accessibilityDescription)
+        displayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.refreshPresentation() }
         refreshPresentation()
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let displayObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayObserver) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshPresentation()
+    }
+
+    override var isHighlighted: Bool {
+        didSet { refreshPresentation() }
+    }
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -269,26 +387,28 @@ private final class GestureCardButton: NSButton {
     @objc private func activateCard() { onActivate?(gestureAction) }
 
     private func refreshPresentation() {
-        let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        let selectedColor = StartupStyle.mint
-        alphaValue = 1
-        let raised = isLearningSelection || isHovered || isHighlighted
-        layer?.backgroundColor = (raised ? StartupStyle.raisedSurface : StartupStyle.surface).cgColor
-        let border = isLearningSelection
-            ? selectedColor.withAlphaComponent(contrast ? 1 : 0.74)
-            : StartupStyle.muted.withAlphaComponent(isHovered ? 0.38 : (contrast ? 0.46 : 0.18))
-        layer?.borderColor = border.cgColor
-        layer?.borderWidth = isLearningSelection ? 2 : 1
-        layer?.shadowOpacity = 0
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            let raised = isLearningSelection || isHovered || isHighlighted
+            alphaValue = 1
+            layer?.backgroundColor = (raised ? StartupStyle.raisedSurface : StartupStyle.surface).cgColor
+            let border = isLearningSelection
+                ? StartupStyle.accent.withAlphaComponent(contrast ? 1 : 0.62)
+                : (contrast ? NSColor.labelColor.withAlphaComponent(0.6) : StartupStyle.border)
+            layer?.borderColor = border.cgColor
+            layer?.borderWidth = isLearningSelection || contrast ? 1.5 : 1
+            layer?.shadowOpacity = 0
+            statusBadge.stringValue = isLive ? "LIVE" : "OFF"
+            statusBadge.textColor = isLive ? .selectedMenuItemTextColor : StartupStyle.muted
+            statusBadge.layer?.backgroundColor = (isLive
+                ? StartupStyle.accent
+                : StartupStyle.muted.withAlphaComponent(0.10)).cgColor
+            statusBadge.isHidden = featureEnabled && !isLive
+        }
         illustration.isLearningSelection = isLearningSelection
         illustration.isLive = isLive
         illustration.featureEnabled = featureEnabled
-        statusBadge.stringValue = isLive ? "LIVE" : "OFF"
-        statusBadge.textColor = isLive ? StartupStyle.background : StartupStyle.muted
-        statusBadge.layer?.backgroundColor = (isLive
-            ? StartupStyle.accent
-            : StartupStyle.muted.withAlphaComponent(0.12)).cgColor
-        statusBadge.isHidden = featureEnabled && !isLive
+        illustration.needsDisplay = true
         let availability = featureEnabled ? "" : " Unavailable until enabled."
         let state = isLive ? " Active now." : (isLearningSelection ? " Selected for learning." : "")
         setAccessibilityValue(actionValue() + state + availability)
@@ -329,7 +449,7 @@ private final class GestureIllustrationView: NSView {
         let drawingWidth: CGFloat = 260 * scale
         let origin = CGPoint(x: bounds.midX - drawingWidth / 2, y: bounds.midY - 46 * scale)
         let ink = StartupStyle.text.withAlphaComponent(0.82)
-        let accent = isLive ? StartupStyle.accent : (isLearningSelection ? StartupStyle.mint : StartupStyle.accent.withAlphaComponent(0.74))
+        let accent = isLive || isLearningSelection ? StartupStyle.accent : StartupStyle.muted
 
         switch gestureAction {
         case .move:
@@ -606,6 +726,9 @@ private final class GestureIllustrationView: NSView {
 final class SetupStepView: NSView {
     private let number: String
     private var presentation = ""
+    private var complete = false
+    private var active = false
+    private var displayObserver: NSObjectProtocol?
     private let badge = NSTextField(labelWithString: "")
     private let title = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
@@ -636,21 +759,44 @@ final class SetupStepView: NSView {
             text.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             text.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
         ])
+        displayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.refreshColors() }
         update(complete: false, active: false, detail: "")
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let displayObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayObserver) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshColors()
+    }
+
+    private func refreshColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            badge.textColor = complete || active ? StartupStyle.accent : StartupStyle.muted
+            layer?.backgroundColor = StartupStyle.surface.cgColor
+            layer?.borderColor = (active ? StartupStyle.accent :
+                (contrast ? NSColor.labelColor.withAlphaComponent(0.6) : StartupStyle.border)).cgColor
+        }
+    }
 
     func update(complete: Bool, active: Bool, detail: String) {
         let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         let nextPresentation = "\(complete)|\(active)|\(contrast)|\(detail)"
         guard presentation != nextPresentation else { return }
         presentation = nextPresentation
+        self.complete = complete
+        self.active = active
         detailLabel.stringValue = detail
         let badgeText = complete ? "✓" : number
         if badge.stringValue != badgeText { badge.stringValue = badgeText }
-        badge.textColor = complete || active ? StartupStyle.accent : StartupStyle.muted
-        layer?.backgroundColor = StartupStyle.surface.cgColor
-        layer?.borderColor = (active || contrast ? StartupStyle.accent : StartupStyle.muted.withAlphaComponent(0.22)).cgColor
+        refreshColors()
         setAccessibilityElement(true)
         setAccessibilityLabel("Step \(number), \(title.stringValue). \(complete ? "Complete. " : "")\(detail)")
     }
@@ -670,15 +816,16 @@ final class PointerGuideView: NSView {
     private let tapSteps = NSStackView()
     private var tapLabels: [(stage: TapGuideStage, label: NSTextField)] = []
     private var presentation = ""
+    private var currentStage: TapGuideStage?
+    private var displayObserver: NSObjectProtocol?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerRadius = 12
-        layer?.backgroundColor = StartupStyle.surface.cgColor
         hand.image = NSImage(systemSymbolName: "hand.point.up", accessibilityDescription: nil)
         hand.symbolConfiguration = .init(pointSize: 30, weight: .regular)
-        hand.contentTintColor = StartupStyle.accent
+        hand.contentTintColor = StartupStyle.muted
         hand.setAccessibilityElement(false)
         heading.font = .systemFont(ofSize: 14, weight: .semibold)
         detail.font = .systemFont(ofSize: 12)
@@ -729,8 +876,37 @@ final class PointerGuideView: NSView {
             tapSteps.widthAnchor.constraint(equalTo: text.widthAnchor),
             heightAnchor.constraint(greaterThanOrEqualToConstant: 90)
         ])
+        displayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.refreshColors() }
+        refreshColors()
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let displayObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayObserver) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshColors()
+    }
+
+    private func refreshColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            layer?.backgroundColor = StartupStyle.surface.cgColor
+            for (stage, label) in tapLabels {
+                let active = stage == currentStage
+                label.textColor = active ? StartupStyle.accent : StartupStyle.muted
+                label.superview?.layer?.backgroundColor = (active
+                    ? StartupStyle.accent.withAlphaComponent(0.10) : StartupStyle.raisedSurface).cgColor
+                label.superview?.layer?.borderColor = (active ? StartupStyle.accent :
+                    (contrast ? NSColor.labelColor.withAlphaComponent(0.6) : StartupStyle.border)).cgColor
+            }
+        }
+    }
 
     func update(title: String, detail: String, tapStage: TapGuideStage? = nil) {
         let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
@@ -739,15 +915,14 @@ final class PointerGuideView: NSView {
         presentation = next
         heading.stringValue = title
         self.detail.stringValue = detail
+        currentStage = tapStage
         tapSteps.isHidden = tapStage == nil
+        refreshColors()
         guard let tapStage else { return }
         tapSteps.setAccessibilityLabel("Tap to click: 1 Aim, 2 Bend, 3 Lift. Current step: \(tapStage.rawValue).")
         for (stage, label) in tapLabels {
             let active = stage == tapStage
             label.font = .systemFont(ofSize: 11, weight: active ? .bold : .medium)
-            label.textColor = active ? StartupStyle.accent : StartupStyle.muted
-            label.superview?.layer?.backgroundColor = StartupStyle.accent.withAlphaComponent(active ? 0.14 : 0.035).cgColor
-            label.superview?.layer?.borderColor = (active ? StartupStyle.accent : StartupStyle.muted.withAlphaComponent(contrast ? 0.8 : 0.18)).cgColor
         }
     }
 }
@@ -760,7 +935,7 @@ final class StandbyReticleView: NSView {
         let hand = NSImageView()
         hand.image = NSImage(systemSymbolName: "hand.point.up.left", accessibilityDescription: nil)
         hand.symbolConfiguration = .init(pointSize: 46, weight: .ultraLight)
-        hand.contentTintColor = StartupStyle.accent
+        hand.contentTintColor = StartupStyle.muted
         hand.translatesAutoresizingMaskIntoConstraints = false
         hand.setAccessibilityElement(false)
         addSubview(hand)
@@ -777,7 +952,7 @@ final class StandbyReticleView: NSView {
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         let radius = min(bounds.width, bounds.height) * 0.40
         let strong = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        StartupStyle.accent.withAlphaComponent(strong ? 0.7 : 0.22).setStroke()
+        StartupStyle.muted.withAlphaComponent(strong ? 0.7 : 0.22).setStroke()
         for scale: CGFloat in [0.74, 1] {
             let circle = NSBezierPath(ovalIn: CGRect(x: center.x - radius * scale, y: center.y - radius * scale,
                                                    width: radius * scale * 2, height: radius * scale * 2))

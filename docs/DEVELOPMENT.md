@@ -34,12 +34,14 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `Sources/FrameMailbox.swift` | Bounded delivery of the newest result |
 | `Sources/main.swift` | Window, camera lifecycle, feedback orchestration, permissions, mouse events |
 | `Sources/FeedbackUI.swift` | Determinate click ring, status card, simulated practice canvas, nonactivating cursor overlay |
-| `Sources/StartupUI.swift` | Startup palette, four-card gesture guide, setup state, and static camera-off artwork |
+| `Sources/StartupUI.swift` | Semantic palette, native glass controls, adaptive gesture guide, and camera-off artwork |
+| `Sources/LaunchUI.swift` | Camera-independent launch layout with persistent Start/Practice controls |
 | `Sources/FeedbackGeometry.swift` | Screen-edge caption placement with a ring centered on the click target |
 | `Tests/main.swift` | Deterministic gesture and pointer checks |
 | `Tests/RecoveryScrollTests.swift` | Hand return, physical mouse takeover, scrolling, practice isolation, and activation gates |
 | `Tests/InteractionEngineTests.swift` | Production pipeline at 15/30/60 fps, intent/cancel/rearm, automatic reference and practice isolation |
 | `Tests/GestureGuideSnapshot.swift` | Camera-free default and narrow gesture-guide review states |
+| `Tests/LaunchUISnapshot.swift` | Light/dark launch layout, settings, permissions, practice, and keyboard-access checks |
 | `Tests/UIRenderSupport.swift` | AppKit layout assertions and PNG raster support for UI review |
 | `Tests/install.sh` | Isolated installer replacement, failure rollback, and running-app guards |
 | `scripts/sign.sh` | Persistent local signing identity, explicit certificate mode, and disposable ad-hoc mode |
@@ -110,18 +112,21 @@ Validation before release: with a live camera, confirm Start/Pause and no-hand r
 
 ## Gesture interface review
 
-The main window opens at 900×800 points and supports a 720×650-point minimum. Its
+The main window opens at 920×720 points and supports a 720×650-point minimum. It
+follows the system light/dark appearance, with a native glass Start/Practice area
+on macOS 26+ and a visual-effect material on earlier systems. Settings opens on
+demand. Primary controls remain visible while details scroll. Its adaptive
 four-card guide separates the card selected for learning from the gesture that is
 currently live. Move and Click are always available; Scroll and Select text show
-their off state until the corresponding control is enabled. The camera remains off
-until Start is activated. These visuals never authorize movement, change gesture
+their off state until the corresponding control is enabled in Settings. The camera
+remains off until Start or Practice is activated. These visuals never authorize movement, change gesture
 thresholds, advance a detector, or claim that tracking is live.
 
 Startup and recovery instructions consistently name index + middle raised, palm
 toward the camera, and a brief steady hold before aiming.
 
 The camera-free guide renderer exercises the production `GestureGuideView` at a
-900×370 default size and a 620×350 narrow size. It asserts resolved Auto Layout and
+900×174 default size and a 620×344 narrow size. It asserts resolved Auto Layout and
 checks for fully clipped controls before writing review images:
 
 ```sh
@@ -136,12 +141,14 @@ Start/Pause, Practice, Permissions, settings disclosure, live gesture badges, an
 each physical gesture. Static renders validate layout and gesture wording; they do
 not validate camera recognition, native-window focus, or event delivery.
 
-The September 7, 2026 review rendered both guide sizes without ambiguous layout or
-fully clipped controls. `bash scripts/test.sh` passed 187 core, 465 interaction,
-3,377 recovery/scroll, 526 two-hand drag, 415 one-hand drag, 16 source-update, and
-1,002 two-finger tap checks, plus the update shell regressions. An isolated arm64
-application build completed with ad hoc signing and passed strict code-signature
-verification. The Mac login was
-locked, so a layer-backed full-window offscreen raster was blank and was excluded
-from visual evidence; native full-window and interaction review remains required on
-an unlocked session.
+The complete camera-free launch renderer uses the production layout with inert
+controls and a placeholder preview. It checks light/dark appearances, default and
+minimum sizes, expanded settings and permissions, practice, and persistent Start
+controls. Native glass is composited by macOS; offline images cannot demonstrate
+its live refraction over changing desktop content.
+
+```sh
+mkdir -p build/ui-review
+xcrun swiftc -swift-version 5 Sources/StartupUI.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/LaunchUISnapshot.swift -o /tmp/hand-mouse-launch-render
+/tmp/hand-mouse-launch-render "$PWD/build/ui-review"
+```

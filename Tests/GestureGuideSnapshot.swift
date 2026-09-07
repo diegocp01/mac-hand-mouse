@@ -9,7 +9,7 @@ enum GestureGuideSnapshot {
 
         try render(
             name: "gesture-guide-default.png",
-            size: NSSize(width: 900, height: 370),
+            size: NSSize(width: 900, height: GestureGuideView.idealHeight(for: 900)),
             selected: .click,
             active: .move,
             scrollingEnabled: true,
@@ -18,7 +18,7 @@ enum GestureGuideSnapshot {
         )
         try render(
             name: "gesture-guide-narrow.png",
-            size: NSSize(width: 620, height: 350),
+            size: NSSize(width: 620, height: GestureGuideView.idealHeight(for: 620)),
             selected: .scroll,
             active: .scroll,
             scrollingEnabled: true,
