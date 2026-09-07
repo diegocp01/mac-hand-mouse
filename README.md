@@ -4,14 +4,14 @@
 
 **Control your Mac's mouse with your hand.** Move your **index fingertip** to move the pointer. Clicks stay **off** until you turn them on — then choose **Pinch** or **Dwell**. Runs locally with your camera and Apple's hand tracking — no accounts, cloud, or model downloads.
 
-## First launch (~10 seconds)
+## First launch
 
-The window is grouped: **Camera → Setup → Pointing → Clicking**.
+Camera status and **Start / Pause camera** stay at the top. Pointer and click controls sit below the preview; expand **Permissions & setup** when needed.
 
-1. **Setup:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
-2. **Camera:** **Start camera** → allow camera access.
-3. **Pointing:** show **one hand**, palm visible; **index fingertip** moves the pointer inside the dashed guide.
-4. **Clicking:** leave **Allow clicks** off while you practice. When ready, enable it and pick **Pinch** or **Dwell** (click controls stay dimmed until clicks are allowed).
+1. **Permissions & setup:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
+2. **Start camera** → allow camera access.
+3. Show **one hand**, palm visible; **index fingertip** moves the pointer inside the dashed guide.
+4. Leave **Allow clicks** off while you practice. When ready, enable it and pick **Pinch** or **Dwell** (click controls stay dimmed until clicks are allowed).
 
 Keep a trackpad or mouse nearby. **Esc** (or **Pause camera** / menu-bar hand) pauses capture.
 
@@ -52,7 +52,7 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | --- | --- |
 | Move the pointer | Move your **index fingertip** inside the dashed box. Soft edges — no hard wall at the crop. |
 | Practice without clicking | Leave **Allow clicks** unchecked (default). Aim freely; no mouse click is sent. |
-| Practice without moving the system pointer | Uncheck **Control mouse pointer**. |
+| Practice without moving the system pointer | Uncheck **Move the system pointer with my index finger**. |
 | Turn on clicks | Check **Allow clicks**. Your choice is saved. |
 | Left-click — Pinch | Select **Pinch**. Touch **thumb + index** together briefly, then separate before the next click. |
 | Left-click — Dwell | Select **Dwell**. Hold the pointer still ~0.65s. Move to cancel; move again before the next dwell. |
@@ -62,7 +62,15 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 
 **Tips:** one hand, palm visible, even lighting. Closing the window pauses capture. For multiple monitors, put the app window on the screen you want before starting.
 
-**Hand colors:** green = tracking · blue = pinch/dwell armed · white flash + **Click!** = a real click was sent · status line says when you're ready again.
+### See the click coming
+
+In **Dwell** mode, a ring fills around the pointer and **Click in 0.6 s…** counts down in both the cursor caption and the app. Hold still until it completes to click. Move your hand to cancel; the next countdown starts fresh. After a click, a checkmark confirms it was sent, then the app asks you to move before clicking again.
+
+The countdown uses tracked frames, so it clears if your hand disappears, tracking stalls, the camera pauses, permissions change, or clicks are turned off. With **Allow clicks** off, you can point freely without a countdown or a frozen pointer. The floating ring passes mouse clicks through to the target.
+
+Camera status stays separate from click instructions: **Starting camera**, **Hand tracked**, **Looking for hand**, and **Paused**. You can resize the window and scroll to settings; the pause control stays visible at the top. **Esc** also pauses.
+
+**Hand colors:** green = tracking · blue = pinch/dwell armed · white flash + **Clicked ✓** = click sent. Text, a progress bar, and checkmarks explain the same states without relying on color.
 
 ## What it does *not* do (yet)
 
@@ -72,7 +80,7 @@ Dragging, scrolling, right-click, double-click, and tap-to-click are **not** inc
 
 - **Camera blocked:** click **Camera Settings**, enable Hand Mouse, then restart if macOS requests it.
 - **Hand detected, but mouse won't move:** enable Accessibility for the installed app.
-- **Permission stopped working after an update:** click **Show this app in Finder** to identify the exact running copy, then remove the old permission entry and add that copy again. If toggling still does not work, see the [targeted permission reset](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the permission pane is called **Device Control and Data Access**.
+- **Permission stopped working after an update:** expand **Permissions & setup** and click **Show in Finder** to identify the exact running copy, then remove the old permission entry and add that copy again. If toggling still does not work, see the [targeted permission reset](docs/DEVELOPMENT.md#repair-a-stale-local-permission). On macOS 27 the permission pane is called **Device Control and Data Access**.
 - **Tracking is intermittent:** improve lighting, keep your palm and fingertips visible, and show only one hand.
 - **Escape doesn't pause outside the app:** global Escape needs Accessibility permission; use the window or menu-bar pause button.
 - **Unexpected clicks:** turn **Allow clicks** off (default). See [safety notes](docs/SAFETY.md).

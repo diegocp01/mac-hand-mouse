@@ -225,6 +225,74 @@ check(buffer.take() == 101, "Next delivery is current")
 check(ClickMode.pinch.rawValue == "pinch" && ClickMode.dwell.rawValue == "dwell", "ClickMode cases exist")
 check(DwellSettings().dwellSeconds >= 0.5 && DwellSettings().dwellSeconds <= 0.8, "Default dwell in CTO 0.5–0.8s band")
 
+func closeEnough(_ actual: Double, _ expected: Double, tolerance: Double = 1e-9) -> Bool {
+    abs(actual - expected) <= tolerance
+}
+
+// Progress is derived only from tracked observations; reading it never advances dwell.
+var dwellProgress = DwellDetector()
+dwellProgress.settings.dwellSeconds = 1.0
+let progressPoint = CGPoint(x: 40, y: 40)
+check(!dwellProgress.update(point: progressPoint, time: 10.0, tracking: true), "Progress arm starts without firing")
+check(closeEnough(dwellProgress.progress, 0) && closeEnough(dwellProgress.remainingSeconds, 1.0),
+      "Fresh arm reports zero progress and the full duration remaining")
+for sample in 1...5 {
+    _ = dwellProgress.update(point: progressPoint, time: 10.0 + Double(sample) * 0.1, tracking: true)
+}
+check(closeEnough(dwellProgress.progress, 0.5) && closeEnough(dwellProgress.remainingSeconds, 0.5),
+      "Half dwell reports half progress and half remaining")
+for sample in 6...9 {
+    _ = dwellProgress.update(point: progressPoint, time: 10.0 + Double(sample) * 0.1, tracking: true)
+}
+_ = dwellProgress.update(point: progressPoint, time: 10.99, tracking: true)
+check(closeEnough(dwellProgress.progress, 0.99) && closeEnough(dwellProgress.remainingSeconds, 0.01),
+      "Near-complete dwell stays below one until an observation reaches the threshold")
+
+var resetProgress = dwellProgress
+resetProgress.reset()
+check(resetProgress.progress == 0 && resetProgress.remainingSeconds == 0,
+      "Reset clears dwell progress and remaining time")
+
+var movedProgress = DwellDetector()
+movedProgress.settings.dwellSeconds = 1.0
+_ = movedProgress.update(point: progressPoint, time: 20.0, tracking: true)
+for sample in 1...5 {
+    _ = movedProgress.update(point: progressPoint, time: 20.0 + Double(sample) * 0.1, tracking: true)
+}
+_ = movedProgress.update(point: CGPoint(x: 80, y: 40), time: 20.6, tracking: true)
+check(movedProgress.phase == .idle && movedProgress.progress == 0 && movedProgress.remainingSeconds == 0,
+      "Movement cancellation clears visible dwell timing")
+
+var lostProgress = DwellDetector()
+lostProgress.settings.dwellSeconds = 1.0
+_ = lostProgress.update(point: progressPoint, time: 30.0, tracking: true)
+_ = lostProgress.update(point: progressPoint, time: 30.1, tracking: true)
+_ = lostProgress.update(point: progressPoint, time: 30.2, tracking: false)
+check(lostProgress.phase == .idle && lostProgress.progress == 0 && lostProgress.remainingSeconds == 0,
+      "Tracking loss clears visible dwell timing")
+
+var sparseProgress = DwellDetector()
+sparseProgress.settings.dwellSeconds = 0.5
+_ = sparseProgress.update(point: progressPoint, time: 40.0, tracking: true)
+check(!sparseProgress.update(point: progressPoint, time: 40.6, tracking: true),
+      "A callback gap cannot complete a dwell with unobserved time")
+check(sparseProgress.phase == .arming && sparseProgress.progress == 0 &&
+      closeEnough(sparseProgress.remainingSeconds, 0.5),
+      "A callback gap begins a fresh observed arm")
+
+var firedProgress = DwellDetector()
+firedProgress.settings.dwellSeconds = 0.3
+firedProgress.settings.cooldownSeconds = 0.45
+_ = firedProgress.update(point: progressPoint, time: 50.0, tracking: true)
+_ = firedProgress.update(point: progressPoint, time: 50.1, tracking: true)
+_ = firedProgress.update(point: progressPoint, time: 50.2, tracking: true)
+check(firedProgress.update(point: progressPoint, time: 50.31, tracking: true), "Observed dwell reaches completion")
+check(firedProgress.phase == .needMove && firedProgress.progress == 0 && firedProgress.remainingSeconds == 0,
+      "Post-fire needMove reports no active progress")
+_ = firedProgress.update(point: progressPoint, time: 50.4, tracking: true)
+check(firedProgress.phase == .needMove && firedProgress.progress == 0 && firedProgress.remainingSeconds == 0,
+      "Cooldown cannot expose queued dwell progress")
+
 struct DwellSim {
     var detector = DwellDetector()
     var now = 0.0
@@ -505,5 +573,59 @@ let distB = hypot(clickAim.x - targetB.x, clickAim.y - targetB.y)
 let distA = hypot(clickAim.x - aimAtA.x, clickAim.y - aimAtA.y)
 check(distB < 25, "Click aim is at B after A→B re-aim")
 check(distA > 80, "Click aim is not stuck at old A")
+
+// --- CursorFeedbackLayout: clamp captions without displacing the target ring ---
+check(CursorFeedbackLayout.appKitPoint(CGPoint(x: 200, y: 0), primaryTop: 900) == CGPoint(x: 200, y: 900),
+      "Primary top edge converts from Quartz into AppKit")
+check(CursorFeedbackLayout.appKitPoint(CGPoint(x: -100, y: -800), primaryTop: 900) == CGPoint(x: -100, y: 1700),
+      "An upper display's exact top edge keeps its position")
+check(CursorFeedbackLayout.appKitPoint(CGPoint(x: 400, y: 1500), primaryTop: 900) == CGPoint(x: 400, y: -600),
+      "A display below the primary converts without a per-display flip")
+
+func globalRingCenter(_ layout: CursorFeedbackLayout) -> CGPoint {
+    CGPoint(x: layout.origin.x + layout.ringOrigin.x + 25,
+            y: layout.origin.y + layout.ringOrigin.y + 25)
+}
+
+func globalLabelFrame(_ layout: CursorFeedbackLayout) -> CGRect {
+    CGRect(x: layout.origin.x + layout.labelOrigin.x,
+           y: layout.origin.y + layout.labelOrigin.y,
+           width: 150, height: 22)
+}
+
+let feedbackScreens = [
+    CGRect(x: 0, y: 0, width: 1440, height: 900),
+    CGRect(x: -1920, y: -180, width: 1920, height: 1080),
+    CGRect(x: 120, y: 900, width: 1280, height: 800),
+    CGRect(x: -300, y: -1200, width: 1600, height: 1000)
+]
+for screen in feedbackScreens {
+    let edgeTargets = [
+        CGPoint(x: screen.minX, y: screen.minY),
+        CGPoint(x: screen.maxX, y: screen.minY),
+        CGPoint(x: screen.minX, y: screen.maxY),
+        CGPoint(x: screen.maxX, y: screen.maxY)
+    ]
+    for target in edgeTargets {
+        let layout = CursorFeedbackLayout(center: target, screen: screen)
+        let label = globalLabelFrame(layout)
+        check(label.minX >= screen.minX && label.maxX <= screen.maxX &&
+              label.minY >= screen.minY && label.maxY <= screen.maxY,
+              "Cursor feedback label stays within every display edge")
+        check(globalRingCenter(layout) == target,
+              "Clamping feedback at a display edge keeps the ring on the actual target")
+    }
+}
+
+let offsetTargets: [(CGRect, CGPoint)] = [
+    (CGRect(x: -2560, y: 0, width: 2560, height: 1440), CGPoint(x: -1732, y: 721)),
+    (CGRect(x: 0, y: 900, width: 1512, height: 982), CGPoint(x: 756, y: 1400)),
+    (CGRect(x: 0, y: -1080, width: 1920, height: 1080), CGPoint(x: 1111, y: -640))
+]
+for (screen, target) in offsetTargets {
+    let layout = CursorFeedbackLayout(center: target, screen: screen)
+    check(globalRingCenter(layout) == target,
+          "Ring center matches the target on negative, above, and below displays")
+}
 
 print("Passed \(checks) gesture, pointer, geometry, frame-delivery, safety, dwell, order-of-ops, and freeze-release checks.")

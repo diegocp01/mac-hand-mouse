@@ -126,7 +126,29 @@ struct DwellDetector {
     private var armingSince: Double?
     private var postFireLock: CGPoint?
     private var lastFire = -Double.infinity
+    private var lastObserved: Double?
     private var lastTimestamp: Double?
+
+    /// Fraction of the current observed dwell interval, without advancing its clock.
+    var progress: Double {
+        guard phase == .arming,
+              let started = armingSince,
+              let observed = lastObserved,
+              settings.dwellSeconds.isFinite,
+              settings.dwellSeconds > 0 else { return 0 }
+        return min(1, max(0, (observed - started) / settings.dwellSeconds))
+    }
+
+    /// Observed dwell time still required. Non-arming phases intentionally report zero.
+    var remainingSeconds: Double {
+        guard phase == .arming,
+              let started = armingSince,
+              let observed = lastObserved,
+              settings.dwellSeconds.isFinite,
+              settings.dwellSeconds > 0 else { return 0 }
+        let elapsed = min(settings.dwellSeconds, max(0, observed - started))
+        return settings.dwellSeconds - elapsed
+    }
 
     /// Freeze only while arming on a stable target (or post-fire needMove).
     /// Cancel-on-move returns `.idle` (freeze off). Fresh arm waits `armFreezeDelaySeconds` before latching.
@@ -142,6 +164,7 @@ struct DwellDetector {
         armingSince = nil
         postFireLock = nil
         lastFire = -Double.infinity
+        lastObserved = nil
         lastTimestamp = nil
     }
 
@@ -157,6 +180,16 @@ struct DwellDetector {
             if phase == .arming { phase = .idle }
             return false
         }
+
+        // A sparse callback stream cannot turn unobserved time into dwell progress.
+        if phase == .arming,
+           let previous = lastObserved,
+           time - previous > GestureTuning.trackingGraceSeconds {
+            origin = nil
+            armingSince = nil
+            phase = .idle
+        }
+        lastObserved = time
 
         // Cooldown consumes stillness — never queue a late click.
         if time - lastFire < settings.cooldownSeconds {
@@ -308,4 +341,3 @@ enum SafetyPolicy {
         gestureFired && allowClicks && axTrusted && pointerControlEnabled
     }
 }
-

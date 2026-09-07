@@ -23,10 +23,12 @@ Builds explicitly target the minimum macOS version in `Info.plist`. The default 
 | `Sources/Gesture.swift` | Pinch state machine, tuning, smoothing |
 | `Sources/Camera.swift` | Camera capture and Vision landmarks |
 | `Sources/FrameMailbox.swift` | Bounded delivery of the newest result |
-| `Sources/main.swift` | Window, preview, permissions, mouse events |
+| `Sources/main.swift` | Window, camera lifecycle, feedback orchestration, permissions, mouse events |
+| `Sources/FeedbackUI.swift` | Determinate dwell ring, status card, nonactivating cursor overlay |
+| `Sources/FeedbackGeometry.swift` | Screen-edge caption placement with a ring centered on the click target |
 | `Tests/main.swift` | Deterministic gesture and pointer checks |
 
-Defaults: 25 ms pointer smoothing; Balanced pinch threshold 0.42 hand-scale units, confirmation after at least two samples and 25 ms, reopening above 0.60 for 70 ms, and a 300 ms click cooldown. Precise uses 0.34 and Easy uses 0.50, with release 0.18 above each threshold. Confirmation tolerates 0.06 units of threshold jitter. The hand scale is the greater of palm width and 0.75 times wrist-to-middle-base distance, corrected for frame aspect ratio.
+Defaults: velocity-adaptive pointer smoothing from 8–50 ms; Balanced pinch threshold 0.42 hand-scale units, confirmation after at least two samples and 25 ms, reopening above 0.60 for 70 ms, and a 300 ms click cooldown. Precise uses 0.34 and Easy uses 0.50, with release 0.18 above each threshold. Confirmation tolerates 0.06 units of threshold jitter. The hand scale is the greater of palm width and 0.75 times wrist-to-middle-base distance, corrected for frame aspect ratio.
 
 Freeze is an aim latch, not a sensor blackout: each frame samples an unfrozen finger target, runs pinch/dwell detect, then updates the pointer (pinch injects at pre-pinch aim). Dwell cancel-on-move returns idle and **releases** freeze so aim can track to the new target; a short `armFreezeDelaySeconds` (~80 ms) lets the pointer settle before re-latching, and freeze holds again through arming/`needMove` (click). Missing pinch observations preserve readiness for at most 120 ms, but cancel confirmation evidence; longer gaps disarm. A pinch attempted during cooldown is consumed rather than delayed. Camera results are coalesced to the latest frame and callbacks from old sessions are rejected. Camera and inference latency are additional to smoothing time.
 
@@ -66,3 +68,12 @@ tccutil reset Accessibility com.local.handmouse
 Reopen the app, click **Show this app in Finder**, then add that exact copy to Privacy & Security → Accessibility (called Device Control and Data Access on macOS 27). Enable it and restart Hand Mouse. This does not grant permission by itself or change other apps' permissions.
 
 Ad-hoc signatures change with rebuilt code. Multiple development copies with the same bundle identifier can make System Settings show a different copy. Keep one active installed copy and remove temporary test bundles. Do not weaken signature checks or use a shared wildcard signing requirement to avoid permission prompts.
+
+
+## Camera and dwell feedback
+
+`DwellDetector.progress` and `remainingSeconds` are read-only values derived from observed frame timestamps. Rendering never advances the detector or triggers a click. A gap longer than the tracking grace restarts an active dwell; reset, cancel, tracking loss, and post-click phases clear progress. The UI also hides stale feedback if delivery stops, using a 100 ms watchdog and the 120 ms tracking grace measured from the last received frame. Frames more than 200 ms old are rejected as before.
+
+The cursor panel ignores mouse events, never becomes key, and uses no screen recording. Quartz pointer coordinates convert to AppKit using the primary screen's top edge. The label stays inside the target screen, while the ring remains at the actual click location. Duplicate overlay content is excluded from accessibility; the app exposes a labeled progress indicator and text. No decorative progress animation runs ahead of detector state.
+
+Validation before release: with a live camera, confirm Start/Pause, no-hand recovery, Pinch, Dwell move/cancel/rearm, clicks off while arming, Escape, Accessibility loss, and cursor ring alignment on additional displays/full-screen apps. Use the app's Test click target rather than a consequential control. Synthetic tests do not verify physical tracking or delivery to other apps.
