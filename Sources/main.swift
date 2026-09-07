@@ -146,8 +146,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        if let url = Bundle.main.url(forResource: "HandMouse", withExtension: "icns"),
-           let icon = NSImage(contentsOf: url) { NSApp.applicationIconImage = icon }
+        // Set the running app's Dock image explicitly as well as the bundle icon.
+        if let iconURL = Bundle.main.url(forResource: "HandMouse", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApp.applicationIconImage = icon
+        }
         let appMenu = NSMenu()
         let root = NSMenuItem(); appMenu.addItem(root)
         let submenu = NSMenu(); root.submenu = submenu
