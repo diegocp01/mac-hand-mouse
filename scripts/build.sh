@@ -31,6 +31,8 @@ else
     xcrun lipo -create "${BINARIES[@]}" -output "$APP/Contents/MacOS/HandMouse"
 fi
 cp Info.plist "$APP/Contents/Info.plist"
+bash scripts/build-icon.sh "$BUILD_DIR"
+cp "$BUILD_DIR/HandMouse.icns" "$APP/Contents/Resources/HandMouse.icns"
 codesign --force --sign - --identifier com.local.handmouse "$APP"
 codesign --verify --deep --strict "$APP"
 echo "Built: $APP"
