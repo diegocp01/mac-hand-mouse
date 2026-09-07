@@ -8,6 +8,7 @@ struct InteractionSettings: Equatable {
     var pinchThreshold = 0.42
     var dwellSeconds = 0.65
     var allowScrolling = false
+    var allowDragging = false
 }
 
 enum ClickPreference {
@@ -26,11 +27,13 @@ struct InteractionStep {
     var scrollY: Int32 = 0
     var blocked: InteractionBlock?
     var destination: InteractionDestination = .system
+    var dragging = false
 
     // Simulation results are never eligible for the OS event dispatch path.
     var systemLocation: CGPoint? { destination == .system ? location : nil }
     var systemClick: Bool { destination == .system && click }
     var systemScrollY: Int32 { destination == .system ? scrollY : 0 }
+    var systemDragging: Bool { destination == .system && dragging }
 }
 
 /// The actual camera-to-pointer path. No UI, camera, or CGEvent side effects,
@@ -43,6 +46,7 @@ struct InteractionEngine {
     var forwardProfile: ForwardProfile? { forwardReference.profile }
     private(set) var acquisition = PointerAcquisition()
     private(set) var scroll = ScrollDetector()
+    private(set) var drag = TwoHandDragDetector()
     private var filter = PointerFilter()
     private var lastTimestamp: Double?
     private var lastDestination: InteractionDestination?
@@ -58,6 +62,7 @@ struct InteractionEngine {
     }
 
     mutating func reset() {
+        drag.interrupt()
         pinch.reset(); forward.reset(); forwardReference.reset(); filter.reset()
         lastTimestamp = nil
         lastDestination = nil
@@ -66,6 +71,7 @@ struct InteractionEngine {
 
     /// Stops an in-progress gesture when delivery stalls, retaining post-click rearm rules.
     mutating func trackingInterrupted() {
+        drag.interrupt()
         pinch.reset(); forward.reset(); forwardReference.reset(); scroll.reset(); filter.reset()
         acquisition.interrupt(); lastLocation = nil
     }
@@ -73,7 +79,9 @@ struct InteractionEngine {
     mutating func process(index: CGPoint?, pinchRatio: Double?, forwardPose: ForwardPose? = nil, timestamp: Double, now: Double,
                           bounds: CGRect, running: Bool, trusted: Bool,
                           destination: InteractionDestination = .system, cursorPosition: CGPoint? = nil,
-                          handSide: String? = nil, scrollPoint: CGPoint? = nil) -> InteractionStep {
+                          handSide: String? = nil, scrollPoint: CGPoint? = nil,
+                          primaryL: Bool = false, companionPresent: Bool = false, companionL: Bool = false,
+                          primaryReleased: Bool = false, companionReleased: Bool = false) -> InteractionStep {
         guard running else { reset(); return InteractionStep(blocked: .paused) }
         let inputAllowed = trusted || destination == .practice
         guard inputAllowed else { reset(); return InteractionStep(blocked: .permission) }
@@ -107,7 +115,7 @@ struct InteractionEngine {
             trackingInterrupted()
         }
         if settings.mode == .forward {
-            let canAdapt = (forward.phase == .needsNeutral || forward.phase == .ready) && scrollPoint == nil
+            let canAdapt = (forward.phase == .needsNeutral || forward.phase == .ready) && scrollPoint == nil && !(settings.allowDragging && companionPresent)
             if forwardReference.update(forwardPose, time: timestamp, canAdapt: canAdapt) { forward.reset() }
         }
         let wasActive = acquisition.active
@@ -118,13 +126,33 @@ struct InteractionEngine {
             } else { neutral = false }
         } else { neutral = pinchRatio.map { $0.isFinite && $0 > settings.pinchThreshold + 0.18 } ?? false }
         guard acquisition.update(point: index, cursor: cursorPosition, side: handSide, neutral: neutral && scrollPoint == nil, time: timestamp) else {
-            pinch.reset(); forward.reset(); scroll.reset()
+            pinch.reset(); forward.reset(); scroll.reset(); drag.interrupt()
             return InteractionStep(blocked: .acquiring)
         }
         if !wasActive {
             filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
             lastLocation = cursorPosition
             return InteractionStep(location: cursorPosition, destination: destination)
+        }
+        // The second hand is a modifier only. Its appearance cancels single-hand
+        // click/scroll intent, even before it forms an L. Only the owner's index moves.
+        if settings.allowDragging && (companionPresent || drag.phase != .idle) {
+            pinch.reset(); forward.reset(); scroll.reset()
+            let previous = drag.phase
+            if settings.allowClicks {
+                drag.update(bothL: primaryL && companionPresent && companionL,
+                    visiblyReleased: primaryReleased || (companionPresent && companionReleased), time: timestamp)
+            } else { drag.interrupt() }
+            let began = previous != .dragging && drag.phase == .dragging
+            let ended = previous == .dragging && drag.phase != .dragging
+            if began {
+                // Start at the aim held during confirmation; discard hand motion while arming.
+                filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
+            }
+            let location = filter.update(point: index, bounds: bounds, time: timestamp,
+                freeze: settings.allowClicks && (drag.phase == .confirming || began || ended))
+            lastLocation = location
+            return InteractionStep(location: location, destination: destination, dragging: drag.phase == .dragging)
         }
         if settings.allowScrolling && scrollPoint != nil {
             pinch.reset(); forward.reset()
