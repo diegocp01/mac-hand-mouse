@@ -113,7 +113,7 @@ struct DwellSettings {
     var moveCancelPoints: Double = 18
     var cooldownSeconds: Double = 0.45
     /// After (re)arm, keep freeze off briefly so aim can track onto the stable target.
-    var armFreezeDelaySeconds: Double = 0.08
+    var armFreezeDelaySeconds: Double = 0.10
 }
 
 enum DwellPhase { case idle, arming, needMove }
@@ -126,7 +126,29 @@ struct DwellDetector {
     private var armingSince: Double?
     private var postFireLock: CGPoint?
     private var lastFire = -Double.infinity
+    private var lastObserved: Double?
     private var lastTimestamp: Double?
+
+    /// Fraction of the current observed dwell interval, without advancing its clock.
+    var progress: Double {
+        guard phase == .arming,
+              let started = armingSince,
+              let observed = lastObserved,
+              settings.dwellSeconds.isFinite,
+              settings.dwellSeconds > 0 else { return 0 }
+        return min(1, max(0, (observed - started) / settings.dwellSeconds))
+    }
+
+    /// Observed dwell time still required. Non-arming phases intentionally report zero.
+    var remainingSeconds: Double {
+        guard phase == .arming,
+              let started = armingSince,
+              let observed = lastObserved,
+              settings.dwellSeconds.isFinite,
+              settings.dwellSeconds > 0 else { return 0 }
+        let elapsed = min(settings.dwellSeconds, max(0, observed - started))
+        return settings.dwellSeconds - elapsed
+    }
 
     /// Freeze only while arming on a stable target (or post-fire needMove).
     /// Cancel-on-move returns `.idle` (freeze off). Fresh arm waits `armFreezeDelaySeconds` before latching.
@@ -142,21 +164,34 @@ struct DwellDetector {
         armingSince = nil
         postFireLock = nil
         lastFire = -Double.infinity
+        lastObserved = nil
         lastTimestamp = nil
+    }
+
+    /// Cancel incomplete dwell work when the hand is not observed. A completed
+    /// click remains locked in `needMove`, including its cooldown and lock point.
+    mutating func trackingLost() {
+        origin = nil
+        armingSince = nil
+        lastObserved = nil
+        if phase == .arming { phase = .idle }
     }
 
     /// `point` must be an *unfrozen* screen sample (finger target). Freeze only the click aim.
     mutating func update(point: CGPoint, time: Double, tracking: Bool) -> Bool {
-        guard time.isFinite else { reset(); return false }
-        if let previous = lastTimestamp, time <= previous { reset(); return false }
+        guard tracking else { trackingLost(); return false }
+        guard time.isFinite else { trackingLost(); return false }
+        if let previous = lastTimestamp, time <= previous { trackingLost(); return false }
+        guard point.x.isFinite, point.y.isFinite else { trackingLost(); return false }
         lastTimestamp = time
 
-        guard tracking else {
-            origin = nil
-            armingSince = nil
-            if phase == .arming { phase = .idle }
-            return false
+        // A sparse callback stream cannot turn unobserved time into dwell progress.
+        if phase == .arming,
+           let previous = lastObserved,
+           time - previous > GestureTuning.trackingGraceSeconds + 1e-9 {
+            trackingLost()
         }
+        lastObserved = time
 
         // Cooldown consumes stillness — never queue a late click.
         if time - lastFire < settings.cooldownSeconds {
@@ -308,4 +343,3 @@ enum SafetyPolicy {
         gestureFired && allowClicks && axTrusted && pointerControlEnabled
     }
 }
-

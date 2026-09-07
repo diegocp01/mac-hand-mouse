@@ -23,9 +23,11 @@ jobs:
           persist-credentials: false
       - name: Check shell syntax
         run: |
-          for script in scripts/*.sh *.command; do bash -n "$script"; done
-      - name: Test gestures and pointer movement
+          for script in scripts/*.sh Tests/*.sh *.command; do bash -n "$script"; done
+      - name: Test gestures and production interaction pipeline
         run: bash scripts/test.sh
+      - name: Test installer replacement and rollback
+        run: bash Tests/install.sh
       - name: Build and verify installation
         run: HAND_MOUSE_INSTALL_DIR="$RUNNER_TEMP/Hand Mouse Install" HAND_MOUSE_NO_OPEN=1 bash "Install Hand Mouse.command"
       - name: Package universal app
