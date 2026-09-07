@@ -69,15 +69,16 @@ The pointer stays on your target while you bend and lift. **Lift to click** appe
 **Two-finger tap replaces Pinch and Point forward clicking.** Existing click choices remain saved. One-hand pinch dragging is unavailable in this mode. Thumb + index pinching is reserved for scrolling; index + middle still perform the tap click.
 
 - **Practice:** rehearse taps on targets without sending mouse events to other apps. Finishing practice leaves clicks off.
+- **Steady aim:** on by default in Settings. Slow, careful hand movements make smaller pointer adjustments; faster movements keep normal travel. After smoothing settles, the pointer stays at your fine adjustment. This responds to your movement, without detecting buttons or other targets. Turn it off to use the previous pointer behavior.
 - **Pointer lock:** optionally bring index + middle together to hold the target. **Bend to click** appears beside the cursor; separate them to move again. A normal bend also holds the target automatically.
 - **Precision:** enable **Precision** for roughly 35% of normal hand-to-pointer travel. Lower and raise your hand to reposition when needed. The setting is saved.
 - **Scroll:** enable **Scroll**, touch thumb + index and hold steady for about a quarter second, then move your hand up/down. The cursor stays put and clicks are suppressed. Release the pinch to stop immediately and resume aiming without a jump. Scrolling also works with Click off.
-- **Click:** turn it off to aim without clicking.
+- **Click:** enabled by default. Turn it off to aim without clicking; your manual choice is saved. Practice leaves clicks off for the current session without changing that preference, so the next launch restores your saved choice or the default on.
 - **Rest/reposition:** lower your hand, then raise index + middle centrally and hold briefly. The pointer resumes where you left it.
 - **Pause:** Esc, **Pause**, or the menu-bar hand icon. **⌃⌥⌘H** pauses/resumes from another app (configurable in Permissions).
 - **Select text:** enable it, acquire one hand first, then form an L with thumb + index on both hands. Move the original hand to drag or select; open either hand to release. Clicks pause while the second hand acts as a modifier.
 
-Tap recognition uses camera images, not measured depth or physical contact. Good lighting and a visible palm help. Physical testing across hands and cameras is still needed; start in practice. Right-click and an explicit double-click gesture are not included. See [tap behavior and validation](docs/TWO_FINGER_TAP.md).
+Tap recognition uses camera images, not measured depth or physical contact. Good lighting and a visible palm help. Physical testing across hands and cameras is still needed, including Steady aim tuning; synthetic tests do not establish small-target accuracy. Start in practice. Right-click and an explicit double-click gesture are not included. See [tap behavior and validation](docs/TWO_FINGER_TAP.md).
 
 ## Troubleshooting
 

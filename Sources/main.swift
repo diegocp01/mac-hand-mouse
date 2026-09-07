@@ -147,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let toggle = NSButton(title: "Start", target: nil, action: nil)
     private let control = NSButton(checkboxWithTitle: "Move pointer", target: nil, action: nil)
     private let precisionMode = NSButton(checkboxWithTitle: "Precision", target: nil, action: nil)
+    private let steadyAim = NSButton(checkboxWithTitle: "Steady aim", target: nil, action: nil)
     private let allowClicks = NSButton(checkboxWithTitle: "Click", target: nil, action: nil)
     private let clickModeControl = NSSegmentedControl(labels: ["Two-finger tap"], trackingMode: .selectOne, target: nil, action: nil)
     private let sensitivity = NSSegmentedControl(labels: ["Precise", "Balanced", "Easy"], trackingMode: .selectOne, target: nil, action: nil)
@@ -274,6 +275,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         precisionMode.target = self; precisionMode.action = #selector(precisionChanged)
         precisionMode.toolTip = "Reduce pointer travel for small targets. Lower and raise your hand to reposition."
         precisionMode.setAccessibilityLabel("Precision mode for slower pointer movement")
+        steadyAim.state = (defaults.object(forKey: "steadyAim") as? Bool ?? true) ? .on : .off
+        steadyAim.target = self; steadyAim.action = #selector(steadyAimChanged)
+        steadyAim.toolTip = "Slow hand movements make smaller pointer adjustments. Move faster to cross the screen."
+        steadyAim.setAccessibilityLabel("Steady aim for easier small targets")
         allowScrolling.target = self; allowScrolling.action = #selector(scrollingChanged)
         allowScrolling.toolTip = "Pinch thumb + index, hold briefly, then move your hand up/down. Release to stop scrolling."
         allowScrolling.setAccessibilityLabel("Enable pinch scrolling with vertical hand movement")
@@ -347,7 +352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         optionsToggle.target = self; optionsToggle.action = #selector(toggleOptions)
         optionsToggle.setAccessibilityLabel("Advanced settings")
         optionsToggle.state = .off
-        optionsRows = StartupStyle.column([clickTest, displayStatus], spacing: 8)
+        optionsRows = StartupStyle.column([steadyAim, clickTest, displayStatus], spacing: 8)
         toggleOptions()
         let controls = NSStackView(views: [control, allowClicks, precisionMode, allowScrolling, allowDragging])
         controls.alignment = .centerY
@@ -480,7 +485,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             pinchThreshold: [0.34, 0.42, 0.50][min(2, max(0, sensitivity.selectedSegment))],
             dwellSeconds: [0.65, 1.0, 1.5][min(2, max(0, dwellDuration.selectedSegment))],
             allowScrolling: allowScrolling.state == .on, allowDragging: allowDragging.state == .on,
-            allowPinchDragging: clickMode == .pinch && allowPinchDragging.state == .on, precisionMode: precisionMode.state == .on)
+            allowPinchDragging: clickMode == .pinch && allowPinchDragging.state == .on,
+            precisionMode: precisionMode.state == .on, steadyAim: steadyAim.state == .on)
         if settings != engine.settings { releaseDrag() }
         engine.configure(settings)
     }
@@ -546,6 +552,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func precisionChanged() {
         UserDefaults.standard.set(precisionMode.state == .on, forKey: "precisionMode")
         configureInteraction()
+    }
+
+    @objc private func steadyAimChanged() {
+        UserDefaults.standard.set(steadyAim.state == .on, forKey: "steadyAim")
+        configureInteraction(); clearClickFeedback(); readyFeedback()
     }
 
     @objc private func scrollingChanged() {
@@ -667,7 +678,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func startPractice() {
         if practicing { finishPractice(); return }
         guard activation.canResume else { return }
-        allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
+        // Practice changes this session's output, not the user's saved click preference.
+        allowClicks.state = .off
         disableScrolling(); disablePinchDragging()
         allowDragging.state = .off; UserDefaults.standard.set(false, forKey: "allowDragging")
         practicing = true
@@ -682,7 +694,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         resetInteraction(); clearClickFeedback(); practice.reset(); practiceCursor = nil
         disableScrolling(); disablePinchDragging()
         allowDragging.state = .off; UserDefaults.standard.set(false, forKey: "allowDragging")
-        allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
+        allowClicks.state = .off
         refreshClickChrome()
         showFeedback("Practice finished", "Clicks, scrolling, and dragging are off. Enable them when you want to control other apps.")
     }
