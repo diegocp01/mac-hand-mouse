@@ -474,6 +474,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
     }
     @objc private func enableAccessibility() {
+        // Granting permission must not start controlling System Settings mid-setup.
+        if running { pause() }
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
@@ -499,7 +501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 permissionStatus.stringValue = "Accessibility on · Pinch: touch thumb + index, then separate"
             }
         } else {
-            permissionStatus.stringValue = "Needs Accessibility: tap Enable Accessibility → turn on Hand Mouse"
+            permissionStatus.stringValue = "Enable Accessibility for this copy. Already enabled? Remove the old Hand Mouse entry with −, then add this copy with +. Show in Finder locates it."
         }
         guard running else { return }
         let now = ProcessInfo.processInfo.systemUptime

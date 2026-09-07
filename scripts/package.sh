@@ -7,7 +7,8 @@ PACKAGE_NAME="Hand-Mouse-$VERSION-macos-universal"
 STAGING=$(mktemp -d "${TMPDIR:-/tmp}/hand-mouse-package.XXXXXX")
 trap 'rm -rf "$STAGING"' EXIT
 RELEASE_BUILD="$STAGING/build"
-HAND_MOUSE_BUILD_DIR="$RELEASE_BUILD" HAND_MOUSE_ARCHS="arm64 x86_64" bash scripts/build.sh
+HAND_MOUSE_BUILD_DIR="$RELEASE_BUILD" HAND_MOUSE_ARCHS="arm64 x86_64" \
+    HAND_MOUSE_SIGNING_MODE="${HAND_MOUSE_SIGNING_MODE:-adhoc}" bash scripts/build.sh
 APP="$RELEASE_BUILD/Hand Mouse.app"
 for ARCH in arm64 x86_64; do
     xcrun lipo "$APP/Contents/MacOS/HandMouse" -verify_arch "$ARCH"
@@ -25,4 +26,4 @@ ditto -c -k --norsrc --noextattr --keepParent "$STAGING/$PACKAGE_NAME" "dist/$PA
     shasum -a 256 -c "$PACKAGE_NAME.zip.sha256"
 )
 echo "Packaged: $PWD/dist/$PACKAGE_NAME.zip"
-echo "Local ad-hoc signature only; this archive is not notarized."
+echo "Signing mode: ${HAND_MOUSE_SIGNING_MODE:-adhoc}. This archive is not notarized."

@@ -18,6 +18,7 @@ FIXTURE_REPO="$TEST_ROOT/repo"
 INSTALL_DIR="$TEST_ROOT/Applications"
 mkdir -p "$FIXTURE_REPO/scripts"
 cp "Install Hand Mouse.command" "$FIXTURE_REPO/Install Hand Mouse.command"
+cp scripts/verify-update-identity.sh "$FIXTURE_REPO/scripts/verify-update-identity.sh"
 
 cat > "$FIXTURE_REPO/scripts/build.sh" <<'SCRIPT'
 #!/bin/bash

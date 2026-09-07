@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   macos:
+    env:
+      HAND_MOUSE_SIGNING_MODE: adhoc
     strategy:
       fail-fast: false
       matrix:
@@ -28,6 +30,8 @@ jobs:
         run: bash scripts/test.sh
       - name: Test installer replacement and rollback
         run: bash Tests/install.sh
+      - name: Test signing identity across updates
+        run: bash Tests/signing.sh
       - name: Build and verify installation
         run: HAND_MOUSE_INSTALL_DIR="$RUNNER_TEMP/Hand Mouse Install" HAND_MOUSE_NO_OPEN=1 bash "Install Hand Mouse.command"
       - name: Package universal app

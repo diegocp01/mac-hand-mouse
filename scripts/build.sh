@@ -60,8 +60,8 @@ fi
 cp Info.plist "$APP/Contents/Info.plist"
 bash scripts/build-icon.sh "$BUILD_DIR"
 cp "$BUILD_DIR/HandMouse.icns" "$APP/Contents/Resources/HandMouse.icns"
-codesign --force --sign - --identifier com.local.handmouse "$APP"
-codesign --verify --deep --strict "$APP"
+bash scripts/sign.sh "$APP"
+bash scripts/verify-update-identity.sh "$DEST_APP" "$APP"
 refuse_running_target
 if [ -e "$DEST_APP" ]; then mv "$DEST_APP" "$BACKUP_APP"; fi
 mv "$APP" "$DEST_APP"
