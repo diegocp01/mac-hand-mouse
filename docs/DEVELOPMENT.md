@@ -31,6 +31,7 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `Sources/FrameMailbox.swift` | Bounded delivery of the newest result |
 | `Sources/main.swift` | Window, camera lifecycle, feedback orchestration, permissions, mouse events |
 | `Sources/FeedbackUI.swift` | Determinate click ring, status card, simulated practice canvas, nonactivating cursor overlay |
+| `Sources/StartupUI.swift` | Startup palette, live setup milestones, and static camera standby artwork |
 | `Sources/FeedbackGeometry.swift` | Screen-edge caption placement with a ring centered on the click target |
 | `Tests/main.swift` | Deterministic gesture and pointer checks |
 | `Tests/InteractionEngineTests.swift` | Production pipeline at 15/30/60 fps, intent/cancel/rearm, calibration and practice isolation |
@@ -76,7 +77,7 @@ If permission is on but the app still reports it missing, quit Hand Mouse. Reset
 tccutil reset Accessibility com.local.handmouse
 ```
 
-Reopen the app, expand **Permissions & setup**, click **Show in Finder**, then add that exact copy to Privacy & Security → Accessibility (called Device Control and Data Access on macOS 27). Enable it and restart Hand Mouse. This does not grant permission by itself or change other apps' permissions.
+Reopen the app, expand **Permissions**, click **Show in Finder**, then add that exact copy to Privacy & Security → Accessibility (called Device Control and Data Access on macOS 27). Enable it and restart Hand Mouse. This does not grant permission by itself or change other apps' permissions.
 
 Before v1.3.1, ad-hoc signatures changed with rebuilt code. Migrating that old approval to the persistent signer requires one final repair. Subsequent source builds retain the signer stored outside the checkout. Multiple development copies with the same bundle identifier can still make System Settings show a different copy; keep one active installation. Never replace the certificate requirement with a wildcard or identifier-only rule. The app and installer do not modify the TCC database or reset approvals automatically.
 

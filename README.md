@@ -6,12 +6,12 @@
 
 ## First launch
 
-Camera status and **Start / Pause camera** stay at the top. Pointer and click controls sit below the preview; expand **Permissions & setup** when needed.
+The dark startup panel walks you through **Permissions → Camera → Practice**. Each step reflects the current permission and camera state. **Start / Pause camera** stays visible while you scroll; **Gesture settings** keeps extra controls out of the way until you need them.
 
-1. **Permissions & setup:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
+1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. **Start camera** → allow camera access.
 3. Show **one hand**, palm visible; **index fingertip** moves the pointer inside the dashed guide.
-4. Leave **Allow clicks** off while you practice. Choose **Pinch**, or complete **Set up forward click** and its practice targets. Enable **Allow clicks** when ready.
+4. Leave **Allow clicks** off while you practice. Expand **Gesture settings** to choose **Pinch**, or complete **Set up forward click** and its practice targets. Enable **Allow clicks** when ready.
 
 Keep a trackpad or mouse nearby. **Esc** (or **Pause camera** / menu-bar hand) pauses capture.
 
@@ -52,7 +52,7 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 | --- | --- |
 | Move the pointer | Move your **index fingertip** inside the dashed box. Soft edges — no hard wall at the crop. |
 | Practice without clicking | Leave **Allow clicks** unchecked (default). Aim freely; no mouse click is sent. |
-| Practice without moving the system pointer | Uncheck **Move the system pointer with my index finger**. |
+| Practice without moving the system pointer | Uncheck **Move pointer**. |
 | Turn on clicks | Check **Allow clicks**. Forward clicking requires setup and practice first; its clicks reset to off when the app relaunches. |
 | Left-click — Pinch | Select **Pinch**. Touch **thumb + index** together briefly, then separate before the next click. |
 | Left-click — Point forward (experimental) | Set up your two poses, aim, then point toward the camera as if touching the screen. Hold the forward pose until the ring fills. Pull back to cancel or rearm. |
@@ -65,7 +65,7 @@ The installer builds from source, installs **Hand Mouse** in `~/Applications`, a
 
 ### Set up Point forward
 
-1. Select **Point forward** → **Set up forward click**. System pointer movement and clicks pause during setup.
+1. Expand **Gesture settings**, then select **Point forward** → **Set up forward click**. System pointer movement and clicks pause during setup.
 2. Hold your usual pointing pose and press **Capture movement pose**. Keep it steady briefly. You can use **⌘⇧P** with your other hand to activate the capture button.
 3. Point your index toward the camera as if touching the screen, with a small forward reach. Keep the finger and palm visible, then press **Capture forward pose** and hold it steady.
 4. In the practice canvas, move the dot onto each green target, point forward, and hold. Pull back before trying the next target. These are simulated clicks, with no input sent to other apps.
