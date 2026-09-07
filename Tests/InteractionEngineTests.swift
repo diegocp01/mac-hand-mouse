@@ -19,6 +19,7 @@ import CoreGraphics
         var trusted = true
         var destination: InteractionDestination = .system
         var last = InteractionStep()
+        var cursor: CGPoint?
         mutating func setup(allowClicks: Bool = true, duration: Double = 0.65) {
             engine.configure(InteractionSettings(mode: .forward, allowClicks: allowClicks, dwellSeconds: duration))
             engine.setForwardProfile(profile)
@@ -26,8 +27,10 @@ import CoreGraphics
         @discardableResult mutating func frame(_ point: CGPoint? = CGPoint(x: 0.5, y: 0.5),
                 pose: ForwardPose? = neutral, ratio: Double? = 0.9, dt: Double = 1.0 / 30) -> InteractionStep {
             time += dt
+            if cursor == nil { cursor = PointerFilter().unfrozenTarget(point: point ?? CGPoint(x: 0.5, y: 0.5), bounds: bounds) }
             last = engine.process(index: point, pinchRatio: ratio, forwardPose: pose, timestamp: time, now: time + 0.01,
-                                  bounds: bounds, running: running, trusted: trusted, destination: destination)
+                                  bounds: bounds, running: running, trusted: trusted, destination: destination, cursorPosition: cursor, handSide: pose?.side ?? "left")
+            if let location = last.location { cursor = location }
             if last.click { clicks += 1 }
             return last
         }
@@ -51,7 +54,7 @@ import CoreGraphics
                 s.frame(CGPoint(x: 0.5 + Double(i) / fps * 20 / s.bounds.width, y: 0.5), dt: 1 / fps)
             }
             check(s.clicks == 0 && s.engine.forward.progress == 0, "Slow 20-point/sec aiming never starts a timer")
-            s = Session(); s.setup(); s.hold(a, seconds: 0.3, fps: fps)
+            s = Session(); s.setup(); s.hold(a, seconds: 0.7, fps: fps)
             let aimed = s.last.location!
             s.hold(b, pose: pressed, seconds: 0.35, fps: fps)
             check(s.engine.forward.progress > 0 && s.clicks == 0, "Only a confirmed forward pose starts progress")
@@ -63,15 +66,15 @@ import CoreGraphics
             s.frame(b, pose: outlier, dt: 1 / fps)
             s.hold(b, pose: pressed, seconds: 1, fps: fps)
             check(s.clicks == 1, "A positional outlier never rearms a completed click")
-            s.hold(a, seconds: 0.3, fps: fps); s.hold(a, pose: pressed, seconds: 1, fps: fps)
+            s.hold(a, seconds: 0.7, fps: fps); s.hold(a, pose: pressed, seconds: 1, fps: fps)
             check(s.clicks == 2, "Withdrawal and a new press can click the same place")
-            s = Session(); s.setup(); s.hold(a, seconds: 0.3, fps: fps)
+            s = Session(); s.setup(); s.hold(a, seconds: 0.7, fps: fps)
             s.frame(a, pose: pressed, dt: 1 / fps); s.hold(a, seconds: 1, fps: fps)
             check(s.clicks == 0 && s.engine.forward.progress == 0, "One pose outlier cannot start a timer")
             s.hold(a, pose: pressed, seconds: 0.4, fps: fps)
             s.frame(a, pose: nil, dt: 1 / fps); s.hold(a, pose: pressed, seconds: 2, fps: fps)
             check(s.clicks == 0 && s.engine.forward.progress == 0, "Tracking loss requires a new neutral-to-forward transition")
-            s = Session(); s.setup(); s.hold(a, seconds: 0.3, fps: fps)
+            s = Session(); s.setup(); s.hold(a, seconds: 0.7, fps: fps)
             s.hold(a, pose: pressed, seconds: 0.35, fps: fps)
             for i in 0..<Int(fps) {
                 var moving = pressed; moving.center.x += Double(i) / fps * 20 / s.bounds.width
@@ -80,21 +83,21 @@ import CoreGraphics
             check(s.clicks == 0 && s.engine.forward.progress == 0 && !s.engine.forward.shouldFreeze,
                   "Sustained sideways drift cancels independently of the frozen pointer")
             s = Session(); s.setup(allowClicks: false)
-            s.hold(a, seconds: 0.3, fps: fps); s.hold(b, pose: pressed, seconds: 2, fps: fps)
+            s.hold(a, seconds: 0.7, fps: fps); s.hold(b, pose: pressed, seconds: 2, fps: fps)
             check(s.clicks == 0 && s.engine.forward.progress == 0 && !s.engine.forward.shouldFreeze,
                   "Clicks-off pointing ignores all click gestures")
             s = Session(); s.setup(); s.engine.setForwardProfile(nil)
-            s.hold(a, seconds: 0.3, fps: fps); s.hold(b, pose: pressed, seconds: 2, fps: fps)
+            s.hold(a, seconds: 0.7, fps: fps); s.hold(b, pose: pressed, seconds: 2, fps: fps)
             check(s.clicks == 0 && s.engine.forward.progress == 0, "Uncalibrated gestures cannot arm")
         }
         var pinch = Session(); pinch.engine.configure(InteractionSettings(allowClicks: true))
-        pinch.hold(a, seconds: 0.2)
+        pinch.hold(a, seconds: 0.5)
         let aimed = pinch.last.location!
         pinch.frame(b, ratio: 0.40)
         let fired = pinch.frame(b, ratio: 0.40)
         check(fired.click && fired.location == aimed, "Pinch freezes before its closing gesture moves the pointer")
         for reason in ["permission", "pause", "pointer", "display", "overflow", "stale", "future", "duplicate", "nan", "hand"] {
-            var s = Session(); s.setup(); s.hold(a, seconds: 0.3); s.hold(a, pose: pressed, seconds: 0.4)
+            var s = Session(); s.setup(); s.hold(a, seconds: 0.7); s.hold(a, pose: pressed, seconds: 0.4)
             let step: InteractionStep
             switch reason {
             case "permission": s.trusted = false; step = s.frame(a, pose: pressed)
@@ -116,23 +119,23 @@ import CoreGraphics
             check(step.location == nil && !step.click, "\(reason) blocks all output")
             check(s.engine.forward.progress == 0, "\(reason) cancels active progress")
         }
-        var restored = Session(); restored.setup(); restored.hold(a, seconds: 0.3)
+        var restored = Session(); restored.setup(); restored.hold(a, seconds: 0.7)
         restored.hold(a, pose: pressed, seconds: 0.4)
         restored.trusted = false; restored.frame(a, pose: pressed)
         restored.trusted = true; restored.hold(a, pose: pressed, seconds: 2)
         check(restored.clicks == 0, "Permission restoration cannot resume a held gesture")
-        restored.hold(a, seconds: 0.3); restored.hold(a, pose: pressed, seconds: 1)
+        restored.hold(a, seconds: 0.7); restored.hold(a, pose: pressed, seconds: 1)
         check(restored.clicks == 1, "Permission restoration accepts a fresh deliberate gesture")
-        var duration = Session(); duration.setup(); duration.hold(a, seconds: 0.3)
+        var duration = Session(); duration.setup(); duration.hold(a, seconds: 0.7)
         duration.hold(a, pose: pressed, seconds: 0.4)
         duration.engine.configure(InteractionSettings(mode: .forward, allowClicks: true, dwellSeconds: 1.5))
         duration.hold(a, pose: pressed, seconds: 2)
         check(duration.clicks == 0, "Changing duration requires withdrawal")
-        duration.hold(a, seconds: 0.3); duration.hold(a, pose: pressed, seconds: 1)
+        duration.hold(a, seconds: 0.7); duration.hold(a, pose: pressed, seconds: 1)
         check(duration.clicks == 0 && duration.engine.forward.remainingSeconds > 0.4, "Selected duration drives the timer")
         duration.hold(a, pose: pressed, seconds: 0.8)
         check(duration.clicks == 1, "A full longer hold fires once")
-        var wrongHand = Session(); wrongHand.setup(); wrongHand.hold(a, seconds: 0.3)
+        var wrongHand = Session(); wrongHand.setup(); wrongHand.hold(a, seconds: 0.7)
         var other = pressed; other.side = "right"
         wrongHand.hold(a, pose: other, seconds: 2)
         check(wrongHand.clicks == 0, "A different hand cannot inherit the click gesture")
@@ -154,7 +157,7 @@ import CoreGraphics
         for bounds in [CGRect(x: 0, y: 0, width: 1440, height: 900), CGRect(x: -2560, y: -100, width: 2560, height: 1440)] {
             var simulated = Session(); simulated.setup(); simulated.bounds = bounds
             simulated.destination = .practice; simulated.trusted = false
-            simulated.hold(a, seconds: 0.3); simulated.hold(a, pose: pressed, seconds: 0.4)
+            simulated.hold(a, seconds: 0.7); simulated.hold(a, pose: pressed, seconds: 0.4)
             check(simulated.engine.forward.progress > 0 && simulated.last.location != nil,
                   "Practice simulates the same desktop geometry without Accessibility")
             var systemOutputs = 0
@@ -168,8 +171,8 @@ import CoreGraphics
             check(simulated.clicks == 1 && simulated.engine.forward.progress == 0,
                   "Switching out of simulation cannot carry click intent into the desktop")
         }
-        var canceled = Session(); canceled.setup(); canceled.hold(a, seconds: 0.3)
-        canceled.hold(a, pose: pressed, seconds: 0.4); canceled.hold(a, seconds: 0.3)
+        var canceled = Session(); canceled.setup(); canceled.hold(a, seconds: 0.7)
+        canceled.hold(a, pose: pressed, seconds: 0.4); canceled.hold(a, seconds: 0.7)
         check(canceled.clicks == 0 && !canceled.engine.forward.shouldFreeze && canceled.engine.forward.progress == 0,
               "Pulling back cancels an active countdown and releases the pointer")
         var growth = neutral; growth.scale *= 1.2

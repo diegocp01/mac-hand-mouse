@@ -93,8 +93,8 @@ final class PreviewView: NSView {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private enum ForwardSetup { case inactive, neutralPrompt, captureNeutral, forwardPrompt, captureForward, practice }
-    private var forwardSetup: ForwardSetup = .inactive
+    private enum PracticeStage { case inactive, neutralPrompt, captureNeutral, forwardPrompt, captureForward, practice }
+    private var setupStage: PracticeStage = .inactive
     private var poseCapture = ForwardPoseCapture()
     private var neutralPose: ForwardPose?
     private var calibrationIssue: String?
@@ -103,7 +103,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let cancelForward = NSButton(title: "Cancel setup", target: nil, action: nil)
     private let forwardInstructions = NSTextField(wrappingLabelWithString: "")
     private var forwardControls: NSStackView!
-    private let practice = ForwardPracticeView()
+    private let practice = PracticeView()
+    private var practiceCursor: CGPoint?
+    private let practiceButton = NSButton(title: "Practice safely", target: nil, action: nil)
+    private let allowScrolling = NSButton(checkboxWithTitle: "Allow two-finger scrolling", target: nil, action: nil)
+    private let shortcutChoice = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let shortcutStatus = NSTextField(wrappingLabelWithString: "")
+    private let shortcut = ResumeShortcut()
+    private var activation = ActivationPolicy()
     private var practiceMessage = ""
     private var practiceMessageUntil = 0.0
     private let camera = HandCamera()
@@ -140,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var lastAnnouncementTime = -Double.infinity
     private var clickMode: ClickMode = .pinch
     private var previewPhase: PinchPhase {
+        if engine.scroll.phase != .idle { return .confirming }
         if clickMode == .forward {
             switch engine.forward.phase {
             case .confirming, .holding: return .confirming
@@ -205,6 +213,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         allowClicks.state = (defaults.object(forKey: "allowClicks") as? Bool ?? false) ? .on : .off
         allowClicks.target = self; allowClicks.action = #selector(allowClicksChanged)
+        allowScrolling.state = defaults.bool(forKey: "allowScrolling") ? .on : .off
+        allowScrolling.target = self; allowScrolling.action = #selector(scrollingChanged)
+        allowScrolling.toolTip = "Hold index + middle extended with ring + little folded, then move up/down. Clicks pause during scrolling."
+        practiceButton.target = self; practiceButton.action = #selector(startPractice)
+        practiceButton.bezelStyle = .rounded
+        practiceButton.keyEquivalent = "t"; practiceButton.keyEquivalentModifierMask = [.command, .shift]
+        shortcutChoice.addItems(withTitles: ["⌃⌥⌘H", "⌃⌥⌘M", "Off"])
+        shortcutChoice.selectItem(at: min(2, max(0, defaults.integer(forKey: "resumeShortcut"))))
+        shortcutChoice.target = self; shortcutChoice.action = #selector(shortcutChanged)
+        shortcutChoice.setAccessibilityLabel("Global camera pause and resume shortcut")
+        shortcutStatus.font = .systemFont(ofSize: 11); shortcutStatus.textColor = .secondaryLabelColor
 
         let permissions = NSButton(title: "Enable Accessibility", target: self, action: #selector(enableAccessibility))
         permissions.bezelStyle = .rounded
@@ -239,7 +258,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let setupRow = NSStackView(views: [permissions, cameraSettings, reveal])
         setupRow.spacing = 10
-        setupRows = NSStackView(views: [permissionStatus, setupRow])
+        let shortcutRow = NSStackView(views: [NSTextField(labelWithString: "Pause / resume anywhere"), shortcutChoice])
+        shortcutRow.spacing = 8
+        setupRows = NSStackView(views: [permissionStatus, setupRow, shortcutRow, shortcutStatus])
         setupRows.orientation = .vertical; setupRows.alignment = .leading; setupRows.spacing = 8
         setupToggle.setButtonType(.pushOnPushOff)
         setupToggle.bezelStyle = .disclosure
@@ -252,7 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let setupDisclosure = NSStackView(views: [setupToggle, setupLabel])
         setupDisclosure.spacing = 6
         let spacer = NSView()
-        let primaryRow = NSStackView(views: [cameraStatus, spacer, toggle])
+        let primaryRow = NSStackView(views: [cameraStatus, spacer, practiceButton, toggle])
         primaryRow.spacing = 12
         let modeRow = NSStackView(views: [allowClicks, clickModeLabel, clickModeControl, clickTest])
         modeRow.spacing = 12
@@ -278,7 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         header.translatesAutoresizingMaskIntoConstraints = false
         let stack = NSStackView(views: [
             preview, feedback, practice,
-            control, modeRow, tuningRow, setupDisclosure, setupRows, hint
+            control, allowScrolling, modeRow, tuningRow, setupDisclosure, setupRows, hint
         ])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -357,6 +378,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                      NSWorkspace.sessionDidResignActiveNotification] {
             NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(environmentPaused(_:)), name: name, object: nil)
         }
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification,
+                     NSWorkspace.sessionDidBecomeActiveNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(environmentResumed(_:)), name: name, object: nil)
+        }
+        shortcut.onPress = { [weak self] in
+            guard let self, self.activation.press() else { return }
+            self.toggleCamera()
+        }
+        shortcut.onRelease = { [weak self] in self?.activation.release() }
+        shortcutChanged()
         configureInteraction(); refresh(); showWindow(); updateDisplayStatus()
 
     }
@@ -367,10 +398,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func configureInteraction() {
-        engine.configure(InteractionSettings(mode: clickMode, allowClicks: forwardSetup == .practice || allowClicks.state == .on,
-            pointerEnabled: forwardSetup == .practice || control.state == .on,
+        engine.configure(InteractionSettings(mode: clickMode, allowClicks: setupStage == .practice || allowClicks.state == .on,
+            pointerEnabled: setupStage == .practice || control.state == .on,
             pinchThreshold: [0.34, 0.42, 0.50][min(2, max(0, sensitivity.selectedSegment))],
-            dwellSeconds: [0.65, 1.0, 1.5][min(2, max(0, dwellDuration.selectedSegment))]))
+            dwellSeconds: [0.65, 1.0, 1.5][min(2, max(0, dwellDuration.selectedSegment))],
+            allowScrolling: allowScrolling.state == .on))
     }
 
     private func updateDisplayStatus() {
@@ -378,13 +410,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let screen = running ? NSScreen.screens.first {
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == targetDisplay
         } : window.screen
-        displayStatus.stringValue = (running ? "Controlling: " : "Target display: ") + (screen?.localizedName ?? "Unavailable")
+        let prefix = setupStage != .inactive ? "Practice display: " : (running ? "Controlling: " : "Target display: ")
+        displayStatus.stringValue = prefix + (screen?.localizedName ?? "Unavailable")
     }
 
     @objc private func environmentPaused(_ notification: Notification) {
+        switch notification.name {
+        case NSWorkspace.willSleepNotification: activation.awake = false
+        case NSWorkspace.screensDidSleepNotification: activation.displaysAwake = false
+        default: activation.sessionActive = false
+        }
         guard running else { return }
         pause()
         showFeedback("Paused for system change", "Camera and mouse control stopped. Start camera to resume when ready.")
+    }
+
+    @objc private func environmentResumed(_ notification: Notification) {
+        switch notification.name {
+        case NSWorkspace.didWakeNotification: activation.awake = true
+        case NSWorkspace.screensDidWakeNotification: activation.displaysAwake = true
+        default: activation.sessionActive = true
+        }
+        // Waking never restarts the camera. A fresh explicit action is required.
+    }
+
+    @objc private func shortcutChanged() {
+        let choice = shortcutChoice.indexOfSelectedItem
+        UserDefaults.standard.set(choice, forKey: "resumeShortcut")
+        activation.release()
+        let registered = shortcut.configure(choice)
+        shortcutStatus.stringValue = !registered ? "Shortcut unavailable. Choose the other key combination or Off."
+            : (choice == 2 ? "Global shortcut off. Use Start camera or the menu-bar hand."
+               : "\(shortcutChoice.titleOfSelectedItem ?? "") pauses or resumes the camera from another app. Esc pauses.")
+    }
+
+    @objc private func scrollingChanged() {
+        UserDefaults.standard.set(allowScrolling.state == .on, forKey: "allowScrolling")
+        configureInteraction(); engine.reset(); clearClickFeedback(); readyFeedback()
     }
 
     func applicationDidChangeScreenParameters(_ notification: Notification) {
@@ -433,7 +495,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func refreshClickChrome() {
-        if clickMode == .forward && (forwardSetup != .inactive || engine.forwardProfile == nil) {
+        if clickMode == .forward && (setupStage != .inactive || engine.forwardProfile == nil) {
             allowClicks.state = .off
             UserDefaults.standard.set(false, forKey: "allowClicks")
         }
@@ -447,11 +509,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         pinchFeelLabel.textColor = sensitivity.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor
         dwellDuration.isHidden = clickMode != .forward
         dwellDurationLabel.isHidden = clickMode != .forward
-        let learning = forwardSetup != .inactive
+        let learning = setupStage != .inactive
+        allowScrolling.title = learning ? "Try two-finger scrolling in practice" : "Allow two-finger scrolling"
         clickTest.isEnabled = clicksOn && !learning
         allowClicks.isEnabled = !learning && (clickMode == .pinch || engine.forwardProfile != nil)
         control.isEnabled = !learning
+        practiceButton.isEnabled = !learning
         updateForwardSetup()
+        updateDisplayStatus()
         if clicksOn {
             subtitle.stringValue = clickMode == .forward
                 ? String(format: "Move to aim. Point toward the camera and hold %.2g seconds to click.", engine.settings.dwellSeconds)
@@ -463,12 +528,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func updateForwardSetup() {
         guard forwardControls != nil else { return }
-        forwardControls.isHidden = clickMode != .forward
-        cancelForward.isHidden = forwardSetup == .inactive
-        practice.isHidden = forwardSetup != .practice
-        preview.isHidden = forwardSetup == .practice
+        forwardControls.isHidden = clickMode != .forward && setupStage != .practice
+        cancelForward.isHidden = setupStage == .inactive
+        practice.isHidden = setupStage != .practice
+        preview.isHidden = setupStage == .practice
         setupForward.isEnabled = true
-        switch forwardSetup {
+        switch setupStage {
         case .inactive:
             setupForward.title = engine.forwardProfile == nil ? "Set up forward click" : "Recalibrate / practice"
             forwardInstructions.stringValue = engine.forwardProfile == nil
@@ -486,26 +551,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             setupForward.title = "Capturing forward pose…"; setupForward.isEnabled = false
         case .practice:
             setupForward.title = "Finish practice"
-            setupForward.isEnabled = practice.hits >= 2
-            forwardInstructions.stringValue = "Practice only · Move the dot into each green target, then point forward and hold. \(min(2, practice.hits))/2 targets."
+            setupForward.isEnabled = clickMode == .pinch || practice.hits >= 2
+            forwardInstructions.stringValue = clickMode == .forward
+                ? "Practice only · Aim at green, then point forward and hold. \(min(2, practice.hits))/2 targets."
+                : "Practice only · Aim at green, then pinch. \(practice.hits) targets hit. Enable two-finger scrolling to try the scroll counter."
         }
     }
 
+    @objc private func startPractice() {
+        guard setupStage == .inactive else { return }
+        if clickMode == .forward && engine.forwardProfile == nil { forwardSetupPressed(); return }
+        allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
+        disableScrolling()
+        setupStage = .practice; practice.reset(); practiceCursor = nil; practiceMessageUntil = 0
+        engine.reset(); clearClickFeedback()
+        if !running { toggleCamera() }
+        refreshClickChrome()
+    }
+
     @objc private func forwardSetupPressed() {
-        switch forwardSetup {
+        switch setupStage {
         case .inactive:
             clickMode = .forward; clickModeControl.selectedSegment = 1
             UserDefaults.standard.set(clickMode.rawValue, forKey: "clickMode")
             allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
+            disableScrolling()
             engine.setForwardProfile(nil); neutralPose = nil; poseCapture.reset(); clearClickFeedback()
             calibrationIssue = nil
-            forwardSetup = .neutralPrompt
+            setupStage = .neutralPrompt
             if !running { toggleCamera() }
-        case .neutralPrompt: forwardSetup = .captureNeutral; poseCapture.reset()
-        case .forwardPrompt: forwardSetup = .captureForward; calibrationIssue = nil; poseCapture.reset()
+        case .neutralPrompt: setupStage = .captureNeutral; poseCapture.reset()
+        case .forwardPrompt: setupStage = .captureForward; calibrationIssue = nil; poseCapture.reset()
         case .practice:
-            guard practice.hits >= 2 else { return }
-            forwardSetup = .inactive
+            guard clickMode == .pinch || practice.hits >= 2 else { return }
+            setupStage = .inactive
+            disableScrolling()
             engine.reset(); clearClickFeedback()
             showFeedback("Practice complete", "Turn on Allow clicks when you want real clicks. Moving or standing still alone starts no timer.")
         case .captureNeutral, .captureForward: break
@@ -514,12 +594,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func cancelForwardSetup() {
-        forwardSetup = .inactive; neutralPose = nil; poseCapture.reset()
+        setupStage = .inactive; neutralPose = nil; poseCapture.reset()
         calibrationIssue = nil
-        engine.setForwardProfile(nil); clearClickFeedback(); practice.reset()
+        if clickMode == .forward { engine.setForwardProfile(nil) }
+        engine.reset(); clearClickFeedback(); practice.reset(); practiceCursor = nil
+        disableScrolling()
         allowClicks.state = .off; UserDefaults.standard.set(false, forKey: "allowClicks")
         refreshClickChrome()
-        showFeedback("Forward setup canceled", "Clicks are off. Try setup again or choose Pinch.")
+        showFeedback("Practice canceled", "Clicks are off. You can start practice again when ready.")
+    }
+
+    private func disableScrolling() {
+        allowScrolling.state = .off
+        UserDefaults.standard.set(false, forKey: "allowScrolling")
     }
 
     private func handleForwardSetup(_ frame: HandFrame, now: Double) {
@@ -529,7 +616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
         cameraStatus.stringValue = "Camera on · Setup only"
         cursorFeedback.hide()
-        switch forwardSetup {
+        switch setupStage {
         case .captureNeutral, .captureForward:
             guard let captured = poseCapture.update(frame.forwardPose, time: frame.timestamp) else {
                 showFeedback(frame.forwardPose == nil ? "Finger pose unclear" : "Hold this pose briefly",
@@ -537,15 +624,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         : "Keep the same hand visible. Uncertain tracking restarts the capture.", progress: poseCapture.progress)
                 return
             }
-            if forwardSetup == .captureNeutral {
-                neutralPose = captured; forwardSetup = .forwardPrompt
+            if setupStage == .captureNeutral {
+                neutralPose = captured; setupStage = .forwardPrompt
                 showFeedback("Movement pose captured", "Now point toward the camera as if touching the screen.")
             } else if let neutralPose, let profile = ForwardProfile(neutral: neutralPose, pressed: captured) {
-                engine.setForwardProfile(profile); forwardSetup = .practice
-                practice.reset(); practiceMessageUntil = 0
+                engine.setForwardProfile(profile); setupStage = .practice
+                practice.reset(); practiceCursor = nil; practiceMessageUntil = 0
                 showFeedback("Practice without system clicks", "Move the dot into the green target, then use your forward gesture.")
             } else {
-                forwardSetup = .forwardPrompt
+                setupStage = .forwardPrompt
                 calibrationIssue = neutralPose?.side != captured.side
                     ? "Use the same hand as step 1, then capture again."
                     : "These poses look too similar. Reach a little toward the camera and capture again, or choose Pinch."
@@ -556,20 +643,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let screen = CGDisplayBounds(targetDisplay)
             let step = engine.process(index: frame.points[.indexTip], pinchRatio: frame.pinchRatio,
                 forwardPose: frame.forwardPose, timestamp: frame.timestamp, now: now,
-                bounds: screen, running: running, trusted: false, destination: .practice)
+                bounds: screen, running: running, trusted: false, destination: .practice,
+                cursorPosition: practiceCursor ?? CGPoint(x: screen.midX, y: screen.midY),
+                handSide: frame.handSide, scrollPoint: frame.scrollPoint)
+            if let location = step.location { practiceCursor = location }
             // Keep desktop motion thresholds and smoothing; only scale the drawing.
             let simulatedPoint = step.location.map {
                 CGPoint(x: ($0.x - screen.minX) / screen.width * practice.bounds.width,
                         y: ($0.y - screen.minY) / screen.height * practice.bounds.height)
             }
-            let hit = practice.update(point: simulatedPoint, progress: engine.forward.progress, clicked: step.click)
+            let hit = practice.update(point: simulatedPoint, progress: engine.forward.progress, clicked: step.click, scrollY: step.scrollY)
             if step.click {
-                practiceMessage = hit ? "Target hit ✓ · Pull back, then aim at the next target." : "Missed the target · Pull back, aim again, then point forward."
+                let release = clickMode == .forward ? "Pull back" : "Separate thumb + index"
+                practiceMessage = hit ? "Target hit ✓ · \(release), then aim at the next target." : "Missed the target · \(release), then aim again."
                 practiceMessageUntil = now + 1.2
                 updateForwardSetup()
             }
-            showFeedback("Practice only · No system clicks", now < practiceMessageUntil ? practiceMessage
-                : "Move the dot onto green. Point forward to start the timer; pull back to cancel.",
+            let instruction = step.blocked != nil ? "Open your hand (or return to your taught movement pose) and keep it steady briefly to resume."
+                : (engine.scroll.phase != .idle ? "Two-finger scroll · Move up/down to change the counter. Lower the middle finger to return to pointing."
+                    : (clickMode == .forward ? "Move onto green. Point forward to start the timer; pull back to cancel."
+                       : "Move onto green, then pinch. No pointer, clicks, or scroll events go to other apps."))
+            showFeedback("Practice only · No system input", now < practiceMessageUntil ? practiceMessage : instruction,
                 progress: engine.forward.phase == .holding ? engine.forward.progress : nil)
         case .neutralPrompt, .forwardPrompt:
             showFeedback(calibrationIssue == nil ? "Your system pointer is paused" : "Try the forward pose again",
@@ -581,6 +675,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc private func toggleCamera() {
         if running { pause(); return }
+        guard activation.canResume else { return }
         running = true; cameraReady = false
         engine.reset(); clearClickFeedback()
         lastFrameTime = ProcessInfo.processInfo.systemUptime
@@ -590,6 +685,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         configureInteraction(); updateDisplayStatus()
         toggle.title = "Pause camera"
+        statusItem.button?.image = NSImage(systemSymbolName: "hand.point.up.left.fill", accessibilityDescription: "Hand Mouse camera on")
         cameraMenuItem.title = "Pause camera"
         cameraStatus.stringValue = "Starting camera…"
         preview.showPlaceholder("Starting camera…\nAllow camera access if macOS asks.")
@@ -602,10 +698,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cameraStatus.stringValue = "Camera off · Paused"
         preview.showPlaceholder("Camera paused\nStart camera to see your hand here.")
         toggle.title = "Start camera"
+        statusItem.button?.image = NSImage(systemSymbolName: "hand.point.up.left", accessibilityDescription: "Hand Mouse paused")
         cameraMenuItem.title = "Start camera"
         showFeedback("Paused", "Use your mouse normally. Start the camera when you are ready.")
         updateDisplayStatus()
-        if forwardSetup != .inactive { cancelForwardSetup() }
+        if setupStage != .inactive { cancelForwardSetup() }
     }
     @objc private func controlChanged() { configureInteraction(); engine.reset(); readyFeedback() }
     @objc private func allowClicksChanged() {
@@ -614,7 +711,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refreshClickChrome(); readyFeedback(); refresh()
     }
     @objc private func clickModeChanged() {
-        if forwardSetup != .inactive { cancelForwardSetup() }
+        if setupStage != .inactive { cancelForwardSetup() }
         clickMode = clickModeControl.selectedSegment == 1 ? .forward : .pinch
         UserDefaults.standard.set(clickMode.rawValue, forKey: "clickMode")
         engine.reset(); clickedUntil = 0
@@ -654,7 +751,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             engine.reset(); clearClickFeedback()
         }
         previouslyTrusted = trusted
-        if running && forwardSetup != .inactive {
+        if running && setupStage != .inactive {
             // Setup and practice need no Accessibility access and have no OS output path.
             if cameraReady && ProcessInfo.processInfo.systemUptime - lastFrameTime > GestureTuning.trackingGraceSeconds {
                 engine.trackingInterrupted(); poseCapture.reset(); cursorFeedback.hide()
@@ -690,7 +787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                          trusted ? "Pointer movement and clicks are off." : "Open Permissions & setup to allow this app to move the pointer.")
             return
         }
-        if allowClicks.state != .on {
+        if allowClicks.state != .on && engine.scroll.phase == .idle {
             clearClickFeedback()
         }
     }
@@ -700,20 +797,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.20 {
             let sourceChanged = lastCameraSource != nil && lastCameraSource != frame.source
             lastCameraSource = frame.source
-            if sourceChanged && (forwardSetup != .inactive || engine.forwardProfile != nil) {
+            if sourceChanged && (setupStage != .inactive || engine.forwardProfile != nil) {
                 cancelForwardSetup()
                 showFeedback("Camera changed", "Clicks are off. Set up the forward gesture for this camera again.")
                 return
             }
         }
-        if forwardSetup != .inactive { handleForwardSetup(frame, now: now); return }
+        if setupStage != .inactive { handleForwardSetup(frame, now: now); return }
         guard CGDisplayIsActive(targetDisplay) != 0 else {
             pause(); showFeedback("Display disconnected", "Choose a connected display and start the camera again.")
             return
         }
         let step = engine.process(index: frame.points[.indexTip], pinchRatio: frame.pinchRatio, forwardPose: frame.forwardPose,
                                   timestamp: frame.timestamp, now: now, bounds: CGDisplayBounds(targetDisplay),
-                                  running: running, trusted: AXIsProcessTrusted())
+                                  running: running, trusted: AXIsProcessTrusted(), cursorPosition: CGEvent(source: nil)?.location,
+                                  handSide: frame.handSide, scrollPoint: frame.scrollPoint)
         if let blocked = step.blocked {
             clearClickFeedback()
             switch blocked {
@@ -735,6 +833,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
                 cameraStatus.stringValue = "Camera on · Looking for hand"
                 showFeedback("Looking for your hand", "Keep your index finger and palm visible. Any countdown is canceled.")
+            case .acquiring, .differentHand, .cursorUnavailable:
+                lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
+                cameraStatus.stringValue = "Camera on · Waiting to resume"
+                if blocked == .differentHand {
+                    showFeedback("Use the same hand", "Return your controlling hand. Pause and restart the camera to choose a different hand.")
+                } else if blocked == .cursorUnavailable {
+                    showFeedback("Pointer unavailable on this display", "Bring the pointer to the chosen display, or move this window to another display and restart the camera.")
+                } else {
+                    showFeedback("Open hand to resume", "Keep your hand steady briefly with thumb + index separated, or use your taught movement pose. The pointer stays where you left it.")
+                }
             case .paused: break
             }
             return
@@ -743,6 +851,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil)
         cameraStatus.stringValue = "Camera on · Hand tracked"
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: location, mouseButton: .left)?.post(tap: .cghidEventTap)
+        if step.systemScrollY != 0,
+           let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                               wheel1: step.systemScrollY, wheel2: 0, wheel3: 0) {
+            event.location = location
+            event.post(tap: .cghidEventTap)
+        }
         let clicksAllowed = engine.settings.allowClicks
         if step.systemClick {
             guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: location, mouseButton: .left),
@@ -759,7 +873,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let clicked = now < clickedUntil
         preview.update(frame, phase: previewPhase, clicked: clicked)
-        if !clicksAllowed {
+        if engine.scroll.phase != .idle {
+            let active = engine.scroll.phase == .scrolling
+            showFeedback(active ? "Scrolling ↑↓" : "Hold two fingers briefly",
+                "Move index + middle up/down to scroll. Lower the middle finger to return to pointing. Clicks are paused.")
+            cursorFeedback.show(at: location, displayID: targetDisplay, progress: 0, remaining: 0, clicked: false,
+                caption: active ? "Scrolling ↑↓" : "Two fingers…")
+        } else if !clicksAllowed {
             cursorFeedback.hide()
             showFeedback("Pointing only · Clicks off", "Move your index finger. Enable Allow clicks when you are ready.")
         } else if clicked {

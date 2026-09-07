@@ -13,6 +13,8 @@ preferences select Point forward with real clicks off and setup required. Forwar
 calibration is discarded at app exit, after a capture error, or when the selected
 camera/format changes. Recalibrate if your seating distance, camera angle, or hand changes.
 Normal camera pause/resume retains a completed profile for the same camera/format.
+In v1.5, initial activation and hand return also require a steady movement pose;
+the cursor resumes from its current position. See [recovery and scrolling](RECOVERY_AND_SCROLL.md).
 
 ## What the camera can establish
 

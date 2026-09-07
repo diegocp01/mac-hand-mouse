@@ -26,6 +26,8 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | --- | --- |
 | `Sources/Gesture.swift` | Pinch detection, hold timer primitive, tuning, smoothing, preference migration |
 | `Sources/ForwardClick.swift` | 2D pose features, calibration capture, intentional forward-click state machine |
+| `Sources/InputMotion.swift` | Pointer acquisition, two-finger geometry/scrolling, activation-key lifecycle |
+| `Sources/ResumeShortcut.swift` | Exclusive macOS hotkey registration, release events, cleanup |
 | `Sources/InteractionEngine.swift` | Production frame-to-pointer pipeline, freshness/permission gates, gesture/filter ordering |
 | `Sources/Camera.swift` | Camera capture and Vision landmarks |
 | `Sources/FrameMailbox.swift` | Bounded delivery of the newest result |
@@ -34,6 +36,7 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `Sources/FeedbackGeometry.swift` | Screen-edge caption placement with a ring centered on the click target |
 | `Tests/main.swift` | Deterministic gesture and pointer checks |
 | `Tests/InteractionEngineTests.swift` | Production pipeline at 15/30/60 fps, intent/cancel/rearm, calibration and practice isolation |
+| `Tests/RecoveryScrollTests.swift` | Hand return, physical mouse takeover, scroll gates/rate, simulated output, held shortcut keys |
 | `Tests/install.sh` | Isolated installer replacement, failure rollback, and running-app guards |
 | `scripts/sign.sh` | Persistent local signing identity, explicit certificate mode, and disposable ad-hoc mode |
 | `scripts/verify-update-identity.sh` | Reject updates that would discard an existing certificate-backed identity |
@@ -85,10 +88,14 @@ Before v1.3.1, ad-hoc signatures changed with rebuilt code. Migrating that old a
 
 `ForwardClickDetector.progress` and `remainingSeconds` are read-only values derived from observed frame timestamps. Rendering never advances the detector or triggers a click. Reset, cancel, tracking loss, and post-click phases clear progress. A fresh movement-pose observation and forward transition are required to rearm, including after interruption. The UI hides stale feedback if delivery stops, using a 100 ms watchdog in common run-loop modes and the 120 ms tracking grace measured from the last received frame. Frames at least 200 ms old, future-dated frames, and duplicate/out-of-order timestamps cannot move or click.
 
-Practice uses the actual target display bounds in the same engine, then scales its simulated pointer into the canvas. `InteractionDestination.practice` permits simulation without Accessibility but exposes neither `systemLocation` nor `systemClick`; the OS dispatch path consumes only those system output fields. Setup also returns before reaching dispatch. Changing output destination resets gesture intent. Calibration and camera identity/frame dimensions are kept only in process memory; a source change or capture failure discards the profile.
+Practice uses the actual target display bounds in the same engine, then scales its simulated pointer into the canvas. `InteractionDestination.practice` permits simulation without Accessibility but exposes no `systemLocation`, `systemClick`, or `systemScrollY`; the OS dispatch path consumes only those system output fields. Setup also returns before reaching dispatch. Changing output destination resets gesture intent. Calibration and camera identity/frame dimensions are kept only in process memory; a source change or capture failure discards the profile. Pinch practice is available without calibration; forward practice retains the two-target requirement. Finishing/canceling practice disables real clicks and scrolling.
 
 The cursor panel ignores mouse events, never becomes key or main, and uses no screen recording. Quartz pointer coordinates convert to AppKit using the primary screen's top edge. The label stays inside the target screen, while the ring remains at the actual click location. The panel supports other applications' Spaces/full-screen contexts and hides when its target display is unavailable. Duplicate overlay content is excluded from accessibility; the app exposes a labeled progress indicator, percentage, and state announcements without announcing every countdown frame. No decorative progress animation runs ahead of detector state.
 
-Sleep, display sleep, user-session deactivation, and display configuration changes pause capture; resuming requires Start camera. Runtime capture errors, interruptions, selected-camera disconnects, and five consecutive Vision failures invalidate the session and offer an explicit retry. Pausing also releases the configured inputs/outputs, so the next Start discovers connected cameras again; callbacks from removed outputs are rejected. A normal no-hand frame is not treated as a processing failure. The built-in front camera remains preferred.
+Sleep, display sleep, user-session deactivation, and display configuration changes pause capture; resuming requires an explicit Start camera or global shortcut action. Runtime capture errors, interruptions, selected-camera disconnects, and five consecutive Vision failures invalidate the session and offer an explicit retry. Pausing also releases the configured inputs/outputs, so the next Start discovers connected cameras again; callbacks from removed outputs are rejected. A normal no-hand frame is not treated as a processing failure. The built-in front camera remains preferred.
+
+## Recovery, scrolling, and keyboard activation
+
+See [v1.5 interaction recovery](RECOVERY_AND_SCROLL.md) for the activation policy, relative cursor anchoring, scroll gesture, keyboard registration, regression coverage, and manual test checklist. These features change the production pipeline, not just the visual feedback.
 
 Validation before release: with a live camera, confirm Start/Pause, no-hand recovery, Pinch, forward setup/practice/cancel/rearm, clicks off during a countdown, Escape, Accessibility loss, and cursor ring alignment on additional displays/full-screen apps. Use the practice canvas and app's Test click target. Synthetic tests do not verify physical tracking or delivery to other apps.
