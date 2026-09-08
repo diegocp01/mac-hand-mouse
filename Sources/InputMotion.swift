@@ -43,14 +43,15 @@ struct PointerAcquisition {
 }
 
 enum ScrollPoseGeometry {
-    static func shape(tip: CGPoint, pip: CGPoint, base: CGPoint, aspect: Double) -> FingerShape {
+    static func shape(tip: CGPoint, pip: CGPoint, base: CGPoint, aspect: Double,
+                      foldedReachLimit: Double = 1.2) -> FingerShape {
         guard aspect.isFinite, aspect > 0,
               [tip, pip, base].allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) }) else { return .uncertain }
         func distance(_ a: CGPoint, _ b: CGPoint) -> Double { hypot((a.x - b.x) * aspect, a.y - b.y) }
         let proximal = distance(pip, base), reach = distance(tip, base), distal = distance(tip, pip)
         guard proximal > 0.015 else { return .uncertain }
         if reach / proximal > 1.6 && reach / max(proximal + distal, 1e-9) > 0.9 { return .extended }
-        if reach / proximal < 1.2 { return .folded }
+        if reach / proximal < foldedReachLimit { return .folded }
         return .uncertain
     }
 }
