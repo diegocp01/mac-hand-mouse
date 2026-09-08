@@ -141,6 +141,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let gestureGuide = GestureGuideView(frame: .zero)
     private let startingPoseTitle = "Show your hand to move"
     private let startingPoseDetail = "Keep your hand visible. Move to aim."
+    private var latestPointingPose: PointingPose?
+    private var latestPointingHint = "Keep your fingers visible"
     private let optionsToggle = NSButton(title: "Settings", target: nil, action: nil)
     private var optionsRows: NSStackView!
     private let feedback = ClickFeedbackView(frame: .zero)
@@ -671,10 +673,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         switch engine.pointHold.phase {
         case .needsMove:
-            showFeedback(prefix + "Open hand to prepare click", "Open your hand briefly, then raise index and middle and hold for one second.")
+            showFeedback(prefix + (latestPointingPose == nil ? latestPointingHint : "Open hand to prepare click"),
+                         "Open your hand briefly, then raise index and middle and hold for one second.")
             cursorFeedback.hide()
         case .ready:
-            showFeedback(prefix + "Raise middle to click", "Aim with your index, then raise your middle finger too. Hold still while the ring fills for one second.")
+            showFeedback(prefix + (latestPointingPose == nil ? latestPointingHint : "Raise two fingers to click"),
+                         "Raise index and middle with the other fingers curled. Hold still while the ring fills for one second.")
             cursorFeedback.hide()
         case .holding:
             let remaining = engine.pointHold.remainingSeconds
@@ -1100,6 +1104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         guard running else { return }
         lastForwardIssue = frame.forwardIssue
+        latestPointingPose = frame.pointingPose
+        latestPointingHint = frame.pointingHint
         let now = ProcessInfo.processInfo.systemUptime
         if frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.20 {
             let sourceChanged = lastCameraSource != nil && lastCameraSource != frame.source

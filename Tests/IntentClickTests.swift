@@ -98,6 +98,36 @@ import CoreGraphics
     }
 
     static func main() {
+        for fps in [15.0, 30, 60] {
+            var transition = HoldTrace(fps: fps)
+            transition.hold(.move, seconds: 0.4)
+            transition.hold(nil, seconds: 0.1)
+            check(transition.detector.phase == .ready,
+                "A briefly unclassified finger transition preserves an already armed click")
+            transition.frame(.click)
+            check(transition.detector.phase == .holding && transition.detector.progress == 0,
+                "Recognized two fingers start a fresh countdown after the transition")
+            transition.hold(.click, seconds: 1.2)
+            check(transition.clicks == 1, "Open hand through a natural finger transition completes one click")
+            transition.hold(.click, seconds: 1.2)
+            check(transition.clicks == 1, "Transition recovery cannot repeat a held click")
+
+            var slow = HoldTrace(fps: fps)
+            slow.hold(.move, seconds: 0.4)
+            slow.hold(nil, seconds: 2)
+            check(slow.clicks == 0 && slow.detector.progress == 0,
+                "A slow transition never counts as holding or clicking")
+            slow.hold(.click, seconds: 0.5)
+            check(slow.clicks == 0, "Unknown transition time cannot shorten the click countdown")
+            slow.hold(.click, seconds: 0.7)
+            check(slow.clicks == 1, "A tracked hand can change pose slowly before a complete click hold")
+
+            var missingHand = HoldTrace(fps: fps)
+            missingHand.hold(.move, seconds: 0.4)
+            missingHand.frame(nil, point: nil)
+            missingHand.hold(.click, seconds: 1.2)
+            check(missingHand.clicks == 0, "Tracking loss still disarms an otherwise ready click")
+        }
         let openPose = PointingPoseClassifier.classify(index: .extended, middle: .extended, ring: .extended, little: .extended)
         check(openPose == .move, "An open hand prepares a click while aiming")
         let twoPose = PointingPoseClassifier.classify(index: .extended, middle: .extended, ring: .folded, little: .uncertain)
