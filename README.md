@@ -1,17 +1,21 @@
+![Hand Mouse — your hand, your cursor](docs/images/hand-mouse-hero.jpeg)
+
 # Hand Mouse
 
-**Control your Mac's mouse with your hand.** Point with **one index finger** to move. Raise **index + middle** and hold for **one second** to left-click; a ring fills while the pointer holds its target. Bring **all five fingertips together** to right-click. Clicks default **on**; the camera starts paused. Runs locally with your camera and Apple's hand tracking — no accounts, cloud, or model downloads.
+*Illustration above. Current left-click gesture: raise index + middle and hold for one second.*
+
+**Control your Mac's mouse with your hand.** Show your hand and move to aim. From an open hand, raise **index + middle** with the other fingers curled and hold for **one second** to left-click; a ring fills while the pointer holds its target. Bring **all five fingertips together** to right-click. Clicks default **on**; the camera starts paused. Runs locally with your camera and Apple's hand tracking — no accounts, cloud, or model downloads.
 
 ## First launch
 
-The dark startup panel keeps **Start / Pause** and **Practice** at the top. Five animated tutorials show Move, Click, Right click, Scroll, and Select text. The row below them turns features on or off, while **Permissions** and **Settings** disclose setup details only when needed.
+The startup window follows your Mac's light or dark appearance and keeps **Start / Pause** and **Practice** visible. Five animated tutorials show Move, Click, Right click, Scroll, and Select text. **Settings** holds feature controls; **Permissions** contains setup help.
 
 1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. Click **Start** → allow camera access.
-3. Extend **only your index finger**, with your **palm toward the camera**. Hold still briefly until the pointer is ready, then move your index fingertip to aim.
-4. Try **Practice**: aim at green, raise your middle finger alongside the index, and hold while the ring fills for one second. Lower the middle finger to aim again. Practice sends no system input and leaves clicks off when you finish; enable **Click** when ready to control other apps.
+3. **Show your hand and move to aim.** The pointer follows your index fingertip immediately; no special pose is required.
+4. Try **Practice**: aim at **Send**, raise index + middle with the other fingers curled, and hold while the ring fills for one second. Open your hand to prepare another click. Practice also has scrolling and text-selection tasks. It sends no system input; afterward, enable the controls you want in **Settings** to use them in other apps.
 
-Start with the index alone to aim. Adding the middle finger holds your target and starts the click countdown. No pose calibration is required.
+An open hand prepares clicking. Raise index + middle with the other fingers curled, then hold for one second. Open your hand before the next click. No pose calibration is required.
 
 Keep a trackpad or mouse nearby. **Esc** pauses capture. **Control + Option + Command + H** pauses or resumes from another app; change or disable this shortcut in **Permissions**.
 
@@ -60,21 +64,21 @@ See [source-update behavior and safeguards](docs/UPDATES.md) for details.
 
 ## Use
 
-1. Click **Start**. Extend **only your index finger**, palm toward the camera, and hold steady briefly until the pointer is ready.
+1. Click **Start**. Show your hand and move to aim.
 2. Move your index fingertip within the dashed box to aim. Its edges reach the screen edges; your palm can extend outside the box.
-3. Raise **your middle finger alongside the index**. The pointer holds its target and a ring fills immediately for **one second**, then sends one left-click. Lower the middle finger to move and prepare another click.
+3. From an open hand, raise **index + middle** with the other fingers curled. The pointer holds its target and a ring fills for **one second**, then sends one left-click. Open your hand before the next click. Index-only aiming can also prepare a click.
 
 Keep both fingers and their knuckles visible during the countdown. Lower the middle finger before it finishes to cancel. Keeping both fingers raised after a click does not repeat it. Excessive hand movement, missing tracking, a competing gesture, or **Esc** cancels the pending click.
 
 **Point and hold replaces two-finger tap.** Your saved click choice is preserved. Bringing thumb + index + middle fingertips together scrolls; bringing all five fingertips together right-clicks. One-hand pinch dragging is unavailable in this mode.
 
-- **Practice:** click a Send button, scroll a sample list, or select a sentence without sending mouse events to other apps. Right clicks are counted separately. Finishing practice leaves clicks off.
+- **Practice:** click **Send**, scroll to **Quarterly review**, or select a sentence without sending mouse events to other apps. Right clicks are counted separately. Finishing practice leaves clicks, scrolling, and selection off for that session without changing saved preferences.
 - **Steady aim:** on by default in Settings. Slow, careful hand movements make smaller pointer adjustments; faster movements keep normal travel. After smoothing settles, the pointer stays at your fine adjustment. This responds to your movement, without detecting buttons or other targets. Turn it off to use the previous pointer behavior.
 - **Right click:** bring all five fingertips together and hold briefly. Keep every fingertip visible so the camera can confirm the gesture. It sends one right-click; open your hand before doing it again, including after a canceled attempt.
 - **Precision:** enable **Precision** for roughly 35% of normal hand-to-pointer travel. Lower and raise your hand to reposition when needed. The setting is saved.
 - **Scroll:** enable **Scroll**, bring thumb + index + middle fingertips together and hold steady for about a quarter second, then move your hand up/down. Keep the ring and little fingertips separate from the pinch. The cursor stays put and clicks are suppressed. Release the pinch to stop immediately and resume aiming without a jump. Thumb + index alone does not scroll. Scrolling also works with Click off.
 - **Click:** enabled by default. Turn it off to aim without clicking; your manual choice is saved. Practice leaves clicks off for the current session without changing that preference, so the next launch restores your saved choice or the default on.
-- **Rest/reposition:** lower your hand, then extend the index alone centrally and hold briefly. The pointer resumes where you left it.
+- **Rest/reposition:** lower your hand, then show the same hand again. The pointer resumes where you left it.
 - **Pause:** Esc, **Pause**, or the menu-bar hand icon. **⌃⌥⌘H** pauses/resumes from another app (configurable in Permissions).
 - **Select text:** enable it, acquire one hand first, then form an L with thumb + index on both hands. Move the original hand to drag or select; open either hand to release. Clicks pause while the second hand acts as a modifier.
 
@@ -85,7 +89,8 @@ Gesture recognition uses camera images, not measured depth or physical contact. 
 - **Camera blocked:** click **Camera Settings**, enable Hand Mouse, then restart if macOS requests it.
 - **Camera interrupted or disconnected:** reconnect it or close the other camera app, then click **Start** to retry. Hand Mouse rebuilds its capture session instead of silently restarting mouse control.
 - **Hand detected, but mouse won't move:** enable Accessibility for the installed app.
-- **Waiting to resume:** extend the index alone, palm **toward the camera**. Hold still briefly until **Pointer ready**; then aim. A finger pointing into the lens may hide its length. Use the same hand; if the pointer is on another display, move it onto the selected display first.
+- **Waiting to resume:** show the same hand with the index fingertip visible. If the pointer is on another display, move it onto the selected display first.
+- **Two fingers do not click:** check that **Click** is enabled in **Settings**. Open your hand briefly first, then raise index + middle with ring and little fingers curled and hold still for one second. Keep both raised fingers visible; open your hand before retrying a canceled hold.
 - **Right click is not recognized:** keep all five fingertips visible as they meet. A hidden fingertip cannot confirm this gesture. Open the hand before retrying.
 - **Shortcut unavailable:** another app may own that combination. Choose the other shortcut or **Off** in **Permissions**. Hand Mouse must be running, and the Mac must be awake and in your active session.
 - **Updating from v1.3.0 or earlier:** a one-time Accessibility repair is needed when moving to the persistent signing identity. Use **Show in Finder** to locate the new app, remove the old Hand Mouse entry in Accessibility, then add and enable that exact copy. Future source updates reuse its signer. [Why this changed](docs/SIGNING.md).

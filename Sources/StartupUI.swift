@@ -126,7 +126,7 @@ enum GestureAction: CaseIterable {
 
     fileprivate var instruction: String {
         switch self {
-        case .move: return "One finger · Move"
+        case .move: return "Show hand · Move"
         case .click: return "Raise two · Hold 1 s"
         case .rightClick: return "Five tips together"
         case .scroll: return "Three tips · Move"
@@ -137,9 +137,9 @@ enum GestureAction: CaseIterable {
     fileprivate var accessibilityDescription: String {
         switch self {
         case .move:
-            return "Hold your palm toward the camera with only the index finger extended. Move the index fingertip to aim."
+            return "Show your hand and move to aim. The pointer follows your index fingertip; no special pose is needed."
         case .click:
-            return "Aim with the index finger, then raise the middle finger too. The pointer holds its target while a ring fills for one second, then clicks once. Lower the middle finger to move and prepare another click."
+            return "Open your hand to aim, then raise index and middle with the other fingers curled. Hold for one second while the ring fills. Open your hand before another click."
         case .rightClick:
             return "Bring all five fingertips together in a pinch, keeping them visible to the camera. Hold briefly to right-click once. Open the hand before the next right-click."
         case .scroll:
@@ -184,7 +184,7 @@ enum GestureDemoTimeline {
                                      primaryX: travel, primaryY: 0.5,
                                      resultProgress: travel, gestureHeld: false,
                                      resultActivated: false,
-                                     stage: t < 0.16 ? "Raise index only" : "Move the index finger")
+                                     stage: t < 0.16 ? "Show your hand" : "Move to aim")
         case .click:
             let elapsed = secondsInLoop(seconds)
             let held = elapsed >= clickHoldStart && elapsed < 3.5

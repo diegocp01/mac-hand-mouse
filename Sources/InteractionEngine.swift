@@ -170,7 +170,8 @@ struct InteractionEngine {
                 neutral = position.amount > -0.4 && position.amount < 0.25 && position.scaleDeviation < 0.5
             } else { neutral = false }
         } else { neutral = pinchRatio.map { $0.isFinite && $0 > settings.pinchThreshold + 0.18 } ?? false }
-        guard acquisition.update(point: index, cursor: cursorPosition, side: handSide, neutral: neutral && scrollPoint == nil, time: timestamp) else {
+        guard acquisition.update(point: index, cursor: cursorPosition, side: handSide, neutral: neutral && scrollPoint == nil, time: timestamp,
+                                 immediately: settings.mode == .pointAndHold) else {
             tap.reset(); pointHold.reset(); rightPinch.reset(); rightGestureActive = false; pointingFrozen = false
             pinch.reset(); forward.reset(); scroll.reset(); drag.interrupt(); pinchDrag.reset()
             return InteractionStep(blocked: .acquiring)
@@ -279,9 +280,9 @@ struct InteractionEngine {
             if settings.allowClicks {
                 fired = pointHold.update(pose: pointingPose, point: index, time: timestamp)
             } else { pointHold.reset(); fired = false }
-            // Only the one-index pose moves. Raising the middle finger holds the
-            // target still; unclear poses cancel the countdown without moving it.
-            let freeze = pointingPose != .move
+            // A tracked hand can move without a special pose. Only an explicit
+            // enabled click pose holds the target; other poses cancel the click.
+            let freeze = settings.allowClicks && pointingPose == .click
             if pointingFrozen && !freeze {
                 filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
             }

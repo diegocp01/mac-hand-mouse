@@ -2,6 +2,21 @@ import Foundation
 import CoreGraphics
 
 enum PointingPose { case move, click }
+enum FingerShape { case extended, folded, uncertain }
+
+enum PointingPoseClassifier {
+    static func classify(index: FingerShape, middle: FingerShape,
+                         ring: FingerShape, little: FingerShape) -> PointingPose? {
+        // A visible open hand is ordinary aiming and can prepare the next click.
+        if ring == .extended || little == .extended { return .move }
+        if index == .extended && middle == .folded { return .move }
+        // Folded fingertips can obscure one another. One confirmed folded outer
+        // finger is sufficient, but absent evidence for both never means a click.
+        if index == .extended && middle == .extended &&
+            (ring == .folded || little == .folded) { return .click }
+        return nil
+    }
+}
 
 /// A visible pointing pose arms one stationary two-finger hold. Missing samples
 /// cancel the hold rather than counting unobserved time toward a click.
