@@ -98,6 +98,41 @@ import CoreGraphics
     }
 
     static func main() {
+        let openPose = PointingPoseClassifier.classify(index: .extended, middle: .extended, ring: .extended, little: .extended)
+        check(openPose == .move, "An open hand prepares a click while aiming")
+        let twoPose = PointingPoseClassifier.classify(index: .extended, middle: .extended, ring: .folded, little: .uncertain)
+        check(twoPose == .click, "Two raised fingers tolerate one obscured folded outer finger")
+        check(PointingPoseClassifier.classify(index: .extended, middle: .extended, ring: .uncertain, little: .uncertain) == nil,
+            "Two missing outer fingers cannot establish a click gesture")
+        check(PointingPoseClassifier.classify(index: .extended, middle: .extended, ring: .folded, little: .extended) == .move,
+            "An extended outer finger prevents a click")
+        for fps in [15.0, 30, 60] {
+            var trace = Session(fps: fps, practice: true)
+            trace.hold(openPose, seconds: 0.4)
+            trace.hold(twoPose, seconds: 1.3)
+            check(trace.leftClicks == 1, "Open-hand aim followed by two fingers completes a click")
+            trace.hold(twoPose, seconds: 1.3)
+            check(trace.leftClicks == 1, "Holding two fingers cannot repeat a click")
+            trace.hold(openPose, seconds: 0.4)
+            trace.hold(twoPose, seconds: 1.3)
+            check(trace.leftClicks == 2, "Opening the hand rearms the next two-finger click")
+        }
+        for practice in [false, true] {
+            var visible = Session(fps: 30, practice: practice)
+            let start = visible.cursor
+            let first = visible.frame(nil)
+            check(first.blocked == nil && visible.cursor == start,
+                "A visible hand acquires immediately without a pointing pose or cursor jump")
+            visible.hold(nil, seconds: 0.4, point: CGPoint(x: 0.6, y: 0.5))
+            check(visible.cursor != start && visible.leftClicks == 0 && visible.rightClicks == 0,
+                "An open or unclassified hand moves without clicking")
+            visible.frame(nil, point: nil)
+            let beforeReturn = visible.cursor
+            check(visible.frame(nil).blocked == nil && visible.cursor == beforeReturn,
+                "Returning visible hand reanchors immediately without jumping")
+            visible.hold(.click, seconds: 1.2)
+            check(visible.leftClicks == 0, "Acquisition alone cannot arm a click")
+        }
         let tightThree = [CGPoint(x: 0.49, y: 0.40), CGPoint(x: 0.51, y: 0.40), CGPoint(x: 0.50, y: 0.42)]
         let middleApart = [CGPoint(x: 0.49, y: 0.40), CGPoint(x: 0.51, y: 0.40), CGPoint(x: 0.70, y: 0.20)]
         func threeRatio(_ tips: [CGPoint], aspect: Double = 1) -> Double? {
@@ -227,11 +262,11 @@ import CoreGraphics
                 var session = Session(fps: fps, practice: practice)
                 let initial = session.cursor
                 session.hold(.click, seconds: 1.2)
-                check(!session.engine.acquisition.active && session.cursor == initial && session.leftClicks == 0,
-                    "Only the move pose may initially acquire the pointer")
+                check(session.engine.acquisition.active && session.cursor == initial && session.leftClicks == 0,
+                    "A click pose can acquire movement without arming or emitting a click")
                 session.hold(.move, seconds: 0.15)
-                check(!session.engine.acquisition.active && session.cursor == initial,
-                    "Acquisition waits for 250 ms of stable index-only pointing")
+                check(session.engine.acquisition.active && session.cursor == initial,
+                    "Movement does not require a stable index-only acquisition interval")
                 session.hold()
                 check(session.engine.acquisition.active && session.cursor == initial,
                     "Move-pose acquisition keeps the existing cursor on a negative-origin display")
@@ -309,7 +344,6 @@ import CoreGraphics
 
                 var threeScroll = Session(fps: fps, practice: practice)
                 threeScroll.hold()
-                let scrollTarget = threeScroll.cursor
                 threeScroll.hold(nil, seconds: 0.4, scrollPinch: nil, legacyPinch: 0.2)
                 threeScroll.frame(nil, point: CGPoint(x: 0.5, y: 0.48), scrollPinch: nil, legacyPinch: 0.2)
                 check(threeScroll.engine.scroll.phase == .idle && threeScroll.scroll == 0,
@@ -318,6 +352,7 @@ import CoreGraphics
                 threeScroll.frame(nil, point: CGPoint(x: 0.5, y: 0.48), scrollPinch: 0.9, legacyPinch: 0.2)
                 check(threeScroll.engine.scroll.phase == .idle && threeScroll.scroll == 0,
                     "Legacy thumb/index pinch cannot scroll while the middle finger remains apart")
+                let scrollTarget = threeScroll.cursor
                 threeScroll.hold(nil, seconds: 0.4, scrollPinch: 0.2, legacyPinch: 0.2)
                 check(threeScroll.engine.scroll.phase == .scrolling && threeScroll.scroll == 0,
                     "A steady three-finger pinch arms scrolling without an initial delta")

@@ -139,8 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var preview: PreviewView!
     private let titleLabel = NSTextField(labelWithString: "Hand Mouse")
     private let gestureGuide = GestureGuideView(frame: .zero)
-    private let startingPoseTitle = "Palm toward camera · Point with index"
-    private let startingPoseDetail = "Palm toward camera · Only index extended · Hold still briefly."
+    private let startingPoseTitle = "Show your hand to move"
+    private let startingPoseDetail = "Keep your hand visible. Move to aim."
     private let optionsToggle = NSButton(title: "Settings", target: nil, action: nil)
     private var optionsRows: NSStackView!
     private let feedback = ClickFeedbackView(frame: .zero)
@@ -637,13 +637,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if practicing {
             showFeedback("Practice only · No system input", practiceInstruction)
         } else if !running {
-            showFeedback(startingPoseTitle, "Start the camera, then extend only your index finger with your palm toward the camera.")
+            showFeedback(startingPoseTitle, startingPoseDetail)
         } else if control.state != .on {
             showFeedback("Preview only", "Pointer and clicks off.")
         } else if allowClicks.state != .on {
-            showFeedback("Clicks off", "Extend only your index finger to move.")
+            showFeedback("Clicks off", "Move your hand to aim.")
         } else if clickMode == .pointAndHold {
-            showFeedback("Point to move · Raise two to click", "Aim with only your index finger. Raise your middle finger too and hold still while the ring fills for one second. Lower your middle finger to prepare another click.")
+            showFeedback("Move to aim · Raise two to click", "Show an open hand to aim. Raise index and middle, curl the other fingers, and hold for one second. Open your hand to prepare another click.")
         } else {
             showFeedback(clickMode == .forward ? "Point forward to click" : "Two-finger tap to click",
                          clickMode == .forward ? "Aim normally, point toward the camera, then hold. Pull back to cancel." : "Bend index + middle together, then lift to click.")
@@ -659,7 +659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let confirming = engine.rightPinch.phase == .confirming
             let title = held ? "Open your hand" : (confirming ? "Hold five tips together" : "Open your hand to prepare")
             let detail = held
-                ? "One right-click was completed. Open your hand, then point with only your index finger to move."
+                ? "One right-click was completed. Open your hand to move."
                 : (confirming ? "Keep all five fingertips together and visible. Hold briefly to right-click once."
                     : "Open your hand with all five fingertips visible, then bring the fingertips together to right-click.")
             showFeedback(prefix + title, detail)
@@ -671,7 +671,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         switch engine.pointHold.phase {
         case .needsMove:
-            showFeedback(prefix + "Point with index only", "Lower your middle finger to move and prepare a click. Aim, then raise your middle finger and hold still for one second.")
+            showFeedback(prefix + "Open hand to prepare click", "Open your hand briefly, then raise index and middle and hold for one second.")
             cursorFeedback.hide()
         case .ready:
             showFeedback(prefix + "Raise middle to click", "Aim with your index, then raise your middle finger too. Hold still while the ring fills for one second.")
@@ -829,7 +829,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             _ = practice.update(point: nil, progress: 0, clicked: false, interrupted: true)
             let message = step.blocked == .differentHand
                 ? "Use the same hand, or finish and restart practice to switch hands."
-                : "Point with index only, palm toward camera. Hold still briefly."
+                : "Show your hand. Move to aim."
             showFeedback("Practice paused", message)
             return
         }
@@ -1069,7 +1069,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if cameraReady && now - lastFrameTime > GestureTuning.trackingGraceSeconds {
             interruptInteraction(); clearClickFeedback(); preview.update(nil)
             cameraStatus.stringValue = "Tracking interrupted"
-            showFeedback("Tracking interrupted", "Point with only your index finger, palm toward camera. Restart the camera if tracking does not resume.")
+            showFeedback("Tracking interrupted", "Show your hand again. Restart the camera if tracking does not resume.")
             return
         }
         if !trusted || control.state != .on {
@@ -1148,7 +1148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if ownership.side == nil && capture.hands.count > 1 {
                     showFeedback("Start with one hand", "Lower the other hand until Pointer ready. Then bring it back as the drag modifier.")
                 } else {
-                    showFeedback("Looking for your hand", "Point with only the index finger on your original pointer hand, palm toward camera.")
+                    showFeedback("Show your hand", "Keep your original pointer hand visible to resume moving.")
                 }
             case .acquiring, .differentHand, .cursorUnavailable:
                 lastFrameTime = now; cameraReady = true; preview.showPlaceholder(nil); preview.update(frame)
@@ -1186,7 +1186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                   let up = CGEvent(mouseEventSource: nil, mouseType: upType, mouseCursorPosition: location, mouseButton: button) else {
                 interruptInteraction()
                 clearClickFeedback()
-                showFeedback("Click unavailable", "No click was sent. Point with only your index finger to prepare another gesture.")
+                showFeedback("Click unavailable", "No click was sent. Open your hand to prepare another gesture.")
                 return
             }
             down.setIntegerValueField(.mouseEventClickState, value: 1)
@@ -1228,7 +1228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 caption: active ? "Scrolling ↑↓" : "Pinch…")
         } else if !clicksAllowed {
             cursorFeedback.hide()
-            showFeedback("Clicks off", "Extend only your index finger to move.")
+            showFeedback("Clicks off", "Move your hand to aim.")
         } else if clickMode == .pointAndHold {
             if clicked && engine.pointHold.phase != .holding && engine.rightPinch.phase != .confirming {
                 let title = lastClickWasRight ? "Right clicked ✓" : "Clicked ✓"

@@ -1,6 +1,6 @@
 # Point and hold
 
-The active gestures are index-only movement, a one-second two-finger hold for left-clicking, a five-fingertip pinch for right-clicking, thumb/index/middle pinch scrolling, and optional two-hand L dragging. The previous [two-finger tap](TWO_FINGER_TAP.md) detector is retained for regression coverage and is not an active click mode.
+The active gestures are visible-hand movement, a one-second two-finger hold for left-clicking, a five-fingertip pinch for right-clicking, thumb/index/middle pinch scrolling, and optional two-hand L dragging. The previous [two-finger tap](TWO_FINGER_TAP.md) detector is retained for regression coverage and is not an active click mode.
 
 ![Five gesture cards with index-only movement, a one-second click ring, three-fingertip scrolling, and five-fingertip right-clicking](images/point-and-hold-guide.png)
 
@@ -8,9 +8,9 @@ This camera-free snapshot illustrates the guide. Its partial ring explains the c
 
 ## Move and left-click
 
-Acquire one hand with the palm visible and only the index finger extended. Move the index fingertip to aim. Raise the middle finger alongside it to hold the current target and begin the left-click countdown. A ring appears immediately and fills during the one-second hold. The click fires when that countdown completes, not when the fingers are lowered.
+Show your hand to move immediately; no index-only pose or stationary acquisition interval is required. The pointer anchors at its current position and follows your index fingertip. An open hand or index-only aiming prepares clicking. Raise index and middle with the outer fingers curled to hold the current target and begin the one-second countdown. One obscured outer finger is tolerated when the other is visibly folded; both missing cannot establish a click. An extended outer finger remains ordinary aiming. Open your hand before another click. Starting with a click pose never arms itself.
 
-Each raise produces at most one click. Lower the middle finger to return to index-only aiming and prepare the next click. Lowering it before the countdown completes or moving the hand too far cancels that click. Tracking loss, pause, permission changes, and competing gestures clear pending intent. Resuming movement reanchors at the held pointer rather than applying hand travel from the hold.
+Each raise produces at most one click. Open your hand or lower the middle finger to prepare the next click. Releasing before the countdown completes or moving the hand too far cancels that click. Tracking loss, pause, permission changes, and competing gestures clear pending intent. Resuming movement reanchors at the held pointer rather than applying hand travel from the hold.
 
 ## Right-click
 

@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 
-/// A returning hand must be open and steady before it can take over the current cursor.
+/// Validate the hand and cursor before anchoring; legacy modes also require a steady pose.
 struct PointerAcquisition {
     private(set) var active = false
     private(set) var owner: String?
@@ -16,13 +16,17 @@ struct PointerAcquisition {
     }
     mutating func reset() { interrupt(); owner = nil }
 
-    mutating func update(point: CGPoint, cursor: CGPoint, side: String?, neutral: Bool, time: Double) -> Bool {
+    mutating func update(point: CGPoint, cursor: CGPoint, side: String?, neutral: Bool, time: Double, immediately: Bool = false) -> Bool {
         guard point.x.isFinite, point.y.isFinite, (0...1).contains(point.x), (0...1).contains(point.y),
               cursor.x.isFinite, cursor.y.isFinite, time.isFinite,
               let side, side == "left" || side == "right", owner == nil || owner == side else {
             interrupt(); return false
         }
         if active { return true }
+        if immediately {
+            active = true; owner = side
+            return true
+        }
         guard neutral else { interrupt(); return false }
         if candidateSide != side || candidate.map({ hypot(point.x - $0.x, point.y - $0.y) > 0.025 }) == true ||
             candidateCursor.map({ hypot(cursor.x - $0.x, cursor.y - $0.y) > 3 }) == true ||
@@ -37,8 +41,6 @@ struct PointerAcquisition {
         return active
     }
 }
-
-enum FingerShape { case extended, folded, uncertain }
 
 enum ScrollPoseGeometry {
     static func shape(tip: CGPoint, pip: CGPoint, base: CGPoint, aspect: Double) -> FingerShape {

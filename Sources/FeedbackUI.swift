@@ -39,8 +39,8 @@ final class DwellRingView: NSView {
 }
 
 final class ClickFeedbackView: NSView {
-    let title = NSTextField(wrappingLabelWithString: "Palm toward camera · Point with index")
-    let detail = NSTextField(wrappingLabelWithString: "Start the camera, then extend only your index finger with your palm toward the camera.")
+    let title = NSTextField(wrappingLabelWithString: "Show your hand to move")
+    let detail = NSTextField(wrappingLabelWithString: "Keep your hand visible. Move to aim.")
     private let progress = NSProgressIndicator()
     private let ring = DwellRingView()
     private var textInset: NSLayoutConstraint!

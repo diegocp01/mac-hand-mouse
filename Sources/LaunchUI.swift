@@ -31,7 +31,7 @@ final class LaunchContentView: NSView {
         headline.textColor = StartupStyle.text
         headline.alignment = .center
         let subtitle = NSTextField(wrappingLabelWithString:
-            "Start the camera. Point with your index, palm toward the camera.")
+            "Show your hand. Move to aim.")
         subtitle.font = .systemFont(ofSize: 13)
         subtitle.textColor = StartupStyle.muted
         subtitle.alignment = .center

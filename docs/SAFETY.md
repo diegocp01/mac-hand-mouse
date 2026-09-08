@@ -40,11 +40,11 @@ alone has less impact than click injection.
 - Sleep, session deactivation, and display changes pause capture. Start camera or the
   configured global shortcut is required to resume; waking never resumes automatically.
   Held keys cannot repeatedly toggle capture or become a fresh request after waking.
-- First activation and reacquisition require the index alone extended, palm toward the
-  camera, held steady for at least 250 ms and four observations. The pointer is anchored
-  to the current system cursor before movement resumes. A click pose, an active scroll
-  pinch, a different left/right hand, missing cursor position, or a cursor outside the
-  chosen display cannot acquire control.
+- First activation and reacquisition accept a visible hand immediately and anchor at
+  the current cursor without injecting a click on that frame. No special pose is
+  required for movement. A different left/right hand, missing cursor position, or a
+  cursor outside the chosen display cannot acquire control. Clicking still needs
+  an observed open-hand or index-only aiming interval before a two-finger hold.
 - **Scroll** defaults **ON** for new installs; a saved OFF choice stays off.
   Bring thumb + index + middle fingertips together, hold steady for 250 ms, then
   move the hand vertically. All three fingertips must remain visible and close.
@@ -62,7 +62,7 @@ alone has less impact than click injection.
 - Click intent is inferred from 2D features, so pose changes and rotations can still
   produce false positives. Optional practice helps evaluate recognition but is not a reliability guarantee.
 - A camera/format change, capture error, tracking loss, or settings change discards
-  pending intent. Extend the index alone, palm toward the camera, to reacquire after tracking loss.
+  pending intent. Show the same hand again to reacquire after tracking loss.
 - Camera errors and disconnects stop the session and require an explicit retry. No recovery path automatically restarts mouse control.
 
 ## Legacy detector behavior

@@ -135,7 +135,7 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 session.startRunning()
                 if session.isRunning {
                     consecutiveVisionFailures = 0
-                    status("Show one hand, palm toward camera. Raise only your index finger and hold still briefly.", token: token)
+                    status("Show your hand. Move to aim.", token: token)
                 } else {
                     captureActive = false
                     invalidateConfiguration()
@@ -267,19 +267,16 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             frame.points.removeValue(forKey: .indexTip); return frame
         }
         func finger(_ tip: VNHumanHandPoseObservation.JointName, _ pip: VNHumanHandPoseObservation.JointName,
-                    _ base: VNHumanHandPoseObservation.JointName) -> FingerShape {
-            guard [tip, pip, base].allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
+                    _ base: VNHumanHandPoseObservation.JointName, confidence: Float = 0.6) -> FingerShape {
+            guard [tip, pip, base].allSatisfy({ (all[$0]?.confidence ?? 0) >= confidence }),
                   let t = frame.points[tip], let p = frame.points[pip], let b = frame.points[base] else { return .uncertain }
             return ScrollPoseGeometry.shape(tip: t, pip: p, base: b, aspect: Double(aspect))
         }
         let indexShape = finger(.indexTip, .indexPIP, .indexMCP)
         let middleShape = finger(.middleTip, .middlePIP, .middleMCP)
-        if indexShape == .extended,
-           finger(.ringTip, .ringPIP, .ringMCP) == .folded,
-           finger(.littleTip, .littlePIP, .littleMCP) == .folded {
-            if middleShape == .folded { frame.pointingPose = .move }
-            else if middleShape == .extended { frame.pointingPose = .click }
-        }
+        frame.pointingPose = PointingPoseClassifier.classify(index: indexShape, middle: middleShape,
+            ring: finger(.ringTip, .ringPIP, .ringMCP, confidence: 0.45),
+            little: finger(.littleTip, .littlePIP, .littleMCP, confidence: 0.45))
         let scrollTipJoints: [VNHumanHandPoseObservation.JointName] = [.thumbTip, .indexTip, .middleTip]
         if (scrollTipJoints + palmJoints).allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
            let indexBase = frame.points[.indexMCP], let littleBase = frame.points[.littleMCP],
