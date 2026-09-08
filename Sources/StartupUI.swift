@@ -23,6 +23,7 @@ enum StartupStyle {
 enum GestureAction: CaseIterable {
     case move
     case click
+    case rightClick
     case scroll
     case select
 
@@ -30,6 +31,7 @@ enum GestureAction: CaseIterable {
         switch self {
         case .move: return "Move"
         case .click: return "Click"
+        case .rightClick: return "Right click"
         case .scroll: return "Scroll"
         case .select: return "Select text"
         }
@@ -37,9 +39,10 @@ enum GestureAction: CaseIterable {
 
     fileprivate var instruction: String {
         switch self {
-        case .move: return "Point & move"
-        case .click: return "Bend · lift"
-        case .scroll: return "Pinch · move"
+        case .move: return "One finger · Move"
+        case .click: return "Raise two · Hold 1 s"
+        case .rightClick: return "Five tips together"
+        case .scroll: return "Three tips · Move"
         case .select: return "Two L hands · move"
         }
     }
@@ -47,11 +50,13 @@ enum GestureAction: CaseIterable {
     fileprivate var accessibilityDescription: String {
         switch self {
         case .move:
-            return "Hold one palm toward the camera with the index and middle fingers extended, then move the index fingertip."
+            return "Hold your palm toward the camera with only the index finger extended. Move the index fingertip to aim."
         case .click:
-            return "Begin with the index and middle fingers raised. Bend both fingers together, then raise both again to click. Touching the two fingertips together does not click."
+            return "Aim with the index finger, then raise the middle finger too. The pointer holds its target while a ring fills for one second, then clicks once. Lower the middle finger to move and prepare another click."
+        case .rightClick:
+            return "Bring all five fingertips together in a pinch, keeping them visible to the camera. Hold briefly to right-click once. Open the hand before the next right-click."
         case .scroll:
-            return "Pinch the thumb and index fingertip, hold briefly, then move the hand vertically to scroll."
+            return "Bring the thumb, index, and middle fingertips together, hold briefly, then move the hand vertically to scroll. Release the three-finger pinch to stop."
         case .select:
             return "First acquire the primary hand. Add a second hand with both thumbs and index fingers forming L shapes and the other fingers folded. Move only the primary hand. Open either L shape to release."
         }
@@ -62,7 +67,7 @@ enum GestureAction: CaseIterable {
 /// result state in this camera-free model lets review tools sample meaningful
 /// phases without starting capture or waiting on wall-clock animation.
 struct GestureDemoSample {
-    enum HandPose { case raised, bent, pinch, lShape, open }
+    enum HandPose { case point, raised, allPinch, threePinch, lShape, open }
     let primaryPose: HandPose
     let secondaryPose: HandPose?
     let primaryX: CGFloat
@@ -75,8 +80,8 @@ struct GestureDemoSample {
 
 enum GestureDemoTimeline {
     static let duration: TimeInterval = 5
-    static let clickBendStart: TimeInterval = 1.50
-    static let clickLiftTime: TimeInterval = 1.95
+    static let clickHoldStart: TimeInterval = 1.50
+    static let clickTime: TimeInterval = 2.50
 
     static func sample(action: GestureAction, seconds: TimeInterval) -> GestureDemoSample {
         let raw = seconds.truncatingRemainder(dividingBy: duration)
@@ -88,23 +93,31 @@ enum GestureDemoTimeline {
         switch action {
         case .move:
             let travel = t < 0.72 ? ramp(0.16, 0.64) : 1 - ramp(0.76, 0.98)
-            return GestureDemoSample(primaryPose: .raised, secondaryPose: nil,
+            return GestureDemoSample(primaryPose: .point, secondaryPose: nil,
                                      primaryX: travel, primaryY: 0.5,
                                      resultProgress: travel, gestureHeld: false,
                                      resultActivated: false,
-                                     stage: t < 0.16 ? "Raise two fingers" : "Move the index finger")
+                                     stage: t < 0.16 ? "Raise index only" : "Move the index finger")
         case .click:
-            let bent = secondsInLoop(seconds) >= clickBendStart && secondsInLoop(seconds) < clickLiftTime
-            let activated = t >= 0.39 && t < 0.67
-            return GestureDemoSample(primaryPose: bent ? .bent : .raised,
-                                     secondaryPose: nil, primaryX: 0.46, primaryY: 0.5,
-                                     resultProgress: activated ? 1 : 0,
-                                     gestureHeld: bent, resultActivated: activated,
-                                     stage: bent ? "Bend both" : (activated ? "Lift · click" : "Raise both"))
+            let elapsed = secondsInLoop(seconds)
+            let held = elapsed >= clickHoldStart && elapsed < 3.5
+            let activated = elapsed >= clickTime && elapsed < 3.5
+            return GestureDemoSample(primaryPose: held ? .raised : .point,
+                secondaryPose: nil, primaryX: 0.46, primaryY: 0.5,
+                resultProgress: held ? min(1, CGFloat(elapsed - clickHoldStart)) : 0,
+                gestureHeld: held, resultActivated: activated,
+                stage: activated ? "Clicked · lower middle" : (held ? "Hold two fingers · 1 second" : "Aim with index only"))
+        case .rightClick:
+            let held = t >= 0.30 && t < 0.70
+            let activated = t >= 0.34 && t < 0.70
+            return GestureDemoSample(primaryPose: held ? .allPinch : .open,
+                secondaryPose: nil, primaryX: 0.46, primaryY: 0.5,
+                resultProgress: activated ? 1 : 0, gestureHeld: held, resultActivated: activated,
+                stage: held ? "Five tips together · right click" : "Open to prepare")
         case .scroll:
             let held = t >= 0.20 && t < 0.72
             let travel = t < 0.20 ? 0 : (t < 0.64 ? ramp(0.24, 0.64) : 1)
-            return GestureDemoSample(primaryPose: held ? .pinch : .open,
+            return GestureDemoSample(primaryPose: held ? .threePinch : .open,
                                      secondaryPose: nil, primaryX: 0.48,
                                      primaryY: 0.24 + travel * 0.52,
                                      resultProgress: travel, gestureHeld: held,
@@ -113,7 +126,7 @@ enum GestureDemoTimeline {
         case .select:
             let paired = t >= 0.22 && t < 0.76
             let travel = t < 0.34 ? 0 : (t < 0.68 ? ramp(0.34, 0.68) : 1)
-            return GestureDemoSample(primaryPose: paired ? .lShape : (t < 0.22 ? .raised : .open),
+            return GestureDemoSample(primaryPose: paired ? .lShape : (t < 0.22 ? .point : .open),
                                      secondaryPose: paired ? .lShape : (t >= 0.76 ? .open : nil),
                                      primaryX: travel, primaryY: 0.5,
                                      resultProgress: travel, gestureHeld: paired,
@@ -409,12 +422,12 @@ private final class GestureSelectorButton: NSButton {
         NSLayoutConstraint.activate([
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusBadge.leadingAnchor, constant: -5),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
             instructionLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             instructionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
             instructionLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
             statusBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -9),
-            statusBadge.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            statusBadge.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
             statusBadge.widthAnchor.constraint(equalToConstant: 32),
             statusBadge.heightAnchor.constraint(equalToConstant: 14)
         ])
@@ -492,14 +505,16 @@ private final class GestureDemoCanvas: NSView {
             let times: [TimeInterval]
             switch action {
             case .move: times = [0.65, 2.45, 3.35]
-            case .click: times = [0.65, 1.72, 2.10]
+            case .click: times = [0.65, 2.0, 2.60]
+            case .rightClick: times = [0.65, 1.6, 3.80]
             case .scroll: times = [0.65, 2.45, 3.80]
             case .select: times = [0.65, 2.55, 3.90]
             }
             let stepLabels: [String]
             switch action {
             case .move: stepLabels = ["Raise", "Move", "Return"]
-            case .click: stepLabels = ["Raise", "Bend", "Lift"]
+            case .click: stepLabels = ["Aim", "Hold 1 s", "Click"]
+            case .rightClick: stepLabels = ["Open", "Five tips", "Release"]
             case .scroll: stepLabels = ["Pinch", "Move down", "Open"]
             case .select: stepLabels = ["Acquire", "Two L hands", "Open"]
             }
@@ -552,6 +567,12 @@ private final class GestureDemoCanvas: NSView {
         switch action {
         case .move: drawMoveResult(in: resultArea, progress: sample.resultProgress, compact: compact)
         case .click: drawClickResult(in: resultArea, pressed: sample.gestureHeld, activated: sample.resultActivated, compact: compact)
+        case .rightClick:
+            if sample.resultActivated {
+                drawContextMenu(at: CGPoint(x: resultArea.midX - 28, y: resultArea.midY - 24), color: StartupStyle.mint, scale: 1)
+            } else {
+                drawCentered("Right click", in: resultArea, size: 12, color: StartupStyle.muted, weight: .medium)
+            }
         case .scroll: drawScrollResult(in: resultArea, progress: sample.resultProgress, held: sample.gestureHeld, compact: compact)
         case .select: drawSelectResult(in: resultArea, progress: sample.resultProgress, held: sample.gestureHeld, compact: compact)
         }
@@ -586,7 +607,7 @@ private final class GestureDemoCanvas: NSView {
         drawCentered(activated ? "CLICKED" : "OPEN", in: button.offsetBy(dx: 0, dy: pressed ? 3 : 0), size: 12,
                      color: activated ? StartupStyle.background : StartupStyle.text, weight: .bold)
         if !compact {
-            drawCentered("Activates on lift", in: NSRect(x: rect.minX, y: button.maxY + 14, width: rect.width, height: 18),
+            drawCentered("Hold two fingers for 1 second", in: NSRect(x: rect.minX, y: button.maxY + 14, width: rect.width, height: 18),
                          size: 10, color: StartupStyle.muted, weight: .medium)
         }
     }
@@ -655,6 +676,12 @@ private final class GestureDemoCanvas: NSView {
         }
 
         switch pose {
+        case .point:
+            drawFinger(rect(-13, 31, 10, 42), radius: 5, fill: fill, stroke: stroke, scale: scale, rect: rect)
+            drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke)
+            drawThumb(anchor: anchor, scale: scale, mirrored: mirrored, extended: false, fill: fill, stroke: stroke)
+            drawPalmAndWrist()
+            drawTip(at: CGPoint(x: px(-8), y: py(72)), color: accent, scale: scale)
         case .raised:
             drawFinger(rect(-13, 31, 10, 42), radius: 5, fill: fill, stroke: stroke, scale: scale, rect: rect)
             drawFinger(rect(1, 32, 10, 38), radius: 5, fill: fill, stroke: stroke, scale: scale, rect: rect)
@@ -663,19 +690,30 @@ private final class GestureDemoCanvas: NSView {
             drawPalmAndWrist()
             drawTip(at: CGPoint(x: px(-8), y: py(72)), color: accent, scale: scale)
             drawTip(at: CGPoint(x: px(6), y: py(68)), color: accent, scale: scale)
-        case .bent:
-            drawBentFinger(points: [(-8, 34), (-10, 51), (-1, 55)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
-            drawBentFinger(points: [(6, 34), (5, 49), (15, 51)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
-            drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke)
-            drawThumb(anchor: anchor, scale: scale, mirrored: mirrored, extended: true, fill: fill, stroke: stroke)
+        case .allPinch:
+            let fingers: [[(CGFloat, CGFloat)]] = [
+                [(-13, 31), (-19, 47), (-12, 57), (-7, 60)],
+                [(-3, 35), (-9, 54), (-6, 64), (-3, 66)],
+                [(8, 34), (11, 53), (7, 63), (2, 66)],
+                [(18, 29), (23, 45), (17, 56), (7, 61)],
+                [(-17, 19), (-29, 33), (-20, 48), (-8, 55)]
+            ]
+            for finger in fingers {
+                drawBentFinger(points: finger, anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
+            }
             drawPalmAndWrist()
-            drawTip(at: CGPoint(x: px(-1), y: py(55)), color: accent, scale: scale)
-            drawTip(at: CGPoint(x: px(15), y: py(51)), color: accent, scale: scale)
-        case .pinch:
-            drawBentFinger(points: [(-8, 34), (-9, 57), (2, 64), (12, 57)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
-            drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke)
+            for finger in fingers {
+                if let tip = finger.last { drawTip(at: CGPoint(x: px(tip.0), y: py(tip.1)), color: accent, scale: scale) }
+            }
+        case .threePinch:
+            drawBentFinger(points: [(-8, 34), (-14, 53), (-4, 65), (5, 60)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
+            drawBentFinger(points: [(6, 34), (18, 54), (15, 66), (9, 61)], anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
+            drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke, count: 2)
             drawPinchingThumb(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, stroke: stroke)
             drawPalmAndWrist()
+            for (x, y) in [(CGFloat(5), CGFloat(60)), (9, 61), (12, 56)] {
+                drawTip(at: CGPoint(x: px(x), y: py(y)), color: accent, scale: scale)
+            }
         case .lShape:
             drawFinger(rect(-12, 31, 10, 42), radius: 5, fill: fill, stroke: stroke, scale: scale, rect: rect)
             drawFoldedFingers(anchor: anchor, scale: scale, mirrored: mirrored, fill: fill, ink: stroke)
@@ -690,6 +728,36 @@ private final class GestureDemoCanvas: NSView {
             }
             drawThumb(anchor: anchor, scale: scale, mirrored: mirrored, extended: true, fill: fill, stroke: stroke)
             drawPalmAndWrist()
+        }
+    }
+
+    private func drawCountdown(at center: CGPoint, color: NSColor, scale: CGFloat) {
+        let radius = 28 * scale
+        let track = NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius,
+                                               width: radius * 2, height: radius * 2))
+        color.withAlphaComponent(0.16).setStroke(); track.lineWidth = 5 * scale; track.stroke()
+        let progress = NSBezierPath()
+        progress.appendArc(withCenter: center, radius: radius, startAngle: -90, endAngle: 150, clockwise: false)
+        color.setStroke(); progress.lineWidth = 5 * scale; progress.lineCapStyle = .round; progress.stroke()
+        let label = NSAttributedString(string: "1 s", attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 17 * scale, weight: .semibold),
+            .foregroundColor: color
+        ])
+        let size = label.size()
+        label.draw(at: CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2))
+    }
+
+    private func drawContextMenu(at origin: CGPoint, color: NSColor, scale: CGFloat) {
+        let outline = NSBezierPath(roundedRect: NSRect(x: origin.x, y: origin.y, width: 57 * scale, height: 48 * scale),
+                                   xRadius: 6 * scale, yRadius: 6 * scale)
+        color.withAlphaComponent(0.08).setFill(); outline.fill()
+        color.withAlphaComponent(0.64).setStroke(); outline.lineWidth = max(1, 1.3 * scale); outline.stroke()
+        for index in 0..<3 {
+            let line = NSBezierPath()
+            line.move(to: CGPoint(x: origin.x + 11 * scale, y: origin.y + CGFloat(12 + index * 12) * scale))
+            line.line(to: CGPoint(x: origin.x + 44 * scale, y: origin.y + CGFloat(12 + index * 12) * scale))
+            color.withAlphaComponent(index == 0 ? 1 : 0.4).setStroke()
+            line.lineWidth = 3 * scale; line.lineCapStyle = .round; line.stroke()
         }
     }
 
@@ -714,8 +782,8 @@ private final class GestureDemoCanvas: NSView {
     }
 
     private func drawFoldedFingers(anchor: CGPoint, scale: CGFloat, mirrored: Bool,
-                                   fill: NSColor, ink: NSColor) {
-        for index in 0..<3 {
+                                   fill: NSColor, ink: NSColor, count: Int = 3) {
+        for index in (3 - count)..<3 {
             let x = CGFloat(7 + index * 7)
             let center = CGPoint(x: anchor.x + (mirrored ? -x : x) * scale,
                                  y: anchor.y - CGFloat(27 - index * 4) * scale)

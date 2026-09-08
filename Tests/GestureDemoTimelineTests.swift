@@ -5,26 +5,26 @@ enum GestureDemoTimelineTests {
     private static var checks = 0
 
     static func main() {
-        clickActivatesOnLift()
+        clickActivatesAfterHold()
         scrollPairsDownwardMotionWithAdvancingContent()
         selectionTracksPrimaryMotion()
         timelineLoopsDeterministically()
         print("Passed \(checks) gesture demo timeline checks.")
     }
 
-    private static func clickActivatesOnLift() {
-        let raised = GestureDemoTimeline.sample(action: .click, seconds: 1.40)
-        let bent = GestureDemoTimeline.sample(action: .click, seconds: 1.72)
-        let lifted = GestureDemoTimeline.sample(action: .click, seconds: GestureDemoTimeline.clickLiftTime)
-
-        check(raised.primaryPose == .raised && !raised.gestureHeld && !raised.resultActivated,
-              "Click starts raised and inactive")
-        check(bent.primaryPose == .bent && bent.gestureHeld && !bent.resultActivated,
-              "Bending both fingers does not activate the result")
-        check(lifted.primaryPose == .raised && !lifted.gestureHeld && lifted.resultActivated,
-              "Lifting both fingers activates the button")
-        check(GestureDemoTimeline.clickLiftTime - GestureDemoTimeline.clickBendStart <= 0.65,
-              "The teaching bend stays within the production release window")
+    private static func clickActivatesAfterHold() {
+        let aim = GestureDemoTimeline.sample(action: .click, seconds: 1.40)
+        let held = GestureDemoTimeline.sample(action: .click, seconds: 2.0)
+        let clicked = GestureDemoTimeline.sample(action: .click, seconds: GestureDemoTimeline.clickTime)
+        check(aim.primaryPose == .point && !aim.resultActivated, "Aim uses index only")
+        check(held.primaryPose == .raised && held.gestureHeld && !held.resultActivated && held.resultProgress == 0.5,
+              "Two raised fingers count down before activation")
+        check(clicked.resultActivated && clicked.primaryPose == .raised, "Click occurs at hold completion")
+        check(GestureDemoTimeline.clickTime - GestureDemoTimeline.clickHoldStart == 1, "Tutorial hold lasts one second")
+        let right = GestureDemoTimeline.sample(action: .rightClick, seconds: 2)
+        check(right.primaryPose == .allPinch && right.resultActivated, "Right click shows five-tip closure")
+        check(GestureDemoTimeline.sample(action: .scroll, seconds: 2).primaryPose == .threePinch,
+              "Scroll shows three-tip closure")
     }
 
     private static func scrollPairsDownwardMotionWithAdvancingContent() {

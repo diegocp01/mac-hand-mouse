@@ -39,8 +39,8 @@ final class DwellRingView: NSView {
 }
 
 final class ClickFeedbackView: NSView {
-    let title = NSTextField(labelWithString: "Palm toward camera · Raise index + middle")
-    let detail = NSTextField(wrappingLabelWithString: "Start the camera, then raise index + middle with your palm toward the camera.")
+    let title = NSTextField(labelWithString: "Palm toward camera · Point with index")
+    let detail = NSTextField(wrappingLabelWithString: "Start the camera, then extend only your index finger with your palm toward the camera.")
     private let progress = NSProgressIndicator()
     private let ring = DwellRingView()
     private var textInset: NSLayoutConstraint!
@@ -121,6 +121,9 @@ final class PracticeView: NSView {
     private let nextButton = NSButton(title: "Next", target: nil, action: nil)
     private var pointer: CGPoint?
     private var fraction = 0.0
+    private var holding = false
+    private(set) var hits = 0
+    private(set) var rightClicks = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -185,7 +188,7 @@ final class PracticeView: NSView {
 
     func reset(task: PracticeTask = .click) {
         state.reset(task: task)
-        pointer = nil; fraction = 0
+        pointer = nil; fraction = 0; holding = false; hits = 0; rightClicks = 0
         taskPicker.selectedSegment = PracticeTask.allCases.firstIndex(of: task) ?? 0
         refreshChrome()
     }
@@ -196,7 +199,7 @@ final class PracticeView: NSView {
     }
 
     @discardableResult
-    func update(point: CGPoint?, progress: Double, clicked: Bool, scrollY: Int32 = 0,
+    func update(point: CGPoint?, progress: Double, clicked: Bool, rightClicked: Bool = false, holding: Bool = false, scrollY: Int32 = 0,
                 dragging: Bool = false, interrupted: Bool = false) -> Bool {
         let normalizedPoint = point.flatMap(normalize)
         pointer = interrupted ? nil : point.flatMap { canvas.contains($0) ? $0 : nil }
@@ -204,6 +207,9 @@ final class PracticeView: NSView {
         let newlyCompleted = state.update(point: normalizedPoint, clicked: clicked,
                                           scrollY: scrollY, dragging: dragging,
                                           interrupted: interrupted || (point != nil && normalizedPoint == nil))
+        self.holding = !interrupted && holding
+        if !interrupted && normalizedPoint != nil && rightClicked { rightClicks += 1 }
+        if newlyCompleted && currentTask == .click { hits += 1 }
         refreshChrome()
         return newlyCompleted
     }
@@ -255,7 +261,7 @@ final class PracticeView: NSView {
         let isLast = currentTask == PracticeTask.allCases.last
         nextButton.isHidden = isLast
         nextButton.isEnabled = state.completed && !isLast
-        setAccessibilityLabel("\(instruction.stringValue). \(state.completed ? "Task complete." : "Not complete.") Practice sends no system input.")
+        setAccessibilityLabel("\(instruction.stringValue). \(state.completed ? "Task complete." : "Not complete.") \(hits) successful left-click targets. \(rightClicks) practice right clicks. Practice sends no system input.")
         needsDisplay = true
     }
 
@@ -360,7 +366,12 @@ final class PracticeView: NSView {
         NSColor.white.withAlphaComponent(0.9).setStroke()
         let dot = NSBezierPath(ovalIn: CGRect(x: pointer.x - 5, y: pointer.y - 5, width: 10, height: 10))
         dot.lineWidth = 2; dot.fill(); dot.stroke()
-        guard fraction > 0 else { return }
+        if holding {
+            NSColor.systemMint.withAlphaComponent(0.25).setStroke()
+            let track = NSBezierPath(ovalIn: CGRect(x: pointer.x - 17, y: pointer.y - 17, width: 34, height: 34))
+            track.lineWidth = 3; track.stroke()
+        }
+        guard holding && fraction > 0 else { return }
         let arc = NSBezierPath()
         arc.appendArc(withCenter: pointer, radius: 17, startAngle: -90,
                       endAngle: -90 + CGFloat(fraction) * 360, clockwise: false)

@@ -8,7 +8,7 @@ enum GestureGuideSnapshot {
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 
         try render(
-            name: "gesture-guide-click-bend.png",
+            name: "gesture-guide-click-hold.png",
             size: NSSize(width: 900, height: 360),
             selected: .click,
             active: .move,
@@ -18,13 +18,13 @@ enum GestureGuideSnapshot {
             destination: destination
         )
         try render(
-            name: "gesture-guide-click-lift.png",
+            name: "gesture-guide-click-complete.png",
             size: NSSize(width: 900, height: 360),
             selected: .click,
             active: .move,
             scrollingEnabled: true,
             selectionEnabled: true,
-            demoTime: 2.10,
+            demoTime: 2.60,
             destination: destination
         )
         try render(
