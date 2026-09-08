@@ -57,10 +57,18 @@ struct PointHoldDetector {
         if let previous = lastTime,
            time <= previous || time - previous > maximumGap + epsilon { reset() }
         lastTime = time
-        guard let pose, let point,
+        guard let point,
               point.x.isFinite, point.y.isFinite,
               (0...1).contains(point.x), (0...1).contains(point.y) else {
             reset(); return false
+        }
+        // Curling the outer fingers passes through poses Vision cannot classify.
+        // Keep an already-armed click through the transition while the hand
+        // remains tracked. Never count unknown time toward a hold or preserve an
+        // in-progress click through missing evidence.
+        guard let pose else {
+            if phase != .ready { reset() }
+            return false
         }
 
         if pose == .move {

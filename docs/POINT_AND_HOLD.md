@@ -12,6 +12,8 @@ Show your hand to move immediately; no index-only pose or stationary acquisition
 
 Each raise produces at most one click. Open your hand or lower the middle finger to prepare the next click. Releasing before the countdown completes or moving the hand too far cancels that click. Tracking loss, pause, permission changes, and competing gestures clear pending intent. Resuming movement reanchors at the held pointer rather than applying hand travel from the hold.
 
+Once aiming has prepared a click, an unclassified finger pose does not disarm it while the hand remains tracked. This lets you curl the fingers at your own pace. The full one-second countdown starts only when two raised fingers are recognized; unclassified time never counts toward it. Missing evidence during a running countdown still cancels that click. If recognition is unclear, the app identifies which fingers need to be visible instead of always asking you to open your hand.
+
 ## Right-click
 
 Bring all five fingertips together. Recognition requires confident observations of every fingertip; an unseen finger does not count as pinched. A short confirmation of about 100 milliseconds sends one right-click at the held target. Keeping the pinch closed does not repeat it. Open the hand before another right-click, including after a canceled confirmation.

@@ -14,6 +14,7 @@ struct HandFrame {
     var palm: CGPoint?
     var scrollPoint: CGPoint?
     var pointingPose: PointingPose?
+    var pointingHint = "Keep your fingers visible"
     var fiveFingerPinchRatio: Double?
     var threeFingerPinchRatio: Double?
     var tapPose: TapPose?
@@ -277,6 +278,11 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         frame.pointingPose = PointingPoseClassifier.classify(index: indexShape, middle: middleShape,
             ring: finger(.ringTip, .ringPIP, .ringMCP, confidence: 0.45),
             little: finger(.littleTip, .littlePIP, .littleMCP, confidence: 0.45))
+        if frame.pointingPose == nil {
+            if indexShape != .extended { frame.pointingHint = "Show your index finger clearly" }
+            else if middleShape == .uncertain { frame.pointingHint = "Show your middle finger clearly" }
+            else { frame.pointingHint = "Keep your curled fingers visible" }
+        }
         let scrollTipJoints: [VNHumanHandPoseObservation.JointName] = [.thumbTip, .indexTip, .middleTip]
         if (scrollTipJoints + palmJoints).allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
            let indexBase = frame.points[.indexMCP], let littleBase = frame.points[.littleMCP],
