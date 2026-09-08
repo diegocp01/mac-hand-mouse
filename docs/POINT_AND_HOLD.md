@@ -14,6 +14,8 @@ Each raise produces at most one click. Open your hand or lower the middle finger
 
 Once aiming has prepared a click, an unclassified finger pose does not disarm it while the hand remains tracked. This lets you curl the fingers at your own pace. The full one-second countdown starts only when two raised fingers are recognized; unclassified time never counts toward it. Missing evidence during a running countdown still cancels that click. If recognition is unclear, the app identifies which fingers need to be visible instead of always asking you to open your hand.
 
+The ring and little fingers may be partly curled; a tight fist is not required. Their folded-shape cutoff is more tolerant than the legacy gesture geometry. The raised index and middle finger checks and all landmark confidence requirements are unchanged. A clearly extended outer finger still prevents the click pose, and missing observations never count as folded fingers.
+
 ## Right-click
 
 Bring all five fingertips together. Recognition requires confident observations of every fingertip; an unseen finger does not count as pinched. A short confirmation of about 100 milliseconds sends one right-click at the held target. Keeping the pinch closed does not repeat it. Open the hand before another right-click, including after a canceled confirmation.

@@ -268,16 +268,19 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             frame.points.removeValue(forKey: .indexTip); return frame
         }
         func finger(_ tip: VNHumanHandPoseObservation.JointName, _ pip: VNHumanHandPoseObservation.JointName,
-                    _ base: VNHumanHandPoseObservation.JointName, confidence: Float = 0.6) -> FingerShape {
+                    _ base: VNHumanHandPoseObservation.JointName, confidence: Float = 0.6,
+                    foldedReachLimit: Double = 1.2) -> FingerShape {
             guard [tip, pip, base].allSatisfy({ (all[$0]?.confidence ?? 0) >= confidence }),
                   let t = frame.points[tip], let p = frame.points[pip], let b = frame.points[base] else { return .uncertain }
-            return ScrollPoseGeometry.shape(tip: t, pip: p, base: b, aspect: Double(aspect))
+            return ScrollPoseGeometry.shape(tip: t, pip: p, base: b, aspect: Double(aspect), foldedReachLimit: foldedReachLimit)
         }
         let indexShape = finger(.indexTip, .indexPIP, .indexMCP)
         let middleShape = finger(.middleTip, .middlePIP, .middleMCP)
         frame.pointingPose = PointingPoseClassifier.classify(index: indexShape, middle: middleShape,
-            ring: finger(.ringTip, .ringPIP, .ringMCP, confidence: 0.45),
-            little: finger(.littleTip, .littlePIP, .littleMCP, confidence: 0.45))
+            // Partly curled outer fingers need not form a tight fist. Keep the
+            // stricter default for raised fingers and legacy scroll/tap geometry.
+            ring: finger(.ringTip, .ringPIP, .ringMCP, confidence: 0.45, foldedReachLimit: 1.45),
+            little: finger(.littleTip, .littlePIP, .littleMCP, confidence: 0.45, foldedReachLimit: 1.45))
         if frame.pointingPose == nil {
             if indexShape != .extended { frame.pointingHint = "Show your index finger clearly" }
             else if middleShape == .uncertain { frame.pointingHint = "Show your middle finger clearly" }

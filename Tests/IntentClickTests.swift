@@ -98,6 +98,37 @@ import CoreGraphics
     }
 
     static func main() {
+        // Partially curled outer fingers used to fall into the unknown gap
+        // between the tight-fist cutoff and the extended-finger cutoff.
+        for aspect in [0.75, 1.0, 16.0 / 9.0] {
+            for angle in [0.0, 0.6, 1.5, 3.1] {
+                let base = CGPoint(x: 0.5, y: 0.5)
+                func point(_ distance: Double) -> CGPoint {
+                    CGPoint(x: base.x + cos(angle) * distance / aspect,
+                            y: base.y + sin(angle) * distance)
+                }
+                func outer(_ ratio: Double) -> FingerShape {
+                    ScrollPoseGeometry.shape(tip: point(0.1 * ratio), pip: point(0.1), base: base,
+                        aspect: aspect, foldedReachLimit: 1.45)
+                }
+                check(outer(1.27) == .folded, "A partly curled outer finger is recognized without a tight fist")
+                check(outer(1.4) == .folded, "Relaxed curled fingers are accepted across orientations")
+                check(outer(1.52) == .uncertain, "Borderline outer fingers remain uncertain")
+                check(outer(2.0) == .extended, "Raised outer fingers still veto a click")
+                check(ScrollPoseGeometry.shape(tip: point(0.127), pip: point(0.1), base: base,
+                    aspect: aspect) == .uncertain, "Legacy geometry retains its strict fold threshold")
+                let relaxedClick = PointingPoseClassifier.classify(index: .extended, middle: .extended,
+                    ring: outer(1.27), little: .uncertain)
+                check(relaxedClick == .click, "Two raised fingers with a relaxed curl establish the click pose")
+                var session = Session(fps: 30, practice: true)
+                session.hold(.move, seconds: 0.4)
+                session.hold(nil, seconds: 0.2)
+                session.frame(relaxedClick)
+                check(session.engine.pointHold.phase == .holding, "A relaxed curl starts the production timer")
+                session.hold(relaxedClick, seconds: 1.2)
+                check(session.leftClicks == 1, "The complete relaxed-curl hold produces one practice click")
+            }
+        }
         for fps in [15.0, 30, 60] {
             var transition = HoldTrace(fps: fps)
             transition.hold(.move, seconds: 0.4)
