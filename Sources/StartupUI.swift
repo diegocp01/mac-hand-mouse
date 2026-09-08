@@ -58,23 +58,103 @@ enum GestureAction: CaseIterable {
     }
 }
 
-/// A keyboard-accessible, camera-free guide to the app's gesture vocabulary.
-/// The diagrams use static sequence frames so their meaning remains complete with
-/// Reduce Motion enabled and while the view is offscreen.
+/// A single deterministic frame from the five-second tutorial loop. Keeping the
+/// result state in this camera-free model lets review tools sample meaningful
+/// phases without starting capture or waiting on wall-clock animation.
+struct GestureDemoSample {
+    enum HandPose { case raised, bent, pinch, lShape, open }
+    let primaryPose: HandPose
+    let secondaryPose: HandPose?
+    let primaryX: CGFloat
+    let primaryY: CGFloat
+    let resultProgress: CGFloat
+    let gestureHeld: Bool
+    let resultActivated: Bool
+    let stage: String
+}
+
+enum GestureDemoTimeline {
+    static let duration: TimeInterval = 5
+    static let clickBendStart: TimeInterval = 1.50
+    static let clickLiftTime: TimeInterval = 1.95
+
+    static func sample(action: GestureAction, seconds: TimeInterval) -> GestureDemoSample {
+        let raw = seconds.truncatingRemainder(dividingBy: duration)
+        let t = CGFloat((raw < 0 ? raw + duration : raw) / duration)
+        func ramp(_ start: CGFloat, _ end: CGFloat) -> CGFloat {
+            let value = max(0, min(1, (t - start) / (end - start)))
+            return value * value * (3 - 2 * value)
+        }
+        switch action {
+        case .move:
+            let travel = t < 0.72 ? ramp(0.16, 0.64) : 1 - ramp(0.76, 0.98)
+            return GestureDemoSample(primaryPose: .raised, secondaryPose: nil,
+                                     primaryX: travel, primaryY: 0.5,
+                                     resultProgress: travel, gestureHeld: false,
+                                     resultActivated: false,
+                                     stage: t < 0.16 ? "Raise two fingers" : "Move the index finger")
+        case .click:
+            let bent = secondsInLoop(seconds) >= clickBendStart && secondsInLoop(seconds) < clickLiftTime
+            let activated = t >= 0.39 && t < 0.67
+            return GestureDemoSample(primaryPose: bent ? .bent : .raised,
+                                     secondaryPose: nil, primaryX: 0.46, primaryY: 0.5,
+                                     resultProgress: activated ? 1 : 0,
+                                     gestureHeld: bent, resultActivated: activated,
+                                     stage: bent ? "Bend both" : (activated ? "Lift · click" : "Raise both"))
+        case .scroll:
+            let held = t >= 0.20 && t < 0.72
+            let travel = t < 0.20 ? 0 : (t < 0.64 ? ramp(0.24, 0.64) : 1)
+            return GestureDemoSample(primaryPose: held ? .pinch : .open,
+                                     secondaryPose: nil, primaryX: 0.48,
+                                     primaryY: 0.24 + travel * 0.52,
+                                     resultProgress: travel, gestureHeld: held,
+                                     resultActivated: false,
+                                     stage: t < 0.20 ? "Pinch to hold" : (held ? "Move vertically" : "Open to stop"))
+        case .select:
+            let paired = t >= 0.22 && t < 0.76
+            let travel = t < 0.34 ? 0 : (t < 0.68 ? ramp(0.34, 0.68) : 1)
+            return GestureDemoSample(primaryPose: paired ? .lShape : (t < 0.22 ? .raised : .open),
+                                     secondaryPose: paired ? .lShape : (t >= 0.76 ? .open : nil),
+                                     primaryX: travel, primaryY: 0.5,
+                                     resultProgress: travel, gestureHeld: paired,
+                                     resultActivated: false,
+                                     stage: t < 0.22 ? "Acquire one hand" : (paired ? "Move your first hand" : "Open either hand"))
+        }
+    }
+
+    private static func secondsInLoop(_ seconds: TimeInterval) -> TimeInterval {
+        let raw = seconds.truncatingRemainder(dividingBy: duration)
+        return raw < 0 ? raw + duration : raw
+    }
+}
+
+/// Keyboard-accessible selectors stay independent from the large tutorial. Live
+/// badges describe camera state only in the selector strip; the canvas is always
+/// clearly a demonstration and never produces system input.
 final class GestureGuideView: NSView {
     var onSelect: ((GestureAction) -> Void)?
 
     private var selectedAction: GestureAction = .move
-    private var cards: [GestureAction: GestureCardButton] = [:]
+    private var cards: [GestureAction: GestureSelectorButton] = [:]
+    private let demo = GestureDemoCanvas()
+    private let playback = NSButton(title: "Ⅱ", target: nil, action: nil)
+    private var timer: Timer?
+    private var loopStart = ProcessInfo.processInfo.systemUptime
+    private var pausedAt: TimeInterval = 0
+    private var isPaused = false
+    private var forcedDemoTime: TimeInterval?
+    private var forcedReduceMotion: Bool?
+    private var notificationTokens: [NSObjectProtocol] = []
+    private var hostNotificationTokens: [NSObjectProtocol] = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("Gesture guide")
+        setAccessibilityLabel("Gesture tutorial")
 
         for action in GestureAction.allCases {
-            let card = GestureCardButton(action: action)
+            let card = GestureSelectorButton(action: action)
             card.onActivate = { [weak self] selected in
                 self?.select(selected)
                 self?.onSelect?(selected)
@@ -82,91 +162,216 @@ final class GestureGuideView: NSView {
             cards[action] = card
         }
 
-        let topRow = guideRow([.move, .click])
-        let bottomRow = guideRow([.scroll, .select])
-        let grid = NSStackView(views: [topRow, bottomRow])
-        grid.orientation = .vertical
-        grid.alignment = .leading
-        grid.distribution = .fillEqually
-        grid.spacing = 12
-        grid.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(grid)
+        let selectorRow = NSStackView(views: GestureAction.allCases.compactMap { cards[$0] })
+        selectorRow.orientation = .horizontal
+        selectorRow.alignment = .centerY
+        selectorRow.distribution = .fillEqually
+        selectorRow.spacing = 8
+        cards.values.forEach { $0.heightAnchor.constraint(equalTo: selectorRow.heightAnchor).isActive = true }
 
+        playback.isBordered = false
+        playback.font = .systemFont(ofSize: 13, weight: .semibold)
+        playback.contentTintColor = StartupStyle.text
+        playback.wantsLayer = true
+        playback.layer?.cornerRadius = 8
+        playback.layer?.backgroundColor = StartupStyle.muted.withAlphaComponent(0.12).cgColor
+        playback.focusRingType = .exterior
+        playback.target = self
+        playback.action = #selector(togglePlayback)
+        playback.setAccessibilityLabel("Pause gesture demonstration")
+
+        for view in [selectorRow, demo, playback] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
         NSLayoutConstraint.activate([
-            grid.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            grid.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            grid.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            grid.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-            topRow.widthAnchor.constraint(equalTo: grid.widthAnchor),
-            bottomRow.widthAnchor.constraint(equalTo: grid.widthAnchor),
+            selectorRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            selectorRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            selectorRow.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            selectorRow.heightAnchor.constraint(equalToConstant: 64),
+            demo.leadingAnchor.constraint(equalTo: selectorRow.leadingAnchor),
+            demo.trailingAnchor.constraint(equalTo: selectorRow.trailingAnchor),
+            demo.topAnchor.constraint(equalTo: selectorRow.bottomAnchor, constant: 8),
+            demo.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            playback.trailingAnchor.constraint(equalTo: demo.trailingAnchor, constant: -12),
+            playback.topAnchor.constraint(equalTo: demo.topAnchor, constant: 10),
+            playback.widthAnchor.constraint(equalToConstant: 30),
+            playback.heightAnchor.constraint(equalToConstant: 28),
             heightAnchor.constraint(greaterThanOrEqualToConstant: 340),
             heightAnchor.constraint(lessThanOrEqualToConstant: 390)
         ])
 
+        let center = NotificationCenter.default
+        notificationTokens = [
+            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.updateAnimationLifecycle() },
+            center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.stopTimer() }
+        ]
+        notificationTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.updateAnimationLifecycle() })
         select(.move)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Selects the card shown as the current learning topic. This does not claim
-    /// that a gesture is live; live state is supplied independently by `update`.
-    func select(_ action: GestureAction) {
-        selectedAction = action
-        for (cardAction, card) in cards {
-            card.isLearningSelection = cardAction == action
+    deinit {
+        stopTimer()
+        notificationTokens.forEach(NotificationCenter.default.removeObserver)
+        if let workspaceToken = notificationTokens.last {
+            NSWorkspace.shared.notificationCenter.removeObserver(workspaceToken)
         }
+        hostNotificationTokens.forEach(NotificationCenter.default.removeObserver)
     }
 
-    /// Updates live tracking and feature availability without changing the card
-    /// the person selected for learning.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshHostObservers()
+        updateAnimationLifecycle()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        stopTimer()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateAnimationLifecycle()
+    }
+
+    func select(_ action: GestureAction) {
+        selectedAction = action
+        cards.forEach { $0.value.isLearningSelection = $0.key == action }
+        demo.action = action
+        resetLoop()
+    }
+
     func update(active: GestureAction?, scrollingEnabled: Bool, selectionEnabled: Bool) {
         for (action, card) in cards {
-            switch action {
-            case .scroll: card.featureEnabled = scrollingEnabled
-            case .select: card.featureEnabled = selectionEnabled
-            case .move, .click: card.featureEnabled = true
-            }
+            card.featureEnabled = action == .scroll ? scrollingEnabled : (action == .select ? selectionEnabled : true)
             card.isLive = active == action && card.featureEnabled
         }
     }
 
-    private func guideRow(_ actions: [GestureAction]) -> NSStackView {
-        let row = NSStackView(views: actions.compactMap { cards[$0] })
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.distribution = .fillEqually
-        row.spacing = 12
-        for action in actions {
-            cards[action]?.heightAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
+    /// Deterministic render injection used by camera-free screenshots. Passing nil
+    /// returns the view to normal lifecycle-managed playback.
+    func setDemoTimeForRendering(_ seconds: TimeInterval?) {
+        forcedDemoTime = seconds
+        if let seconds {
+            stopTimer()
+            demo.sample = GestureDemoTimeline.sample(action: selectedAction, seconds: seconds)
+        } else {
+            resetLoop()
+            updateAnimationLifecycle()
         }
-        return row
+    }
+
+    func setReduceMotionForRendering(_ enabled: Bool?) {
+        forcedReduceMotion = enabled
+        updateAnimationLifecycle()
+    }
+
+    @objc private func togglePlayback() {
+        let frameTime = currentTime()
+        if isPaused {
+            isPaused = false
+            loopStart = ProcessInfo.processInfo.systemUptime - pausedAt
+            updateAnimationLifecycle()
+        } else {
+            isPaused = true
+            pausedAt = frameTime
+            stopTimer()
+        }
+        refreshPlaybackButton()
+    }
+
+    private func resetLoop() {
+        loopStart = ProcessInfo.processInfo.systemUptime
+        pausedAt = 0
+        renderFrame()
+    }
+
+    private func currentTime() -> TimeInterval {
+        forcedDemoTime ?? (isPaused ? pausedAt : ProcessInfo.processInfo.systemUptime - loopStart)
+    }
+
+    private func renderFrame() {
+        guard canAnimate || forcedDemoTime != nil || isPaused else {
+            stopTimer()
+            return
+        }
+        demo.sample = GestureDemoTimeline.sample(action: selectedAction, seconds: currentTime())
+    }
+
+    private func updateAnimationLifecycle() {
+        refreshPlaybackButton()
+        guard canAnimate else {
+            stopTimer()
+            renderFrame()
+            return
+        }
+        guard timer == nil else { return }
+        let next = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in self?.renderFrame() }
+        RunLoop.main.add(next, forMode: .common)
+        timer = next
+    }
+
+    private var canAnimate: Bool {
+        guard forcedDemoTime == nil, !isPaused,
+              !reduceMotionEnabled,
+              let window, window.isVisible, !window.isMiniaturized,
+              window.occlusionState.contains(.visible),
+              !isHiddenOrHasHiddenAncestor, !visibleRect.isEmpty,
+              NSApp.isActive else { return false }
+        return true
+    }
+
+    private func refreshHostObservers() {
+        hostNotificationTokens.forEach(NotificationCenter.default.removeObserver)
+        hostNotificationTokens.removeAll()
+        guard let window else { return }
+        let center = NotificationCenter.default
+        for name in [NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
+                     NSWindow.didChangeOcclusionStateNotification, NSWindow.willCloseNotification] {
+            hostNotificationTokens.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
+                if note.name == NSWindow.willCloseNotification { self?.stopTimer() }
+                else { self?.updateAnimationLifecycle() }
+            })
+        }
+        if let clip = enclosingScrollView?.contentView {
+            clip.postsBoundsChangedNotifications = true
+            hostNotificationTokens.append(center.addObserver(forName: NSView.boundsDidChangeNotification,
+                                                               object: clip, queue: .main) { [weak self] _ in
+                self?.updateAnimationLifecycle()
+            })
+        }
+    }
+
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func refreshPlaybackButton() {
+        let reduced = reduceMotionEnabled
+        playback.isHidden = reduced
+        playback.title = isPaused ? "▶" : "Ⅱ"
+        playback.setAccessibilityLabel(isPaused ? "Play gesture demonstration" : "Pause gesture demonstration")
+        demo.showsStaticSequence = reduced
+    }
+
+    private var reduceMotionEnabled: Bool {
+        forcedReduceMotion ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 }
 
-private final class GestureCardButton: NSButton {
+private final class GestureSelectorButton: NSButton {
     let gestureAction: GestureAction
     var onActivate: ((GestureAction) -> Void)?
-
-    var isLearningSelection = false {
-        didSet {
-            guard isLearningSelection != oldValue else { return }
-            refreshPresentation()
-        }
-    }
-    var isLive = false {
-        didSet {
-            guard isLive != oldValue else { return }
-            refreshPresentation()
-        }
-    }
-    var featureEnabled = true {
-        didSet {
-            guard featureEnabled != oldValue else { return }
-            refreshPresentation()
-        }
-    }
-
-    private let illustration: GestureIllustrationView
+    var isLearningSelection = false { didSet { refreshPresentation() } }
+    var isLive = false { didSet { refreshPresentation() } }
+    var featureEnabled = true { didSet { refreshPresentation() } }
     private let titleLabel = NSTextField(labelWithString: "")
     private let instructionLabel = NSTextField(labelWithString: "")
     private let statusBadge = NSTextField(labelWithString: "LIVE")
@@ -175,61 +380,44 @@ private final class GestureCardButton: NSButton {
 
     init(action: GestureAction) {
         gestureAction = action
-        illustration = GestureIllustrationView(action: action)
         super.init(frame: .zero)
-
         title = ""
         isBordered = false
         setButtonType(.momentaryChange)
         focusRingType = .exterior
         wantsLayer = true
-        layer?.cornerRadius = 16
+        layer?.cornerRadius = 12
         layer?.borderWidth = 1
-        layer?.masksToBounds = false
         target = self
         self.action = #selector(activateCard)
 
         titleLabel.stringValue = action.title
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = StartupStyle.text
-        titleLabel.setAccessibilityElement(false)
-
         instructionLabel.stringValue = action.instruction
-        instructionLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        instructionLabel.font = .systemFont(ofSize: 10.5, weight: .medium)
         instructionLabel.textColor = StartupStyle.muted
-        instructionLabel.setAccessibilityElement(false)
-
         statusBadge.font = .monospacedSystemFont(ofSize: 8, weight: .bold)
-        statusBadge.textColor = StartupStyle.background
         statusBadge.alignment = .center
         statusBadge.wantsLayer = true
-        statusBadge.layer?.cornerRadius = 6
-        statusBadge.layer?.backgroundColor = StartupStyle.accent.cgColor
-        statusBadge.isHidden = true
-        statusBadge.setAccessibilityElement(false)
-
-        for view in [illustration, titleLabel, instructionLabel, statusBadge] {
+        statusBadge.layer?.cornerRadius = 5
+        for view in [titleLabel, instructionLabel, statusBadge] {
             view.translatesAutoresizingMaskIntoConstraints = false
+            view.setAccessibilityElement(false)
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            illustration.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            illustration.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            illustration.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            illustration.heightAnchor.constraint(greaterThanOrEqualToConstant: 84),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            titleLabel.topAnchor.constraint(equalTo: illustration.bottomAnchor, constant: 3),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusBadge.leadingAnchor, constant: -8),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusBadge.leadingAnchor, constant: -5),
             instructionLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            instructionLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
-            instructionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            instructionLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            statusBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -13),
+            instructionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+            instructionLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            statusBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -9),
             statusBadge.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            statusBadge.widthAnchor.constraint(equalToConstant: 34),
+            statusBadge.widthAnchor.constraint(equalToConstant: 32),
             statusBadge.heightAnchor.constraint(equalToConstant: 14)
         ])
-
         setAccessibilityRole(.button)
         setAccessibilityLabel(action.title)
         setAccessibilityHelp(action.accessibilityDescription)
@@ -237,15 +425,11 @@ private final class GestureCardButton: NSButton {
     }
 
     required init?(coder: NSCoder) { fatalError() }
-
     override var acceptsFirstResponder: Bool { true }
 
     override func updateTrackingAreas() {
         if let trackingAreaReference { removeTrackingArea(trackingAreaReference) }
-        let next = NSTrackingArea(rect: .zero,
-                                  options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-                                  owner: self,
-                                  userInfo: nil)
+        let next = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(next)
         trackingAreaReference = next
         super.updateTrackingAreas()
@@ -253,133 +437,202 @@ private final class GestureCardButton: NSButton {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let localPoint = superview.map { convert(point, from: $0) } ?? point
-        guard !isHidden, alphaValue > 0.01, bounds.contains(localPoint) else { return nil }
-        return self
-    }
-
     override var focusRingMaskBounds: NSRect { bounds.insetBy(dx: 1, dy: 1) }
-
-    override func drawFocusRingMask() {
-        NSBezierPath(roundedRect: focusRingMaskBounds, xRadius: 15, yRadius: 15).fill()
-    }
-
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: focusRingMaskBounds, xRadius: 11, yRadius: 11).fill() }
     @objc private func activateCard() { onActivate?(gestureAction) }
 
     private func refreshPresentation() {
+        guard layer != nil else { return }
         let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        let selectedColor = StartupStyle.mint
-        alphaValue = 1
         let raised = isLearningSelection || isHovered || isHighlighted
         layer?.backgroundColor = (raised ? StartupStyle.raisedSurface : StartupStyle.surface).cgColor
-        let border = isLearningSelection
-            ? selectedColor.withAlphaComponent(contrast ? 1 : 0.74)
-            : StartupStyle.muted.withAlphaComponent(isHovered ? 0.38 : (contrast ? 0.46 : 0.18))
-        layer?.borderColor = border.cgColor
+        layer?.borderColor = (isLearningSelection ? StartupStyle.mint.withAlphaComponent(contrast ? 1 : 0.82) : StartupStyle.muted.withAlphaComponent(isHovered ? 0.38 : 0.18)).cgColor
         layer?.borderWidth = isLearningSelection ? 2 : 1
         layer?.shadowOpacity = 0
-        illustration.isLearningSelection = isLearningSelection
-        illustration.isLive = isLive
-        illustration.featureEnabled = featureEnabled
         statusBadge.stringValue = isLive ? "LIVE" : "OFF"
         statusBadge.textColor = isLive ? StartupStyle.background : StartupStyle.muted
-        statusBadge.layer?.backgroundColor = (isLive
-            ? StartupStyle.accent
-            : StartupStyle.muted.withAlphaComponent(0.12)).cgColor
+        statusBadge.layer?.backgroundColor = (isLive ? StartupStyle.accent : StartupStyle.muted.withAlphaComponent(0.12)).cgColor
         statusBadge.isHidden = featureEnabled && !isLive
-        let availability = featureEnabled ? "" : " Unavailable until enabled."
-        let state = isLive ? " Active now." : (isLearningSelection ? " Selected for learning." : "")
-        setAccessibilityValue(actionValue() + state + availability)
-        setAccessibilityHelp(gestureAction.accessibilityDescription)
+        let availability = featureEnabled ? "" : " Feature is off; tutorial remains available."
+        let state = isLive ? " Active now." : (isLearningSelection ? " Selected tutorial." : "")
+        setAccessibilityValue(gestureAction.instruction + state + availability)
     }
-
-    private func actionValue() -> String { gestureAction.instruction }
 }
 
-private final class GestureIllustrationView: NSView {
-    enum HandPose { case raised, bent, pinch, lShape, open }
+private final class GestureDemoCanvas: NSView {
+    typealias HandPose = GestureDemoSample.HandPose
+    var action: GestureAction = .move { didSet { needsDisplay = true; refreshAccessibility() } }
+    var sample = GestureDemoTimeline.sample(action: .move, seconds: 0) { didSet { needsDisplay = true; refreshAccessibility() } }
+    var showsStaticSequence = false { didSet { needsDisplay = true } }
 
-    let gestureAction: GestureAction
-    var isLearningSelection = false {
-        didSet { if isLearningSelection != oldValue { needsDisplay = true } }
-    }
-    var isLive = false {
-        didSet { if isLive != oldValue { needsDisplay = true } }
-    }
-    var featureEnabled = true {
-        didSet { if featureEnabled != oldValue { needsDisplay = true } }
-    }
-
-    init(action: GestureAction) {
-        gestureAction = action
-        super.init(frame: .zero)
-        setAccessibilityElement(false)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        layer?.backgroundColor = StartupStyle.surface.cgColor
+        layer?.borderWidth = 1
+        layer?.borderColor = StartupStyle.muted.withAlphaComponent(0.18).cgColor
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        refreshAccessibility()
     }
 
     required init?(coder: NSCoder) { fatalError() }
-
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard bounds.width > 8, bounds.height > 8 else { return }
-        let scale = min(bounds.width / 260, bounds.height / 92)
-        let drawingWidth: CGFloat = 260 * scale
-        let origin = CGPoint(x: bounds.midX - drawingWidth / 2, y: bounds.midY - 46 * scale)
-        let ink = StartupStyle.text.withAlphaComponent(0.82)
-        let accent = isLive ? StartupStyle.accent : (isLearningSelection ? StartupStyle.mint : StartupStyle.accent.withAlphaComponent(0.74))
-
-        switch gestureAction {
-        case .move:
-            drawStep("1", at: point(14, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(91, 84, origin, scale), scale: 0.88 * scale, pose: .raised,
-                     mirrored: false, primary: true, ink: ink, accent: accent)
-            drawMoveArrow(from: point(150, 46, origin, scale), to: point(228, 46, origin, scale),
-                          color: accent, scale: scale)
-            drawPointer(at: point(225, 47, origin, scale), color: accent, scale: scale)
-        case .click:
-            drawStep("1", at: point(5, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(50, 82, origin, scale), scale: 0.62 * scale, pose: .raised,
-                     mirrored: false, primary: true, ink: ink, accent: accent)
-            drawArrow(from: point(76, 43, origin, scale), to: point(101, 43, origin, scale), color: accent, scale: scale)
-            drawStep("2", at: point(91, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(137, 82, origin, scale), scale: 0.62 * scale, pose: .bent,
-                     mirrored: false, primary: true, ink: ink, accent: accent)
-            drawArrow(from: point(164, 43, origin, scale), to: point(189, 43, origin, scale), color: accent, scale: scale)
-            drawStep("3", at: point(179, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(225, 82, origin, scale), scale: 0.62 * scale, pose: .raised,
-                     mirrored: false, primary: true, ink: ink, accent: accent)
-        case .scroll:
-            drawStep("1", at: point(14, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(105, 82, origin, scale), scale: 0.88 * scale, pose: .pinch,
-                     mirrored: false, primary: true, ink: ink, accent: accent)
-            drawContact(at: point(107, 30, origin, scale), color: accent, scale: scale)
-            drawStep("2", at: point(151, 14, origin, scale), accent: accent, scale: scale)
-            drawVerticalTravel(x: origin.x + 204 * scale, y: origin.y + 18 * scale,
-                               height: 58 * scale, color: accent, scale: scale)
-        case .select:
-            drawStep("1", at: point(2, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(43, 81, origin, scale), scale: 0.55 * scale, pose: .raised,
-                     mirrored: false, primary: true, ink: ink, accent: accent)
-            drawArrow(from: point(65, 43, origin, scale), to: point(83, 43, origin, scale), color: accent, scale: scale)
-            drawStep("2", at: point(77, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(122, 81, origin, scale), scale: 0.53 * scale, pose: .lShape,
-                     mirrored: true, primary: true, ink: ink, accent: accent)
-            drawHand(at: point(165, 81, origin, scale), scale: 0.53 * scale, pose: .lShape,
-                     mirrored: false, primary: false, ink: ink, accent: accent)
-            drawMoveArrow(from: point(101, 88, origin, scale), to: point(137, 88, origin, scale),
-                          color: accent, scale: scale)
-            drawStep("3", at: point(181, 14, origin, scale), accent: accent, scale: scale)
-            drawHand(at: point(223, 78, origin, scale), scale: 0.48 * scale, pose: .open,
-                     mirrored: false, primary: true, ink: ink, accent: accent)
-            drawReleaseRays(at: point(229, 28, origin, scale), color: accent, scale: scale)
+        guard bounds.width > 80, bounds.height > 80 else { return }
+        drawLabel("DEMO  ·  \(action.title.uppercased())", at: CGPoint(x: 16, y: 13), size: 10, color: StartupStyle.mint, weight: .bold)
+        drawLabel(showsStaticSequence ? "Motion reduced · key steps" : sample.stage,
+                  at: CGPoint(x: 16, y: 30), size: 12, color: StartupStyle.muted, weight: .medium)
+        let sceneRect = NSRect(x: 14, y: 52, width: max(1, bounds.width - 28),
+                               height: max(1, bounds.height - 64))
+        if showsStaticSequence {
+            let times: [TimeInterval]
+            switch action {
+            case .move: times = [0.65, 2.45, 3.35]
+            case .click: times = [0.65, 1.72, 2.10]
+            case .scroll: times = [0.65, 2.45, 3.80]
+            case .select: times = [0.65, 2.55, 3.90]
+            }
+            let stepLabels: [String]
+            switch action {
+            case .move: stepLabels = ["Raise", "Move", "Return"]
+            case .click: stepLabels = ["Raise", "Bend", "Lift"]
+            case .scroll: stepLabels = ["Pinch", "Move down", "Open"]
+            case .select: stepLabels = ["Acquire", "Two L hands", "Open"]
+            }
+            for index in 0..<3 {
+                let width = sceneRect.width / 3
+                let frame = NSRect(x: sceneRect.minX + CGFloat(index) * width + 4,
+                                   y: sceneRect.minY, width: width - 8, height: sceneRect.height)
+                drawLabel("\(index + 1)  \(stepLabels[index])", at: CGPoint(x: frame.minX + 7, y: frame.minY + 6),
+                          size: 9, color: StartupStyle.mint, weight: .bold)
+                drawScene(in: frame, sample: GestureDemoTimeline.sample(action: action, seconds: times[index]), compact: true)
+            }
+        } else {
+            drawScene(in: sceneRect, sample: sample, compact: false)
         }
     }
 
-    private func point(_ x: CGFloat, _ y: CGFloat, _ origin: CGPoint, _ scale: CGFloat) -> CGPoint {
-        CGPoint(x: origin.x + x * scale, y: origin.y + y * scale)
+    private func drawScene(in rect: NSRect, sample: GestureDemoSample, compact: Bool) {
+        let gap: CGFloat = compact ? 5 : 16
+        let handArea: NSRect
+        let resultArea: NSRect
+        StartupStyle.background.withAlphaComponent(0.42).setFill()
+        if compact {
+            NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10).fill()
+            let handHeight = rect.height * 0.62
+            handArea = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: handHeight)
+            resultArea = NSRect(x: rect.minX, y: handArea.maxY + gap,
+                                width: rect.width, height: rect.height - handHeight - gap)
+        } else {
+            let leftWidth = rect.width * 0.45
+            handArea = NSRect(x: rect.minX, y: rect.minY, width: leftWidth, height: rect.height)
+            resultArea = NSRect(x: handArea.maxX + gap, y: rect.minY,
+                                width: rect.width - leftWidth - gap, height: rect.height)
+            NSBezierPath(roundedRect: handArea, xRadius: 12, yRadius: 12).fill()
+            NSBezierPath(roundedRect: resultArea, xRadius: 12, yRadius: 12).fill()
+        }
+
+        let handScale = min(handArea.width / (action == .select ? 180 : 120), handArea.height / 125)
+        let travel = (sample.primaryX - 0.5) * handArea.width * (action == .select ? 0.24 : 0.34)
+        let vertical = (sample.primaryY - 0.5) * handArea.height * 0.58
+        let primaryAnchor = CGPoint(x: handArea.midX + travel + (action == .select ? handArea.width * 0.12 : 0),
+                                    y: handArea.maxY - 24 * handScale + vertical)
+        if let secondary = sample.secondaryPose {
+            let companion = CGPoint(x: handArea.minX + handArea.width * 0.30,
+                                    y: handArea.maxY - 24 * handScale)
+            drawHand(at: companion, scale: handScale * 0.78, pose: secondary,
+                     mirrored: true, primary: false, ink: StartupStyle.text, accent: StartupStyle.accent)
+        }
+        drawHand(at: primaryAnchor, scale: handScale, pose: sample.primaryPose,
+                 mirrored: false, primary: true, ink: StartupStyle.text, accent: StartupStyle.mint)
+        switch action {
+        case .move: drawMoveResult(in: resultArea, progress: sample.resultProgress, compact: compact)
+        case .click: drawClickResult(in: resultArea, pressed: sample.gestureHeld, activated: sample.resultActivated, compact: compact)
+        case .scroll: drawScrollResult(in: resultArea, progress: sample.resultProgress, held: sample.gestureHeld, compact: compact)
+        case .select: drawSelectResult(in: resultArea, progress: sample.resultProgress, held: sample.gestureHeld, compact: compact)
+        }
+    }
+
+    private func drawMoveResult(in rect: NSRect, progress: CGFloat, compact: Bool) {
+        let desktop = rect.insetBy(dx: 14, dy: 16)
+        StartupStyle.raisedSurface.setFill()
+        NSBezierPath(roundedRect: desktop, xRadius: 10, yRadius: 10).fill()
+        for index in 0..<3 {
+            StartupStyle.muted.withAlphaComponent(0.13).setFill()
+            NSBezierPath(roundedRect: NSRect(x: desktop.minX + 14, y: desktop.minY + 18 + CGFloat(index) * 24,
+                                             width: desktop.width * (0.50 + CGFloat(index) * 0.09), height: 8),
+                         xRadius: 4, yRadius: 4).fill()
+        }
+        let x = desktop.minX + 24 + progress * max(1, desktop.width - 58)
+        let y = desktop.midY + sin(progress * .pi) * 28
+        drawPointer(at: CGPoint(x: x, y: y), color: StartupStyle.mint, scale: 1.05)
+        if !compact {
+            drawLabel("Index fingertip → cursor", at: CGPoint(x: desktop.minX + 14, y: desktop.maxY - 28), size: 10, color: StartupStyle.muted, weight: .medium)
+        }
+    }
+
+    private func drawClickResult(in rect: NSRect, pressed: Bool, activated: Bool, compact: Bool) {
+        let button = NSRect(x: rect.midX - min(92, rect.width * 0.34), y: rect.midY - 25,
+                            width: min(184, rect.width * 0.68), height: 50)
+        (activated ? StartupStyle.mint : StartupStyle.raisedSurface).setFill()
+        NSBezierPath(roundedRect: button.offsetBy(dx: 0, dy: pressed ? 3 : 0), xRadius: 12, yRadius: 12).fill()
+        (activated ? StartupStyle.background : StartupStyle.text).setStroke()
+        let border = NSBezierPath(roundedRect: button.offsetBy(dx: 0, dy: pressed ? 3 : 0), xRadius: 12, yRadius: 12)
+        border.lineWidth = 1.3; border.stroke()
+        drawCentered(activated ? "CLICKED" : "OPEN", in: button.offsetBy(dx: 0, dy: pressed ? 3 : 0), size: 12,
+                     color: activated ? StartupStyle.background : StartupStyle.text, weight: .bold)
+        if !compact {
+            drawCentered("Activates on lift", in: NSRect(x: rect.minX, y: button.maxY + 14, width: rect.width, height: 18),
+                         size: 10, color: StartupStyle.muted, weight: .medium)
+        }
+    }
+
+    private func drawScrollResult(in rect: NSRect, progress: CGFloat, held: Bool, compact: Bool) {
+        let list = rect.insetBy(dx: 18, dy: 13)
+        StartupStyle.raisedSurface.setFill()
+        NSBezierPath(roundedRect: list, xRadius: 10, yRadius: 10).fill()
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: list.insetBy(dx: 7, dy: 7), xRadius: 7, yRadius: 7).addClip()
+        let offset = progress * 54
+        for index in 0..<7 {
+            let y = list.minY + 16 + CGFloat(index) * 29 - offset
+            StartupStyle.muted.withAlphaComponent(index % 2 == 0 ? 0.20 : 0.12).setFill()
+            NSBezierPath(roundedRect: NSRect(x: list.minX + 13, y: y, width: list.width - 26, height: 18), xRadius: 5, yRadius: 5).fill()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        if !compact {
+            drawLabel(held ? "PINCH HELD" : "RELEASED", at: CGPoint(x: list.minX + 12, y: list.maxY - 24),
+                      size: 9, color: held ? StartupStyle.mint : StartupStyle.muted, weight: .bold)
+        }
+    }
+
+    private func drawSelectResult(in rect: NSRect, progress: CGFloat, held: Bool, compact: Bool) {
+        let page = rect.insetBy(dx: 16, dy: 18)
+        StartupStyle.raisedSurface.setFill()
+        NSBezierPath(roundedRect: page, xRadius: 10, yRadius: 10).fill()
+        let line = NSRect(x: page.minX + 15, y: page.midY - 15, width: page.width - 30, height: 30)
+        let selectedWidth = max(2, line.width * progress)
+        StartupStyle.accent.withAlphaComponent(held ? 0.38 : 0.24).setFill()
+        NSBezierPath(roundedRect: NSRect(x: line.minX, y: line.minY + 3, width: selectedWidth, height: 22), xRadius: 4, yRadius: 4).fill()
+        drawLabel("Drag across this sentence", at: CGPoint(x: line.minX + 5, y: line.minY + 6),
+                  size: min(12, max(6, line.width / 21)), color: StartupStyle.text, weight: .medium)
+        let caretX = line.minX + selectedWidth
+        StartupStyle.mint.setFill()
+        NSBezierPath(rect: NSRect(x: caretX - 1, y: line.minY + 1, width: 2, height: 26)).fill()
+        if !compact {
+            drawCentered(held ? "Keep the other hand still" : "Open either hand to release",
+                         in: NSRect(x: page.minX, y: page.maxY - 31, width: page.width, height: 16),
+                         size: 9.5, color: StartupStyle.muted, weight: .medium)
+        }
+    }
+
+    private func refreshAccessibility() {
+        setAccessibilityLabel("\(action.title) demonstration")
+        setAccessibilityValue("\(sample.stage). \(action.accessibilityDescription)")
     }
 
     private func drawHand(at anchor: CGPoint, scale: CGFloat, pose: HandPose, mirrored: Bool,
@@ -512,71 +765,6 @@ private final class GestureIllustrationView: NSView {
                                     width: 5.6 * scale, height: 5.6 * scale)).fill()
     }
 
-    private func drawContact(at center: CGPoint, color: NSColor, scale: CGFloat) {
-        color.withAlphaComponent(0.16).setFill()
-        NSBezierPath(ovalIn: NSRect(x: center.x - 10 * scale, y: center.y - 10 * scale,
-                                    width: 20 * scale, height: 20 * scale)).fill()
-        color.setStroke()
-        let ring = NSBezierPath(ovalIn: NSRect(x: center.x - 5 * scale, y: center.y - 5 * scale,
-                                               width: 10 * scale, height: 10 * scale))
-        ring.lineWidth = max(1, 1.5 * scale); ring.stroke()
-    }
-
-    private func drawStep(_ number: String, at center: CGPoint, accent: NSColor, scale: CGFloat) {
-        let size = 15 * scale
-        accent.withAlphaComponent(0.13).setFill()
-        NSBezierPath(ovalIn: NSRect(x: center.x, y: center.y, width: size, height: size)).fill()
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: max(7, 8 * scale), weight: .bold),
-            .foregroundColor: accent
-        ]
-        let string = NSAttributedString(string: number, attributes: attributes)
-        let textSize = string.size()
-        string.draw(at: CGPoint(x: center.x + (size - textSize.width) / 2,
-                                y: center.y + (size - textSize.height) / 2))
-    }
-
-    private func drawArrow(from start: CGPoint, to end: CGPoint, color: NSColor, scale: CGFloat) {
-        color.withAlphaComponent(0.75).setStroke()
-        let path = NSBezierPath()
-        path.move(to: start); path.line(to: end)
-        path.move(to: end); path.line(to: CGPoint(x: end.x - 5 * scale, y: end.y - 4 * scale))
-        path.move(to: end); path.line(to: CGPoint(x: end.x - 5 * scale, y: end.y + 4 * scale))
-        path.lineWidth = max(1, 1.4 * scale); path.lineCapStyle = .round; path.lineJoinStyle = .round; path.stroke()
-    }
-
-    private func drawMoveArrow(from start: CGPoint, to end: CGPoint, color: NSColor, scale: CGFloat) {
-        drawArrow(from: start, to: end, color: color, scale: scale)
-        let reverseEnd = CGPoint(x: start.x, y: start.y)
-        let reverseStart = CGPoint(x: end.x, y: end.y)
-        color.withAlphaComponent(0.75).setStroke()
-        let head = NSBezierPath()
-        head.move(to: reverseEnd)
-        head.line(to: CGPoint(x: reverseEnd.x + 5 * scale, y: reverseEnd.y - 4 * scale))
-        head.move(to: reverseEnd)
-        head.line(to: CGPoint(x: reverseEnd.x + 5 * scale, y: reverseEnd.y + 4 * scale))
-        head.lineWidth = max(1, 1.4 * scale); head.lineCapStyle = .round; head.stroke()
-        _ = reverseStart
-    }
-
-    private func drawVerticalTravel(x: CGFloat, y: CGFloat, height: CGFloat, color: NSColor, scale: CGFloat) {
-        let start = CGPoint(x: x, y: y + height)
-        let end = CGPoint(x: x, y: y)
-        color.setStroke()
-        let path = NSBezierPath()
-        path.move(to: start); path.line(to: end)
-        path.move(to: end); path.line(to: CGPoint(x: x - 5 * scale, y: y + 6 * scale))
-        path.move(to: end); path.line(to: CGPoint(x: x + 5 * scale, y: y + 6 * scale))
-        path.move(to: start); path.line(to: CGPoint(x: x - 5 * scale, y: y + height - 6 * scale))
-        path.move(to: start); path.line(to: CGPoint(x: x + 5 * scale, y: y + height - 6 * scale))
-        path.lineWidth = max(1.2, 1.7 * scale); path.lineCapStyle = .round; path.lineJoinStyle = .round; path.stroke()
-        for offset in [-14, 0, 14] as [CGFloat] {
-            color.withAlphaComponent(offset == 0 ? 0.8 : 0.28).setFill()
-            NSBezierPath(ovalIn: NSRect(x: x - 2.5 * scale, y: y + height / 2 + offset * scale - 2.5 * scale,
-                                        width: 5 * scale, height: 5 * scale)).fill()
-        }
-    }
-
     private func drawPointer(at center: CGPoint, color: NSColor, scale: CGFloat) {
         let path = NSBezierPath()
         path.move(to: CGPoint(x: center.x - 6 * scale, y: center.y - 13 * scale))
@@ -591,14 +779,20 @@ private final class GestureIllustrationView: NSView {
         color.setStroke(); path.lineWidth = max(1, 1.5 * scale); path.lineJoinStyle = .round; path.stroke()
     }
 
-    private func drawReleaseRays(at center: CGPoint, color: NSColor, scale: CGFloat) {
-        color.setStroke()
-        let rays = NSBezierPath()
-        for angle in stride(from: CGFloat(-0.9), through: CGFloat(0.9), by: CGFloat(0.45)) {
-            rays.move(to: CGPoint(x: center.x + cos(angle) * 7 * scale, y: center.y + sin(angle) * 7 * scale))
-            rays.line(to: CGPoint(x: center.x + cos(angle) * 13 * scale, y: center.y + sin(angle) * 13 * scale))
-        }
-        rays.lineWidth = max(1, 1.4 * scale); rays.lineCapStyle = .round; rays.stroke()
+    private func drawLabel(_ text: String, at point: CGPoint, size: CGFloat, color: NSColor, weight: NSFont.Weight) {
+        NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: size, weight: weight),
+            .foregroundColor: color
+        ]).draw(at: point)
+    }
+
+    private func drawCentered(_ text: String, in rect: NSRect, size: CGFloat, color: NSColor, weight: NSFont.Weight) {
+        let string = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: size, weight: weight),
+            .foregroundColor: color
+        ])
+        let measured = string.size()
+        string.draw(at: CGPoint(x: rect.midX - measured.width / 2, y: rect.midY - measured.height / 2))
     }
 }
 

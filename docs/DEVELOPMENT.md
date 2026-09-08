@@ -33,13 +33,16 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `Sources/Camera.swift` | Camera capture and Vision landmarks |
 | `Sources/FrameMailbox.swift` | Bounded delivery of the newest result |
 | `Sources/main.swift` | Window, camera lifecycle, feedback orchestration, permissions, mouse events |
-| `Sources/FeedbackUI.swift` | Determinate click ring, status card, simulated practice canvas, nonactivating cursor overlay |
-| `Sources/StartupUI.swift` | Startup palette, four-card gesture guide, setup state, and static camera-off artwork |
+| `Sources/PracticeTasks.swift` | Deterministic click, scroll, and released-drag practice completion model |
+| `Sources/FeedbackUI.swift` | Determinate click ring, status card, task practice surface, nonactivating cursor overlay |
+| `Sources/StartupUI.swift` | Startup palette, selected animated gesture tutorial, compact selectors, and setup state |
 | `Sources/FeedbackGeometry.swift` | Screen-edge caption placement with a ring centered on the click target |
 | `Tests/main.swift` | Deterministic gesture and pointer checks |
 | `Tests/RecoveryScrollTests.swift` | Hand return, physical mouse takeover, scrolling, practice isolation, and activation gates |
 | `Tests/InteractionEngineTests.swift` | Production pipeline at 15/30/60 fps, intent/cancel/rearm, automatic reference and practice isolation |
 | `Tests/GestureGuideSnapshot.swift` | Camera-free default and narrow gesture-guide review states |
+| `Tests/GestureDemoTimelineTests.swift` | Deterministic tutorial phase and reduced-motion sequence checks |
+| `Tests/PracticeViewSnapshot.swift` | Camera-free task, completion, and narrow practice review states |
 | `Tests/UIRenderSupport.swift` | AppKit layout assertions and PNG raster support for UI review |
 | `Tests/install.sh` | Isolated installer replacement, failure rollback, and running-app guards |
 | `scripts/sign.sh` | Persistent local signing identity, explicit certificate mode, and disposable ad-hoc mode |
@@ -96,7 +99,7 @@ Before v1.3.1, ad-hoc signatures changed with rebuilt code. Migrating that old a
 
 In the legacy forward path, `ForwardClickDetector.progress` and `remainingSeconds` are read-only values derived from observed frame timestamps. Reset, cancel, tracking loss, and post-click phases clear progress. A fresh movement-pose observation and forward transition are required to rearm, including after interruption. All modes hide stale feedback if delivery stops, using a 100 ms watchdog in common run-loop modes and the 120 ms tracking grace measured from the last received frame. Frames at least 200 ms old, future-dated frames, and duplicate/out-of-order timestamps cannot move or click.
 
-Practice uses the actual target display bounds in the same engine, then scales its simulated pointer into the canvas. `InteractionDestination.practice` permits simulation without Accessibility but exposes no `systemLocation`, `systemClick`, or `systemScrollY`; the OS dispatch path consumes only those system output fields. The practice handler also returns before reaching dispatch. Changing output destination resets gesture intent. The legacy forward reference and camera identity/frame dimensions stay in process memory. Tracking loss, a source change, or capture failure discards that reference; it rebuilds automatically during pointing. Reference adaptation is frozen during a legacy forward gesture and never starts a timer by itself.
+Practice uses the actual target display bounds in the same engine, then scales its simulated pointer into a normalized task canvas. `InteractionDestination.practice` permits simulation without Accessibility but exposes no `systemLocation`, `systemClick`, `systemScrollY`, or system drag output; the practice handler returns before OS dispatch. The click task consumes only an engine click on its drawn button. The list consumes only engine scroll deltas. Sentence selection completes only after an engine drag begins on the sentence, spans its visible endpoints, and releases. Missing, stale, blocked, source-changed, and watchdog-interrupted input cancels partial selection and requires a fresh release. Task switches reset both the model and all engine transient state. Practice enables only the gesture needed by the selected task and leaves all system-facing controls off when finished. Changing output destination resets gesture intent. The legacy forward reference and camera identity/frame dimensions stay in process memory; source loss discards that reference.
 
 The cursor panel ignores mouse events, never becomes key or main, and uses no screen recording. Quartz pointer coordinates convert to AppKit using the primary screen's top edge. The label stays inside the target screen, while the ring remains at the actual click location. The panel supports other applications' Spaces/full-screen contexts and hides when its target display is unavailable. Duplicate overlay content is excluded from accessibility; the app exposes a labeled progress indicator, percentage, and state announcements without announcing every countdown frame. No decorative progress animation runs ahead of detector state.
 
@@ -111,11 +114,13 @@ Validation before release: with a live camera, confirm Start/Pause and no-hand r
 ## Gesture interface review
 
 The main window opens at 900×800 points and supports a 720×650-point minimum. Its
-four-card guide separates the card selected for learning from the gesture that is
-currently live. Move and Click are always available; Scroll and Select text show
-their off state until the corresponding control is enabled. The camera remains off
-until Start is activated. These visuals never authorize movement, change gesture
-thresholds, advance a detector, or claim that tracking is live.
+guide presents one large animated tutorial above four compact gesture selectors.
+The selected tutorial remains separate from the gesture that is currently live;
+reduced motion shows the same sequence without continuous animation. Move and Click
+are always available, while Scroll and Select text show their off state until the
+corresponding control is enabled. The camera remains off until Start is activated.
+These visuals never authorize movement, change gesture thresholds, advance a
+detector, or claim that tracking is live.
 
 Startup and recovery instructions consistently name index + middle raised, palm
 toward the camera, and a brief steady hold before aiming.
@@ -130,10 +135,19 @@ xcrun swiftc -swift-version 5 Sources/StartupUI.swift Tests/UIRenderSupport.swif
 /tmp/hand-mouse-gesture-render "$PWD/build/ui-review"
 ```
 
+The practice renderer covers click, scroll, and selection at the default width,
+narrow 620-point task layouts, completed click and scroll states, and a released
+sentence-selection success state:
+
+```sh
+xcrun swiftc -swift-version 5 Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/StartupUI.swift Sources/FeedbackUI.swift Tests/UIRenderSupport.swift Tests/PracticeViewSnapshot.swift -framework AppKit -framework AVFoundation -o /tmp/hand-mouse-practice-render
+/tmp/hand-mouse-practice-render "$PWD/build/ui-review"
+```
+
 Before release, also review the complete native window at both supported window
 sizes and use keyboard navigation and VoiceOver with camera off. Then exercise
 Start/Pause, Practice, Permissions, settings disclosure, live gesture badges, and
-each physical gesture. Static renders validate layout and gesture wording; they do
+each physical gesture. Static renders validate layout, task state, and gesture wording; they do
 not validate camera recognition, native-window focus, or event delivery.
 
 The September 7, 2026 review rendered both guide sizes without ambiguous layout or

@@ -4,12 +4,12 @@
 
 ## First launch
 
-The dark startup panel keeps **Start / Pause** and **Practice** at the top. Four visual cards show Move, Click, Scroll, and Select text. The row below them turns those features on or off, while **Permissions** and **Settings** disclose setup details only when needed.
+The dark startup panel keeps **Start / Pause** and **Practice** at the top. One large animated tutorial shows the selected Move, Click, Scroll, or Select text gesture, with four compact selectors below it. The controls turn features on or off, while **Permissions** and **Settings** disclose setup details only when needed.
 
 1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. Click **Start** → allow camera access.
 3. **Raise index + middle fingers**, with your **palm toward the camera**. Hold still briefly until the pointer is ready, then move your index fingertip to aim.
-4. Try **Practice**: aim at green, bend index + middle, then lift to click. Live guidance follows **Aim → Bend → Lift** as you go. Practice sends no system input and leaves clicks off when you finish; enable **Click** when ready to control other apps.
+4. Try **Practice**: aim at **Send**, bend index + middle, then lift to click. Continue with the scroll and sentence-selection tasks using **Next**, or choose a task directly. Practice sends no system input and leaves clicks, scrolling, and selection off for the current session when you finish.
 
 The starting pose comes **before** the click gesture. Raise index + middle to start, then bend and lift both together to click. No pose calibration is required.
 
@@ -68,7 +68,7 @@ The pointer stays on your target while you bend and lift. **Lift to click** appe
 
 **Two-finger tap replaces Pinch and Point forward clicking.** Existing click choices remain saved. One-hand pinch dragging is unavailable in this mode. Thumb + index pinching is reserved for scrolling; index + middle still perform the tap click.
 
-- **Practice:** rehearse taps on targets without sending mouse events to other apps. Finishing practice leaves clicks off.
+- **Practice:** complete three real tasks without sending mouse events to other apps: click **Send**, scroll to **Quarterly review**, and highlight a sentence with the two-hand L gesture. Choose tasks directly or use **Next**; **Retry** clears only the current task. A checkmark appears only after the production gesture engine completes the task. Finishing practice leaves clicks, scrolling, and selection off for the current session without overwriting saved preferences.
 - **Steady aim:** on by default in Settings. Slow, careful hand movements make smaller pointer adjustments; faster movements keep normal travel. After smoothing settles, the pointer stays at your fine adjustment. This responds to your movement, without detecting buttons or other targets. Turn it off to use the previous pointer behavior.
 - **Pointer lock:** optionally bring index + middle together to hold the target. **Bend to click** appears beside the cursor; separate them to move again. A normal bend also holds the target automatically.
 - **Precision:** enable **Precision** for roughly 35% of normal hand-to-pointer travel. Lower and raise your hand to reposition when needed. The setting is saved.
