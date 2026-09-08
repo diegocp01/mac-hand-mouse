@@ -31,7 +31,7 @@ final class LaunchContentView: NSView {
         headline.textColor = StartupStyle.text
         headline.alignment = .center
         let subtitle = NSTextField(wrappingLabelWithString:
-            "Start the camera. Raise index + middle, palm toward the camera.")
+            "Start the camera. Point with your index, palm toward the camera.")
         subtitle.font = .systemFont(ofSize: 13)
         subtitle.textColor = StartupStyle.muted
         subtitle.alignment = .center
@@ -130,7 +130,8 @@ final class LaunchContentView: NSView {
             preview.widthAnchor.constraint(equalToConstant: 224),
             preview.heightAnchor.constraint(equalToConstant: 126),
             feedback.widthAnchor.constraint(equalTo: liveText.widthAnchor),
-            practice.heightAnchor.constraint(equalToConstant: 160)
+            practice.heightAnchor.constraint(equalToConstant: 260),
+            guide.heightAnchor.constraint(equalToConstant: 280)
         ])
         for view in [guide, live, practice, details, setupDisclosure, setupRows, settingsRows] {
             view.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true

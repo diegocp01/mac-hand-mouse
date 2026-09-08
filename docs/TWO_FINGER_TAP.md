@@ -1,4 +1,8 @@
-# Two-finger tap
+# Legacy two-finger tap
+
+This document records the previous bend-and-lift gesture. It is retained as historical context for the legacy detector and its regression tests. The active gesture is now [point and hold](POINT_AND_HOLD.md): aim with the index alone, raise the middle finger for a one-second left-click countdown, and pinch all five fingertips to right-click. Use that document for current behavior and validation.
+
+## Previous behavior
 
 The app now selects two-finger tap on launch, including for existing pinch/forward users. Legacy detectors remain internal for regression coverage; they are not selectable click modes. Your Click setting is preserved. Scrolling uses a distinct thumb + index pinch when Scroll is enabled. Extended index + middle alone never starts scrolling. One-hand pinch dragging is unavailable; optional two-hand L dragging still interrupts tap intent.
 

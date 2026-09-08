@@ -27,6 +27,7 @@ enum InteractionDestination { case system, practice }
 struct InteractionStep {
     var location: CGPoint?
     var click = false
+    var rightClick = false
     var scrollY: Int32 = 0
     var blocked: InteractionBlock?
     var destination: InteractionDestination = .system
@@ -36,6 +37,7 @@ struct InteractionStep {
     // Simulation results are never eligible for the OS event dispatch path.
     var systemLocation: CGPoint? { destination == .system ? location : nil }
     var systemClick: Bool { destination == .system && click }
+    var systemRightClick: Bool { destination == .system && rightClick }
     var systemScrollY: Int32 { destination == .system ? scrollY : 0 }
     var systemButtonHeld: Bool { destination == .system && (buttonHeld || dragging) }
     var systemDragging: Bool { destination == .system && dragging }
@@ -47,6 +49,10 @@ struct InteractionEngine {
     private(set) var settings = InteractionSettings()
     private(set) var pinch = PinchDetector()
     private(set) var tap = TwoFingerTapDetector()
+    private(set) var pointHold = PointHoldDetector()
+    private(set) var rightPinch = FiveFingerPinchDetector()
+    private(set) var rightGestureActive = false
+    private var pointingFrozen = false
     private(set) var forward = ForwardClickDetector()
     private var forwardReference = AutomaticForwardReference()
     var forwardProfile: ForwardProfile? { forwardReference.profile }
@@ -73,7 +79,8 @@ struct InteractionEngine {
     }
 
     mutating func reset() {
-        tap.reset()
+        tap.reset(); pointHold.reset(); rightPinch.reset()
+        rightGestureActive = false; pointingFrozen = false
         dragModifierPresent = false
         fingersTogether = false
         scrollPinched = false
@@ -86,7 +93,8 @@ struct InteractionEngine {
 
     /// Stops an in-progress gesture when delivery stalls, retaining post-click rearm rules.
     mutating func trackingInterrupted() {
-        tap.reset()
+        tap.reset(); pointHold.reset(); rightPinch.reset()
+        rightGestureActive = false; pointingFrozen = false
         dragModifierPresent = false
         fingersTogether = false
         scrollPinched = false
@@ -101,7 +109,9 @@ struct InteractionEngine {
                           handSide: String? = nil, scrollPoint scrollPointInput: CGPoint? = nil,
                           primaryL: Bool = false, companionPresent: Bool = false, companionL: Bool = false,
                           primaryReleased: Bool = false, companionReleased: Bool = false, palm: CGPoint? = nil,
-                          tapPose: TapPose? = nil, fingerSeparationRatio: Double? = nil, scrollPinchRatio: Double? = nil) -> InteractionStep {
+                          tapPose: TapPose? = nil, fingerSeparationRatio: Double? = nil, scrollPinchRatio: Double? = nil,
+                          pointingPose: PointingPose? = nil, fiveFingerPinchRatio: Double? = nil,
+                          threeFingerPinchRatio: Double? = nil) -> InteractionStep {
         dragModifierPresent = false
         guard running else { reset(); return InteractionStep(blocked: .paused) }
         let inputAllowed = trusted || destination == .practice
@@ -136,8 +146,9 @@ struct InteractionEngine {
             trackingInterrupted()
         }
         let scrollPoint: CGPoint?
-        if settings.mode == .twoFingerTap {
-            if settings.allowScrolling, let ratio = scrollPinchRatio, ratio.isFinite, ratio >= 0, let palm,
+        if settings.mode == .twoFingerTap || settings.mode == .pointAndHold {
+            let scrollRatio = settings.mode == .pointAndHold ? threeFingerPinchRatio : scrollPinchRatio
+            if settings.allowScrolling, let ratio = scrollRatio, ratio.isFinite, ratio >= 0, let palm,
                palm.x.isFinite, palm.y.isFinite {
                 if ratio < settings.pinchThreshold { scrollPinched = true }
                 else if ratio > settings.pinchThreshold + 0.18 { scrollPinched = false }
@@ -150,7 +161,9 @@ struct InteractionEngine {
         }
         let wasActive = acquisition.active
         let neutral: Bool
-        if settings.mode == .twoFingerTap {
+        if settings.mode == .pointAndHold {
+            neutral = pointingPose == .move && (fiveFingerPinchRatio.map { $0.isFinite && $0 > 0.85 } ?? true)
+        } else if settings.mode == .twoFingerTap {
             neutral = tapPose == .raised
         } else if settings.mode == .forward {
             if let profile = forwardProfile, let pose = forwardPose, let position = profile.position(of: pose) {
@@ -158,7 +171,7 @@ struct InteractionEngine {
             } else { neutral = false }
         } else { neutral = pinchRatio.map { $0.isFinite && $0 > settings.pinchThreshold + 0.18 } ?? false }
         guard acquisition.update(point: index, cursor: cursorPosition, side: handSide, neutral: neutral && scrollPoint == nil, time: timestamp) else {
-            tap.reset()
+            tap.reset(); pointHold.reset(); rightPinch.reset(); rightGestureActive = false; pointingFrozen = false
             pinch.reset(); forward.reset(); scroll.reset(); drag.interrupt(); pinchDrag.reset()
             return InteractionStep(blocked: .acquiring)
         }
@@ -193,7 +206,7 @@ struct InteractionEngine {
         // click/scroll intent, even before it forms an L. Only the owner's index moves.
         if settings.allowDragging && !oneHandDrag && (companionPresent || drag.phase != .idle) {
             dragModifierPresent = companionPresent
-            tap.reset()
+            tap.reset(); pointHold.reset(); rightPinch.reset(); rightGestureActive = false; pointingFrozen = false
             pinch.reset(); forward.reset(); scroll.reset()
             let previous = drag.phase
             if settings.allowClicks {
@@ -207,13 +220,41 @@ struct InteractionEngine {
                 filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
             }
             let location = filter.update(point: index, bounds: bounds, time: timestamp, precision: settings.precisionMode,
-                steadyAim: settings.mode == .twoFingerTap && settings.steadyAim && drag.phase != .dragging,
+                steadyAim: (settings.mode == .twoFingerTap || settings.mode == .pointAndHold) && settings.steadyAim && drag.phase != .dragging,
                 freeze: settings.allowClicks && (drag.phase == .confirming || began || ended))
             lastLocation = location
             return InteractionStep(location: location, destination: destination, dragging: drag.phase == .dragging)
         }
+        if settings.mode == .pointAndHold {
+            let rightFired: Bool
+            if settings.allowClicks {
+                rightFired = rightPinch.update(ratio: fiveFingerPinchRatio, time: timestamp)
+            } else { rightPinch.reset(); rightFired = false }
+            let wasRightGesture = rightGestureActive
+            if let ratio = fiveFingerPinchRatio, ratio.isFinite, ratio >= 0 {
+                if ratio < 0.75 { rightGestureActive = true }
+                else if ratio > 0.85 { rightGestureActive = false }
+            }
+            // All-five closure wins over its embedded thumb/index/middle scroll pinch.
+            // A lost fingertip observation cannot turn a held right click into a scroll.
+            if rightGestureActive || wasRightGesture {
+                pointHold.reset(); scroll.reset(); scrollPinched = false
+                pointingFrozen = true
+                if !rightGestureActive {
+                    filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
+                }
+                let location = filter.update(point: index, bounds: bounds, time: timestamp,
+                    precision: settings.precisionMode, steadyAim: settings.steadyAim, freeze: true)
+                lastLocation = location
+                return InteractionStep(location: location,
+                    rightClick: SafetyPolicy.shouldInjectClick(gestureFired: rightFired,
+                        allowClicks: settings.allowClicks, axTrusted: inputAllowed,
+                        pointerControlEnabled: settings.pointerEnabled), destination: destination)
+            }
+        }
         if settings.allowScrolling && scrollPoint != nil {
-            tap.reset(); fingersTogether = false
+            tap.reset(); pointHold.reset(); fingersTogether = false
+            pointingFrozen = true
             pinch.reset(); forward.reset(); pinchDrag.reset()
             let delta = scroll.update(point: scrollPoint, time: timestamp)
             if scroll.phase == .idle {
@@ -224,14 +265,34 @@ struct InteractionEngine {
             lastLocation = location
             return InteractionStep(location: location, scrollY: delta, destination: destination)
         } else if scroll.phase != .idle {
-            if settings.mode == .twoFingerTap {
-                scroll.reset(); tap.reset(); fingersTogether = false
+            if settings.mode == .twoFingerTap || settings.mode == .pointAndHold {
+                scroll.reset(); tap.reset(); pointHold.reset(); fingersTogether = false
                 filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
                 lastLocation = cursorPosition
                 return InteractionStep(location: cursorPosition, destination: destination)
             }
             trackingInterrupted()
             return InteractionStep(blocked: .acquiring)
+        }
+        if settings.mode == .pointAndHold {
+            let fired: Bool
+            if settings.allowClicks {
+                fired = pointHold.update(pose: pointingPose, point: index, time: timestamp)
+            } else { pointHold.reset(); fired = false }
+            // Only the one-index pose moves. Raising the middle finger holds the
+            // target still; unclear poses cancel the countdown without moving it.
+            let freeze = pointingPose != .move
+            if pointingFrozen && !freeze {
+                filter.reanchor(point: index, cursor: cursorPosition, bounds: bounds, time: timestamp)
+            }
+            pointingFrozen = freeze
+            let location = filter.update(point: index, bounds: bounds, time: timestamp,
+                precision: settings.precisionMode, steadyAim: settings.steadyAim, freeze: freeze)
+            lastLocation = location
+            return InteractionStep(location: location,
+                click: SafetyPolicy.shouldInjectClick(gestureFired: fired,
+                    allowClicks: settings.allowClicks, axTrusted: inputAllowed,
+                    pointerControlEnabled: settings.pointerEnabled), destination: destination)
         }
         // Lock on the first close observation, independent of tap arming/timeout.
         // Missing proximity observations retain an existing lock until visible separation.
@@ -263,7 +324,7 @@ struct InteractionEngine {
         }
         let freeze = settings.allowClicks && (settings.mode == .twoFingerTap ? fingersTogether || tap.shouldFreeze || fired : (settings.mode == .forward ? forward.shouldFreeze : pinch.shouldFreeze))
         let location = filter.update(point: index, bounds: bounds, time: timestamp, precision: settings.precisionMode,
-                                     steadyAim: settings.mode == .twoFingerTap && settings.steadyAim, freeze: freeze)
+                                     steadyAim: (settings.mode == .twoFingerTap || settings.mode == .pointAndHold) && settings.steadyAim, freeze: freeze)
         lastLocation = location
         return InteractionStep(location: location,
                                click: SafetyPolicy.shouldInjectClick(gestureFired: fired,

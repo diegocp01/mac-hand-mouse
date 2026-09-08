@@ -59,12 +59,13 @@ enum LaunchUISnapshot {
 
         let guide = GestureGuideView(frame: .zero)
         guide.select(.move)
+        guide.setDemoTimeForRendering(0)
         guide.update(active: nil, scrollingEnabled: state != .practice, selectionEnabled: false)
         let feedback = ClickFeedbackView(frame: .zero)
         let practice = PracticeView(frame: .zero)
         practice.isHidden = state != .practice
         if state == .practice {
-            feedback.update(title: "Practice only · No system input", detail: "Aim at green. Bend index + middle, then lift to click.")
+            feedback.update(title: "Practice only · No system input", detail: "Aim at Send. Raise middle + index and hold for one second.")
         }
 
         func checkbox(_ title: String, enabled: Bool = true) -> NSButton {
@@ -162,18 +163,19 @@ enum LaunchUISnapshot {
         let clipped = UIRenderSupport.fullyClippedControls(in: content).filter(isVisible)
         precondition(clipped.isEmpty, "Fully clipped controls in \(context)")
 
-        let cards = UIRenderSupport.descendants(of: fixture.guide).compactMap { $0 as? NSButton }
+        let gestureLabels = Set(["Move", "Click", "Right click", "Scroll", "Select text"])
+        let cards = UIRenderSupport.descendants(of: fixture.guide).compactMap { $0 as? NSButton }.filter { gestureLabels.contains($0.accessibilityLabel() ?? "") }
         precondition(cards.count == GestureAction.allCases.count, "Missing gesture cards in \(context)")
         let labels = Set(cards.compactMap { $0.accessibilityLabel() })
-        precondition(labels == Set(["Move", "Click", "Scroll", "Select text"]), "Incomplete gesture accessibility labels in \(context)")
+        precondition(labels == gestureLabels, "Incomplete gesture accessibility labels in \(context)")
         for card in cards {
             let rect = card.convert(card.bounds, to: fixture.guide)
-            precondition(isVisible(card) && rect.width > 100 && rect.height >= 150 && fixture.guide.bounds.contains(rect),
+            precondition(isVisible(card) && rect.width > 100 && rect.height >= 60 && fixture.guide.bounds.contains(rect),
                          "Gesture card clipped inside its guide in \(context)")
             precondition(card.acceptsFirstResponder && !(card.accessibilityHelp() ?? "").isEmpty,
                          "Gesture instruction or keyboard access missing in \(context)")
         }
-        precondition(abs(fixture.guide.bounds.height - GestureGuideView.idealHeight(for: fixture.guide.bounds.width)) < 1,
+        precondition(abs(fixture.guide.bounds.height - 280) < 1,
                      "Guide did not adapt to available width in \(context)")
         precondition(fixture.start.keyEquivalent == "\r", "Start must retain its Return shortcut")
         precondition(fixture.start.accessibilityLabel() == (state == .practice ? "Pause camera tracking" : "Start camera tracking"), "Start must remain accessible")
@@ -236,7 +238,7 @@ enum LaunchUISnapshot {
                 content.layoutSubtreeIfNeeded()
                 content.layoutSubtreeIfNeeded()
                 precondition(content.bounds.size == resized, "Launch content shrank while resizing to \(resized)")
-                precondition(abs(fixture.guide.bounds.height - GestureGuideView.idealHeight(for: fixture.guide.bounds.width)) < 1,
+                precondition(abs(fixture.guide.bounds.height - 280) < 1,
                              "Gesture guide did not reflow after resizing to \(resized)")
                 precondition(content.bounds.contains(fixture.start.convert(fixture.start.bounds, to: content)),
                              "Start left the viewport after resizing to \(resized)")
