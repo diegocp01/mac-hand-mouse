@@ -9,7 +9,7 @@ The camera preview answers “Can it see my hand?” The click card answers “W
 - Normal movement and a stationary movement pose show no ring. Withdrawal or sideways motion clears canceled progress. Confirm posted click events with a checkmark, then require withdrawal before rearming.
 - Pair color with text and shape. Use a dark outline so the cursor ring remains legible over bright content. Update progress directly without decorative animation.
 - With clicks off, allow unrestricted pointing: no countdown, no gesture-induced pointer freeze.
-- Forward clicking has no required pose capture or practice gate. Offer optional practice above the scroll area with an always-enabled Finish button. Practice pauses system input.
+- Forward clicking has no required pose capture or practice gate. Optional practice replaces the generic target with three tasks: click a drawn Send button, scroll a short list until Quarterly review is visible, and highlight a sentence with the two-hand L gesture. Practice keeps Finish visible, pauses system input, and keeps a success checkmark until Next, Retry, or direct task selection.
 - Keep permissions in an expandable section, opening it when access is lost or camera setup needs attention. Make the window resizable and scrollable for laptop displays.
 
 These decisions were informed by Apple's [Dwell guide](https://support.apple.com/guide/mac-help/use-dwell-mchl437b47b0/mac), [feedback guidance](https://developer.apple.com/design/human-interface-guidelines/feedback), and [accessibility guidance](https://developer.apple.com/design/human-interface-guidelines/accessibility/). Apple's circular dwell indicator provides a familiar reference; the implementation and timing here remain specific to Hand Mouse.

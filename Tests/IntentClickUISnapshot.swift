@@ -21,7 +21,7 @@ import AppKit
         let destination = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/private/tmp")
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 
-        let size = NSSize(width: 1144, height: 734)
+        let size = NSSize(width: 1424, height: 1270)
         let canvas = Canvas(frame: NSRect(origin: .zero, size: size))
         canvas.appearance = NSAppearance(named: .darkAqua)
         canvas.wantsLayer = true
@@ -50,25 +50,26 @@ import AppKit
         ]
         var feedbackViews: [ClickFeedbackView] = []
         for (index, state) in states.enumerated() {
-            let column = index % 3
-            let row = index / 3
-            let x = 24 + CGFloat(column) * 374
-            let y = 92 + CGFloat(row) * 312
+            let column = index % 2
+            let row = index / 2
+            let x = 24 + CGFloat(column) * 704
+            let y = 92 + CGFloat(row) * 384
             let heading = label(state.name, size: 11, weight: .semibold)
             heading.textColor = StartupStyle.muted
-            heading.frame = CGRect(x: x, y: y, width: 348, height: 20)
+            heading.frame = CGRect(x: x, y: y, width: 676, height: 20)
             canvas.addSubview(heading)
 
-            let feedback = ClickFeedbackView(frame: CGRect(x: x, y: y + 26, width: 348, height: 66))
+            let feedback = ClickFeedbackView(frame: CGRect(x: x, y: y + 26, width: 676, height: 66))
             feedback.update(title: state.title, detail: "Synthetic practice state. No system input is sent.",
                 fraction: state.fraction, clicked: state.clicked)
             canvas.addSubview(feedback)
             feedbackViews.append(feedback)
 
-            let practice = PracticeView(frame: CGRect(x: x, y: y + 102, width: 348, height: 190))
+            let practice = PracticeView(frame: CGRect(x: x, y: y + 102, width: 676, height: 260))
             canvas.addSubview(practice)
-            let firstTarget = CGPoint(x: practice.bounds.width * 0.30, y: practice.bounds.midY)
-            let nextTarget = CGPoint(x: practice.bounds.width * 0.70, y: practice.bounds.midY)
+            let firstTarget = practice.point(forNormalizedInput: CGPoint(x: 0.72, y: 0.37))
+            let nextTarget = firstTarget
+            _ = practice.update(point: firstTarget, progress: 0, clicked: false)
             if state.leftHit {
                 precondition(practice.update(point: firstTarget, progress: 1, clicked: true, holding: state.holding),
                     "A left click at the target must register a successful hit")

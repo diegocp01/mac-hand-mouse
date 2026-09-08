@@ -4,7 +4,7 @@
 
 ## First launch
 
-The dark startup panel keeps **Start / Pause** and **Practice** at the top. Five visual cards show Move, Click, Right click, Scroll, and Select text. The row below them turns features on or off, while **Permissions** and **Settings** disclose setup details only when needed.
+The dark startup panel keeps **Start / Pause** and **Practice** at the top. Five animated tutorials show Move, Click, Right click, Scroll, and Select text. The row below them turns features on or off, while **Permissions** and **Settings** disclose setup details only when needed.
 
 1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. Click **Start** → allow camera access.
@@ -68,7 +68,7 @@ Keep both fingers and their knuckles visible during the countdown. Lower the mid
 
 **Point and hold replaces two-finger tap.** Your saved click choice is preserved. Bringing thumb + index + middle fingertips together scrolls; bringing all five fingertips together right-clicks. One-hand pinch dragging is unavailable in this mode.
 
-- **Practice:** rehearse clicks on targets without sending mouse events to other apps. Finishing practice leaves clicks off.
+- **Practice:** click a Send button, scroll a sample list, or select a sentence without sending mouse events to other apps. Right clicks are counted separately. Finishing practice leaves clicks off.
 - **Steady aim:** on by default in Settings. Slow, careful hand movements make smaller pointer adjustments; faster movements keep normal travel. After smoothing settles, the pointer stays at your fine adjustment. This responds to your movement, without detecting buttons or other targets. Turn it off to use the previous pointer behavior.
 - **Right click:** bring all five fingertips together and hold briefly. Keep every fingertip visible so the camera can confirm the gesture. It sends one right-click; open your hand before doing it again, including after a canceled attempt.
 - **Precision:** enable **Precision** for roughly 35% of normal hand-to-pointer travel. Lower and raise your hand to reposition when needed. The setting is saved.

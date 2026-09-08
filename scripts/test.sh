@@ -25,3 +25,7 @@ xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sourc
 build/steady-aim-tests
 xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Tests/IntentClickTests.swift -o build/intent-click-tests
 build/intent-click-tests
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeTasks.swift Tests/PracticeTaskTests.swift -o build/practice-task-tests
+build/practice-task-tests
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/StartupUI.swift Tests/GestureDemoTimelineTests.swift -framework AppKit -o build/gesture-demo-timeline-tests
+build/gesture-demo-timeline-tests

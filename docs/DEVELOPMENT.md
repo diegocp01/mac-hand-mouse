@@ -43,6 +43,8 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `Tests/IntentClickTests.swift` | Point-and-hold and right-click timing, cancellation, rearming, and production output gates |
 | `Tests/IntentClickUISnapshot.swift` | Camera-free countdown and right-click feedback review states |
 | `Tests/GestureGuideSnapshot.swift` | Camera-free default and narrow gesture-guide review states |
+| `Tests/GestureDemoTimelineTests.swift` | Deterministic tutorial phase and reduced-motion sequence checks |
+| `Tests/PracticeViewSnapshot.swift` | Camera-free task, completion, and narrow practice review states |
 | `Tests/UIRenderSupport.swift` | AppKit layout assertions and PNG raster support for UI review |
 | `Tests/install.sh` | Isolated installer replacement, failure rollback, and running-app guards |
 | `scripts/sign.sh` | Persistent local signing identity, explicit certificate mode, and disposable ad-hoc mode |
@@ -135,10 +137,19 @@ xcrun swiftc -swift-version 5 Sources/FeedbackGeometry.swift Sources/FeedbackUI.
 /tmp/hand-mouse-intent-render "$PWD/build/ui-review"
 ```
 
+The practice renderer covers click, scroll, and selection at the default width,
+narrow 620-point task layouts, completed click and scroll states, and a released
+sentence-selection success state:
+
+```sh
+xcrun swiftc -swift-version 5 Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/StartupUI.swift Sources/FeedbackUI.swift Tests/UIRenderSupport.swift Tests/PracticeViewSnapshot.swift -framework AppKit -framework AVFoundation -o /tmp/hand-mouse-practice-render
+/tmp/hand-mouse-practice-render "$PWD/build/ui-review"
+```
+
 Before release, also review the complete native window at both supported window
 sizes and use keyboard navigation and VoiceOver with camera off. Then exercise
 Start/Pause, Practice, Permissions, settings disclosure, live gesture badges, and
-each physical gesture. Static renders validate layout and gesture wording; they do
+each physical gesture. Static renders validate layout, task state, and gesture wording; they do
 not validate camera recognition, native-window focus, or event delivery.
 
 The earlier four-card review on September 7, 2026, before Point and hold, rendered both guide sizes without ambiguous layout or
@@ -150,3 +161,5 @@ verification. The Mac login was
 locked, so a layer-backed full-window offscreen raster was blank and was excluded
 from visual evidence; native full-window and interaction review remains required on
 an unlocked session.
+
+PR #23 integration preserves the animated tutorial and task practice introduced in #22. Both practice and live control use point-and-hold. The tutorial demonstrates a one-second hold, index-only aiming, three-fingertip scrolling, and all-five-fingertip right-clicking. Compile UI renderers with `Sources/PracticeTasks.swift` when using `Sources/FeedbackUI.swift`.
