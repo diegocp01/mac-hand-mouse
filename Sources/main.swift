@@ -17,10 +17,8 @@ final class PreviewView: NSView {
         preview = AVCaptureVideoPreviewLayer(session: session)
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = StartupStyle.background.cgColor
-        layer?.borderColor = StartupStyle.accent.withAlphaComponent(0.2).cgColor
         layer?.borderWidth = 1
-        layer?.cornerRadius = 16
+        layer?.cornerRadius = 18
         layer?.masksToBounds = true
         preview.videoGravity = .resizeAspect
         layer?.addSublayer(preview)
@@ -32,7 +30,7 @@ final class PreviewView: NSView {
         guide.fillColor = nil
         guide.lineDashPattern = [6, 6]
         layer?.addSublayer(guide)
-        placeholder.textColor = .white
+        placeholder.textColor = StartupStyle.muted
         placeholder.font = .systemFont(ofSize: 12, weight: .medium)
         placeholder.alignment = .center
         placeholder.translatesAutoresizingMaskIntoConstraints = false
@@ -48,8 +46,19 @@ final class PreviewView: NSView {
             placeholder.topAnchor.constraint(equalTo: reticle.bottomAnchor, constant: 5),
             placeholder.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.8)
         ])
+        updateColors()
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+    private func updateColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = (placeholder.isHidden ? NSColor.black : StartupStyle.surface).cgColor
+            layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
     override var isFlipped: Bool { true }
     override func layout() {
         super.layout()
@@ -73,6 +82,7 @@ final class PreviewView: NSView {
         placeholder.isHidden = text == nil
         reticle.isHidden = text == nil
         guide.isHidden = text != nil
+        updateColors()
     }
     private func drawHand() {
         // Match the actual capture format, including cameras that deliver 16:9.
@@ -233,10 +243,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         submenu.addItem(withTitle: "Quit Hand Mouse", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         NSApp.mainMenu = appMenu
 
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 800),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 720),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Hand Mouse"
-        window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = StartupStyle.background
         window.titlebarAppearsTransparent = true
         window.toolbarStyle = .unified
@@ -244,24 +253,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 720, height: 650)
         window.center()
-        let content = NSView(); window.contentView = content
-        content.wantsLayer = true
-        content.layer?.backgroundColor = StartupStyle.background.cgColor
 
-        titleLabel.font = .systemFont(ofSize: 27, weight: .semibold)
         preview = PreviewView(session: camera.session)
         preview.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            preview.heightAnchor.constraint(equalTo: preview.widthAnchor, multiplier: 0.43)
-        ])
-        cameraStatus.font = .systemFont(ofSize: 12, weight: .semibold)
-        cameraStatus.textColor = StartupStyle.accent
+        cameraStatus.font = .systemFont(ofSize: 11, weight: .medium)
+        cameraStatus.textColor = StartupStyle.muted
         permissionStatus.font = .systemFont(ofSize: 11)
         permissionStatus.textColor = .secondaryLabelColor
 
         toggle.target = self; toggle.action = #selector(toggleCamera)
         toggle.bezelStyle = .rounded
-        toggle.bezelColor = StartupStyle.accent
         toggle.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
         toggle.imagePosition = .imageLeading
         toggle.setAccessibilityLabel("Start camera tracking")
@@ -298,6 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         allowScrolling.setAccessibilityLabel("Enable thumb, index, and middle finger pinch scrolling with vertical hand movement")
         practiceButton.target = self; practiceButton.action = #selector(startPractice)
         practiceButton.bezelStyle = .rounded
+        practiceButton.font = .systemFont(ofSize: 13, weight: .medium)
         practiceButton.keyEquivalent = "t"; practiceButton.keyEquivalentModifierMask = [.command, .shift]
         practice.onTaskChange = { [weak self] task in self?.practiceTaskChanged(task) }
         shortcutChoice.addItems(withTitles: ["⌃⌥⌘H", "⌃⌥⌘M", "Off"])
@@ -338,7 +340,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupRow.spacing = 10
         let shortcutRow = NSStackView(views: [NSTextField(labelWithString: "Pause / resume anywhere"), shortcutChoice])
         shortcutRow.spacing = 8
+        shortcutChoice.setContentHuggingPriority(.required, for: .horizontal)
         setupRows = StartupStyle.column([permissionStatus, setupRow, shortcutRow, shortcutStatus], spacing: 8)
+        for row in [setupRow, shortcutRow] {
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.widthAnchor.constraint(equalTo: setupRows.widthAnchor).isActive = true
+        }
+        setupRow.distribution = .fillEqually
+        permissionStatus.widthAnchor.constraint(equalTo: setupRows.widthAnchor).isActive = true
+        shortcutStatus.widthAnchor.constraint(equalTo: setupRows.widthAnchor).isActive = true
         setupToggle.setButtonType(.pushOnPushOff)
         setupToggle.bezelStyle = .disclosure
         setupToggle.setAccessibilityLabel("Permissions and app setup")
@@ -350,76 +360,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupLabel.setAccessibilityElement(false)
         let setupDisclosure = NSStackView(views: [setupToggle, setupLabel])
         setupDisclosure.spacing = 6
-        let header = NSStackView(views: [titleLabel, cameraStatus, NSView(), practiceButton, toggle])
-        header.alignment = .centerY
-        header.spacing = 12
-        let guideTitle = NSTextField(labelWithString: "What your hand can do")
-        guideTitle.font = .systemFont(ofSize: 15, weight: .semibold)
-        let hint = NSTextField(wrappingLabelWithString: "Esc pauses · Camera stays on this Mac")
-        hint.font = .systemFont(ofSize: 11); hint.textColor = StartupStyle.muted
         displayStatus.font = .systemFont(ofSize: 11)
         displayStatus.textColor = StartupStyle.muted
         forwardInstructions.font = .systemFont(ofSize: 12)
         forwardInstructions.textColor = StartupStyle.muted
         forwardControls = StartupStyle.column([forwardInstructions], spacing: 6)
         optionsToggle.setButtonType(.pushOnPushOff)
-        optionsToggle.bezelStyle = .inline
+        optionsToggle.bezelStyle = .rounded
+        optionsToggle.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
+        optionsToggle.imagePosition = .imageLeading
         optionsToggle.target = self; optionsToggle.action = #selector(toggleOptions)
-        optionsToggle.setAccessibilityLabel("Advanced settings")
+        optionsToggle.setAccessibilityLabel("Settings")
         optionsToggle.state = .off
-        optionsRows = StartupStyle.column([steadyAim, clickTest, displayStatus], spacing: 8)
-        toggleOptions()
-        let controls = NSStackView(views: [control, allowClicks, precisionMode, allowScrolling, allowDragging])
-        controls.alignment = .centerY
-        controls.spacing = 18
-        let actions = NSStackView(views: [setupDisclosure, optionsToggle, NSView()])
-        actions.spacing = 12
-        gestureGuide.select(.move)
-        let guideSection = StartupStyle.column([guideTitle, gestureGuide], spacing: 8)
-        let liveRow = NSStackView(views: [preview, feedback])
-        liveRow.alignment = .centerY
-        liveRow.spacing = 14
-        header.translatesAutoresizingMaskIntoConstraints = false
-        let stack = StartupStyle.column([
-            practice, guideSection, controls, liveRow, actions, setupRows, optionsRows
-        ], spacing: 10)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        // Keep the primary Start/Pause controls visible while compact windows scroll details.
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true; scroll.drawsBackground = false
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        let document = TopAlignedDocumentView()
-        document.translatesAutoresizingMaskIntoConstraints = false
-        scroll.documentView = document
-        hint.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(header); content.addSubview(scroll); content.addSubview(hint)
-        document.addSubview(stack)
-        NSLayoutConstraint.activate([
-            header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 28),
-            header.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
-            header.topAnchor.constraint(equalTo: content.topAnchor, constant: 16),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
-            scroll.bottomAnchor.constraint(equalTo: hint.topAnchor, constant: -10),
-            hint.leadingAnchor.constraint(equalTo: header.leadingAnchor),
-            hint.trailingAnchor.constraint(equalTo: header.trailingAnchor),
-            hint.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14),
-            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 28),
-            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -28),
-            stack.topAnchor.constraint(equalTo: document.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -12),
-            header.heightAnchor.constraint(greaterThanOrEqualToConstant: 38)
-        ])
-        for view in [guideSection, gestureGuide, setupRows!, permissionStatus, liveRow, practice, controls, actions,
-                     optionsRows!] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        let pointerControls = NSStackView(views: [control, allowClicks, allowScrolling])
+        let extraControls = NSStackView(views: [steadyAim, precisionMode, allowDragging])
+        for row in [pointerControls, extraControls] {
+            row.alignment = .centerY
+            row.spacing = 20
         }
-        gestureGuide.heightAnchor.constraint(equalToConstant: 360).isActive = true
-        preview.widthAnchor.constraint(equalToConstant: 300).isActive = true
-        practice.heightAnchor.constraint(equalToConstant: 260).isActive = true
+        optionsRows = StartupStyle.column([pointerControls, extraControls, clickTest, displayStatus], spacing: 12)
+        for row in [pointerControls, extraControls] {
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.distribution = .fillEqually
+            row.widthAnchor.constraint(equalTo: optionsRows.widthAnchor).isActive = true
+        }
+        toggleOptions()
+        gestureGuide.select(.move)
+        let content = LaunchContentView(title: titleLabel, cameraStatus: cameraStatus,
+            start: toggle, practiceButton: practiceButton, settingsButton: optionsToggle,
+            guide: gestureGuide, preview: preview, feedback: feedback, practice: practice,
+            setupDisclosure: setupDisclosure, setupRows: setupRows, settingsRows: optionsRows)
+        window.contentView = content
 
         refreshClickChrome()
 
@@ -472,6 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         shortcut.onRelease = { [weak self] in self?.activation.release() }
         shortcutChanged()
         configureInteraction(); refresh(); showWindow(); updateDisplayStatus()
+        if setupToggle.state == .on { revealInWorkspace(setupRows) }
         DispatchQueue.main.async { [weak self] in self?.showCompletedUpdate() }
 
     }
@@ -479,12 +451,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func toggleSetup() {
         setupRows.isHidden = setupToggle.state == .off
         setupToggle.setAccessibilityExpanded(setupToggle.state == .on)
+        if setupToggle.state == .on { revealInWorkspace(setupRows) }
     }
 
     @objc private func toggleOptions() {
         optionsRows.isHidden = optionsToggle.state == .off
-        optionsToggle.title = optionsToggle.state == .on ? "▾ Settings" : "▸ Settings"
+        optionsToggle.title = "Settings"
         optionsToggle.setAccessibilityExpanded(optionsToggle.state == .on)
+        if optionsToggle.state == .on { revealInWorkspace(optionsRows) }
+    }
+
+    private func revealInWorkspace(_ view: NSView) {
+        window?.contentView?.layoutSubtreeIfNeeded()
+        view.scrollToVisible(view.bounds)
     }
 
     private func refreshSetupSteps(trusted: Bool) {
@@ -792,8 +771,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         optionsToggle.state = .off; toggleOptions()
         if !running { toggleCamera() }
         refreshClickChrome()
-        window.contentView?.layoutSubtreeIfNeeded()
-        practice.scrollToVisible(practice.bounds)
+        revealInWorkspace(practice)
     }
 
     private func finishPractice() {
@@ -993,6 +971,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cameraStatus.stringValue = "Starting camera…"
         preview.showPlaceholder("Allow camera access.")
         showFeedback("Starting camera", startingPoseDetail)
+        revealInWorkspace(feedback)
         camera.start()
     }
     @objc private func pause() {

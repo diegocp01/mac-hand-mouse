@@ -39,7 +39,7 @@ final class DwellRingView: NSView {
 }
 
 final class ClickFeedbackView: NSView {
-    let title = NSTextField(labelWithString: "Palm toward camera · Point with index")
+    let title = NSTextField(wrappingLabelWithString: "Palm toward camera · Point with index")
     let detail = NSTextField(wrappingLabelWithString: "Start the camera, then extend only your index finger with your palm toward the camera.")
     private let progress = NSProgressIndicator()
     private let ring = DwellRingView()
@@ -48,13 +48,12 @@ final class ClickFeedbackView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = 14
-        layer?.borderWidth = 1
         updateColors()
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        title.font = .systemFont(ofSize: 15, weight: .semibold)
-        title.lineBreakMode = .byTruncatingTail
+        title.font = .systemFont(ofSize: 15, weight: .medium)
+        title.textColor = StartupStyle.text
+        title.setContentCompressionResistancePriority(.required, for: .vertical)
         detail.isHidden = true
         progress.isIndeterminate = false
         progress.minValue = 0; progress.maxValue = 1
@@ -63,16 +62,19 @@ final class ClickFeedbackView: NSView {
         let text = NSStackView(views: [title, progress])
         text.orientation = .vertical; text.alignment = .leading; text.spacing = 4
         for view in [ring, text] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
-        textInset = text.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
+        textInset = text.leadingAnchor.constraint(equalTo: leadingAnchor)
         NSLayoutConstraint.activate([
             textInset,
-            ring.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            ring.leadingAnchor.constraint(equalTo: leadingAnchor),
             ring.centerYAnchor.constraint(equalTo: centerYAnchor),
             ring.widthAnchor.constraint(equalToConstant: 34), ring.heightAnchor.constraint(equalToConstant: 34),
-            text.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            text.trailingAnchor.constraint(equalTo: trailingAnchor),
             text.centerYAnchor.constraint(equalTo: centerYAnchor),
+            text.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 4),
+            text.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -4),
+            title.widthAnchor.constraint(equalTo: text.widthAnchor),
             progress.widthAnchor.constraint(equalTo: text.widthAnchor),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 58)
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 48)
         ])
         update(title: title.stringValue, detail: detail.stringValue)
     }
@@ -84,8 +86,7 @@ final class ClickFeedbackView: NSView {
     }
     private func updateColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = StartupStyle.surface.cgColor
-            layer?.borderColor = StartupStyle.accent.withAlphaComponent(NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.8 : 0.2).cgColor
+            layer?.backgroundColor = NSColor.clear.cgColor
         }
     }
 
@@ -100,7 +101,7 @@ final class ClickFeedbackView: NSView {
         progress.isHidden = fraction == nil
         progress.setAccessibilityValueDescription(clamped.map { "\(Int(($0 * 100).rounded())) percent" })
         ring.isHidden = fraction == nil && !clicked
-        textInset.constant = ring.isHidden ? 16 : 60
+        textInset.constant = ring.isHidden ? 0 : 46
         setAccessibilityLabel(title + ". " + detail)
     }
 }

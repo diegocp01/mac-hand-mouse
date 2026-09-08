@@ -1,14 +1,24 @@
 import AppKit
 
-/// A quiet instrument-panel palette. All status information also has text labels.
+/// Neutral surfaces follow the Mac's appearance; color is reserved for state.
 enum StartupStyle {
-    static let background = NSColor(srgbRed: 0.035, green: 0.055, blue: 0.08, alpha: 1)
-    static let surface = NSColor(srgbRed: 0.065, green: 0.09, blue: 0.12, alpha: 1)
-    static let raisedSurface = NSColor(srgbRed: 0.085, green: 0.12, blue: 0.15, alpha: 1)
-    static let accent = NSColor(srgbRed: 0.35, green: 0.88, blue: 0.96, alpha: 1)
-    static let mint = NSColor(srgbRed: 0.38, green: 0.94, blue: 0.76, alpha: 1)
-    static let text = NSColor(srgbRed: 0.93, green: 0.97, blue: 0.98, alpha: 1)
-    static let muted = NSColor(srgbRed: 0.66, green: 0.74, blue: 0.80, alpha: 1)
+    static let background = NSColor.windowBackgroundColor
+    static let surface = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(white: 0.17, alpha: 1)
+            : NSColor(white: 0.985, alpha: 1)
+    }
+    static let raisedSurface = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(white: 0.22, alpha: 1)
+            : NSColor(white: 1, alpha: 1)
+    }
+    static let accent = NSColor.controlAccentColor
+    // Kept as an alias for existing live-state consumers.
+    static let mint = NSColor.controlAccentColor
+    static let text = NSColor.labelColor
+    static let muted = NSColor.secondaryLabelColor
+    static let border = NSColor.separatorColor
 
     static func column(_ views: [NSView], spacing: CGFloat = 10) -> NSStackView {
         let stack = NSStackView(views: views)
@@ -16,6 +26,83 @@ enum StartupStyle {
         stack.alignment = .leading
         stack.spacing = spacing
         return stack
+    }
+}
+
+/// One glass surface for the primary controls. Native materials adapt to the
+/// system's appearance and transparency preferences, including on older Macs.
+final class GlassControlSurface: NSView {
+    private var displayObserver: NSObjectProtocol?
+
+    init(content: NSView, cornerRadius: CGFloat = 24) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = cornerRadius
+        layer?.borderWidth = 1
+
+        let material = Self.makeMaterial(content: content, cornerRadius: cornerRadius)
+        material.translatesAutoresizingMaskIntoConstraints = false
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(material)
+        NSLayoutConstraint.activate([
+            material.leadingAnchor.constraint(equalTo: leadingAnchor),
+            material.trailingAnchor.constraint(equalTo: trailingAnchor),
+            material.topAnchor.constraint(equalTo: topAnchor),
+            material.bottomAnchor.constraint(equalTo: bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: material.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: material.trailingAnchor),
+            content.topAnchor.constraint(equalTo: material.topAnchor),
+            content.bottomAnchor.constraint(equalTo: material.bottomAnchor)
+        ])
+        displayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.refreshAppearance() }
+        refreshAppearance()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let displayObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayObserver) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshAppearance()
+    }
+
+    private static func makeMaterial(content: NSView, cornerRadius: CGFloat) -> NSView {
+        // Xcode versions before 26 do not declare NSGlassEffectView. A runtime
+        // availability check alone would still fail to compile with their SDKs.
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame: .zero)
+            glass.style = .regular
+            glass.cornerRadius = cornerRadius
+            glass.contentView = content
+            return glass
+        }
+#endif
+        let frost = NSVisualEffectView(frame: .zero)
+        frost.material = .sidebar
+        frost.blendingMode = .behindWindow
+        frost.state = .followsWindowActiveState
+        frost.wantsLayer = true
+        frost.layer?.cornerRadius = cornerRadius
+        frost.layer?.masksToBounds = true
+        frost.addSubview(content)
+        return frost
+    }
+
+    private func refreshAppearance() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            layer?.backgroundColor = (reduceTransparency ? NSColor.controlBackgroundColor : .clear).cgColor
+            layer?.borderColor = (NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+                ? NSColor.labelColor.withAlphaComponent(0.65)
+                : StartupStyle.border).cgColor
+        }
     }
 }
 
@@ -210,7 +297,7 @@ final class GestureGuideView: NSView {
             playback.topAnchor.constraint(equalTo: demo.topAnchor, constant: 10),
             playback.widthAnchor.constraint(equalToConstant: 30),
             playback.heightAnchor.constraint(equalToConstant: 28),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 340),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 280),
             heightAnchor.constraint(lessThanOrEqualToConstant: 390)
         ])
 
@@ -456,6 +543,7 @@ private final class GestureSelectorButton: NSButton {
 
     private func refreshPresentation() {
         guard layer != nil else { return }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
         let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         let raised = isLearningSelection || isHovered || isHighlighted
         layer?.backgroundColor = (raised ? StartupStyle.raisedSurface : StartupStyle.surface).cgColor
@@ -469,6 +557,12 @@ private final class GestureSelectorButton: NSButton {
         let availability = featureEnabled ? "" : " Feature is off; tutorial remains available."
         let state = isLive ? " Active now." : (isLearningSelection ? " Selected tutorial." : "")
         setAccessibilityValue(gestureAction.instruction + state + availability)
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshPresentation()
     }
 }
 
@@ -492,6 +586,15 @@ private final class GestureDemoCanvas: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = StartupStyle.surface.cgColor
+            layer?.borderColor = StartupStyle.border.cgColor
+        }
+        needsDisplay = true
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)

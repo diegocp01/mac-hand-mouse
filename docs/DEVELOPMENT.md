@@ -163,3 +163,17 @@ from visual evidence; native full-window and interaction review remains required
 an unlocked session.
 
 PR #23 integration preserves the animated tutorial and task practice introduced in #22. Both practice and live control use point-and-hold. The tutorial demonstrates a one-second hold, index-only aiming, three-fingertip scrolling, and all-five-fingertip right-clicking. Compile UI renderers with `Sources/PracticeTasks.swift` when using `Sources/FeedbackUI.swift`.
+
+
+## Native launch layout
+
+The window follows system light/dark appearance and keeps Start/Pause and Practice in a persistent glass control area (macOS 26+, visual-effect fallback on older systems). The five animated tutorials and three task-based practice exercises are preserved. Settings, permissions, and practice scroll into view on demand. The default content size is 920×720; the minimum window is 720×650.
+
+Render the complete camera-free layout with:
+
+```sh
+xcrun swiftc -swift-version 5 Sources/StartupUI.swift Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/LaunchUISnapshot.swift -o /tmp/hand-mouse-launch-render
+/tmp/hand-mouse-launch-render "$PWD/build/ui-review"
+```
+
+The renderer checks 24 light/dark, size, and disclosure states, resizing, five keyboard-accessible selectors, and visibility of Start/Pause while scrolling. Physical hand tracking and native event delivery require separate live-camera tests.
