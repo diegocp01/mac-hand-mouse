@@ -43,16 +43,29 @@ struct PointerAcquisition {
 }
 
 enum ScrollPoseGeometry {
-    static func shape(tip: CGPoint, pip: CGPoint, base: CGPoint, aspect: Double,
-                      foldedReachLimit: Double = 1.2) -> FingerShape {
+    struct Measurement {
+        let reachRatio: Double
+        let straightness: Double
+
+        func shape(foldedReachLimit: Double) -> FingerShape {
+            if reachRatio > 1.6 && straightness > 0.9 { return .extended }
+            if reachRatio < foldedReachLimit { return .folded }
+            return .uncertain
+        }
+    }
+
+    static func measure(tip: CGPoint, pip: CGPoint, base: CGPoint, aspect: Double) -> Measurement? {
         guard aspect.isFinite, aspect > 0,
-              [tip, pip, base].allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) }) else { return .uncertain }
+              [tip, pip, base].allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) }) else { return nil }
         func distance(_ a: CGPoint, _ b: CGPoint) -> Double { hypot((a.x - b.x) * aspect, a.y - b.y) }
         let proximal = distance(pip, base), reach = distance(tip, base), distal = distance(tip, pip)
-        guard proximal > 0.015 else { return .uncertain }
-        if reach / proximal > 1.6 && reach / max(proximal + distal, 1e-9) > 0.9 { return .extended }
-        if reach / proximal < foldedReachLimit { return .folded }
-        return .uncertain
+        guard proximal > 0.015 else { return nil }
+        return Measurement(reachRatio: reach / proximal, straightness: reach / max(proximal + distal, 1e-9))
+    }
+
+    static func shape(tip: CGPoint, pip: CGPoint, base: CGPoint, aspect: Double,
+                      foldedReachLimit: Double = 1.2) -> FingerShape {
+        measure(tip: tip, pip: pip, base: base, aspect: aspect)?.shape(foldedReachLimit: foldedReachLimit) ?? .uncertain
     }
 }
 

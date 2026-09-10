@@ -1,8 +1,8 @@
 import Foundation
 import CoreGraphics
 
-enum PointingPose { case move, click }
-enum FingerShape { case extended, folded, uncertain }
+enum PointingPose: String, Codable { case move, click }
+enum FingerShape: String, Codable { case extended, folded, uncertain }
 
 enum PointingPoseClassifier {
     static func classify(index: FingerShape, middle: FingerShape,
@@ -21,9 +21,28 @@ enum PointingPoseClassifier {
 /// A visible pointing pose arms one stationary two-finger hold. Missing samples
 /// cancel the hold rather than counting unobserved time toward a click.
 struct PointHoldDetector {
-    enum Phase { case needsMove, ready, holding, clicked }
+    enum Phase: String, Codable { case needsMove, ready, holding, clicked }
+    enum Cancellation: String, Codable {
+        case uncertainPose, releasedPose, movement, frameGap, invalidTime, invalidPoint
+        case trackingInterrupted, competingGesture, clicksDisabled
+
+        var title: String {
+            switch self {
+            case .uncertainPose: return "Finger pose became uncertain"
+            case .releasedPose: return "Fingers returned to an aiming pose"
+            case .movement: return "Index moved beyond the hold limit"
+            case .frameGap: return "Camera callback gap exceeded 120 ms"
+            case .invalidTime: return "Invalid or out-of-order frame time"
+            case .invalidPoint: return "Index position was missing or invalid"
+            case .trackingInterrupted: return "Hand tracking was interrupted"
+            case .competingGesture: return "Another gesture took priority"
+            case .clicksDisabled: return "Clicking was disabled"
+            }
+        }
+    }
 
     private(set) var phase: Phase = .needsMove
+    private(set) var lastCancellation: Cancellation?
     private var lastTime: Double?
     private var moveSince: Double?
     private var moveSamples = 0
@@ -35,6 +54,7 @@ struct PointHoldDetector {
     private let holdSeconds = 1.0
     private let maximumGap = 0.12
     private let epsilon = 1e-9
+    static let maximumMovement = 0.025
 
     var progress: Double {
         if phase == .clicked { return 1 }
@@ -47,31 +67,42 @@ struct PointHoldDetector {
 
     var shouldFreeze: Bool { phase == .holding || phase == .clicked }
 
-    mutating func reset() {
+    func movement(from point: CGPoint?) -> Double? {
+        guard let anchor, let point, point.x.isFinite, point.y.isFinite else { return nil }
+        return hypot(point.x - anchor.x, point.y - anchor.y)
+    }
+
+    mutating func reset(cancellation: Cancellation? = nil) {
+        if let cancellation {
+            if phase == .holding { lastCancellation = cancellation }
+        } else { lastCancellation = nil }
         phase = .needsMove; lastTime = nil; moveSince = nil; moveSamples = 0
         holdSince = nil; holdSamples = 0; anchor = nil; observedHold = 0
     }
 
     mutating func update(pose: PointingPose?, point: CGPoint?, time: Double) -> Bool {
-        guard time.isFinite else { reset(); return false }
+        guard time.isFinite else { reset(cancellation: .invalidTime); return false }
         if let previous = lastTime,
-           time <= previous || time - previous > maximumGap + epsilon { reset() }
+           time <= previous || time - previous > maximumGap + epsilon {
+            reset(cancellation: time <= previous ? .invalidTime : .frameGap)
+        }
         lastTime = time
         guard let point,
               point.x.isFinite, point.y.isFinite,
               (0...1).contains(point.x), (0...1).contains(point.y) else {
-            reset(); return false
+            reset(cancellation: .invalidPoint); return false
         }
         // Curling the outer fingers passes through poses Vision cannot classify.
         // Keep an already-armed click through the transition while the hand
         // remains tracked. Never count unknown time toward a hold or preserve an
         // in-progress click through missing evidence.
         guard let pose else {
-            if phase != .ready { reset() }
+            if phase != .ready { reset(cancellation: .uncertainPose) }
             return false
         }
 
         if pose == .move {
+            if phase == .holding { lastCancellation = .releasedPose }
             if phase == .holding || phase == .clicked {
                 phase = .needsMove; moveSince = nil; moveSamples = 0
             }
@@ -95,8 +126,8 @@ struct PointHoldDetector {
             return false
         case .holding:
             guard let anchor, let since = holdSince,
-                  hypot(point.x - anchor.x, point.y - anchor.y) <= 0.025 + epsilon else {
-                reset(); return false
+                  hypot(point.x - anchor.x, point.y - anchor.y) <= Self.maximumMovement + epsilon else {
+                reset(cancellation: .movement); return false
             }
             holdSamples += 1
             observedHold = max(0, time - since)

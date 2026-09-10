@@ -7,7 +7,7 @@ final class LaunchContentView: NSView {
     init(title: NSTextField, cameraStatus: NSTextField, start: NSButton,
          practiceButton: NSButton, settingsButton: NSButton, guide: GestureGuideView,
          preview: NSView, feedback: NSView, practice: NSView,
-         setupDisclosure: NSView, setupRows: NSView, settingsRows: NSView) {
+         setupDisclosure: NSView, setupRows: NSView, settingsRows: NSView, diagnostics: NSView? = nil) {
         super.init(frame: .zero)
         wantsLayer = true
         updateColors()
@@ -70,7 +70,8 @@ final class LaunchContentView: NSView {
         footer.alignment = .centerY
 
         let details = StartupStyle.column([setupDisclosure, setupRows], spacing: 12)
-        let body = StartupStyle.column([settingsRows, guide, live, practice, details], spacing: 24)
+        let diagnosticViews = diagnostics.map { [$0] } ?? []
+        let body = StartupStyle.column([settingsRows, guide, live, practice] + diagnosticViews + [details], spacing: 24)
         body.setCustomSpacing(18, after: practice)
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -133,7 +134,8 @@ final class LaunchContentView: NSView {
             practice.heightAnchor.constraint(equalToConstant: 260),
             guide.heightAnchor.constraint(equalToConstant: 280)
         ])
-        for view in [guide, live, practice, details, setupDisclosure, setupRows, settingsRows] {
+        for view in [guide, live, practice, details, setupDisclosure, setupRows, settingsRows] + diagnosticViews {
+            view.translatesAutoresizingMaskIntoConstraints = false
             view.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
         }
     }

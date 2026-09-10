@@ -84,6 +84,28 @@ Keep both fingers and their knuckles visible during the countdown. Lower the mid
 
 Gesture recognition uses camera images, not measured depth or physical contact. Good lighting and a visible palm help. Physical testing across hands and cameras is still needed, including five-finger visibility and Steady aim tuning; synthetic tests do not establish small-target accuracy. Start in practice. An explicit double-click gesture is not included. See [point-and-hold behavior and validation](docs/POINT_AND_HOLD.md).
 
+## Test two-finger recognition with your camera
+
+Choose **Practice → Click**, then **Show camera diagnostics** below the practice target. The panel uses the same camera and click detector as normal control, but Practice sends no system input. It shows the mirrored camera/skeleton, each finger's shape and minimum joint confidence, geometry ratios, hold progress, last cancellation reason, frame age/gap, and index movement. Confidence values are tracking scores, not probabilities. Hover over a finger row for the unchanged recognition cutoffs.
+
+To collect a calibration baseline:
+
+1. Choose an **Intent**: Free test, Aim only, One left click, or Cancel a hold. Labels describe what you intend, not what the app predicts.
+2. Click **Record session**. This resets Click Practice and begins an in-memory numeric recording; it does not change gesture thresholds.
+3. Perform one attempt, reopening your hand before clicking. Choose **Next attempt** before repeating. Changing Intent also begins a new attempt. Use this button rather than Practice's **Retry**, which resets the interaction and stops the recording.
+4. Include successful clicks, missed clicks, ordinary non-click movements, and early cancellations. Repeat at comfortable distances and angles, changing one condition at a time.
+5. Choose **Stop recording**, then **Export JSON…**. Review and share the file only if you want to. Nothing uploads automatically.
+
+Recordings stop after three minutes or 9,000 events, and on pause, leaving Click Practice, camera changes, or interaction/settings resets. A stopped recording remains available for export even after **Esc**; unexported recordings disappear when the app quits. Starting another recording or discarding one requires confirmation when it contains samples. Exported files are not removed. The default export filename is ignored by Git; keep all real-hand recordings out of commits.
+
+For development, after `bash scripts/test.sh`, replay an explicitly exported session with:
+
+```sh
+build/practice-diagnostics-tests --replay "/path/to/hand-mouse-diagnostics.json"
+```
+
+Replay feeds the recorded selected-hand landmarks through the production finger classifier and the practice interaction engine, including recorded tracking interruptions. It reports decision differences, click counts, and missed/false clicks against your attempt labels. It does not start a camera, post mouse events, rerun Apple's Vision model, or automatically tune the detector. Fresh live-camera trials are still needed to validate any later threshold changes.
+
 ## Troubleshooting
 
 - **Camera blocked:** click **Camera Settings**, enable Hand Mouse, then restart if macOS requests it.
@@ -101,7 +123,7 @@ Gesture recognition uses camera images, not measured depth or physical contact. 
 
 ## Privacy
 
-Hand Mouse processes camera frames on your Mac. It does not record or upload video, hand landmarks, or keystrokes; it requests no microphone access and includes no telemetry. Camera permission enables tracking. Accessibility permission enables mouse control and the Escape pause key. The resume shortcut registers a specific key combination with macOS; it does not collect a keyboard input stream.
+Hand Mouse processes camera frames on your Mac. It never records or uploads video or audio, requests no microphone access, and includes no telemetry. By default it does not record hand landmarks. **Record session** in Click Practice explicitly opts into a bounded, in-memory record of selected-hand landmarks, confidence, relative timing, gesture decisions, attempt labels, and numeric display dimensions/aim settings. Only **Export JSON…** writes that recording to a location you choose; it excludes camera identifiers, screen content, device names, and machine uptime. No diagnostic data uploads automatically. Camera permission enables tracking. Accessibility permission enables mouse control and the Escape pause key. The resume shortcut registers a specific key combination with macOS; it does not collect a keyboard input stream.
 
 ## Build, test, and package
 

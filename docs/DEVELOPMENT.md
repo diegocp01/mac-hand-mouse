@@ -26,6 +26,8 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | --- | --- |
 | `Sources/Gesture.swift` | Legacy two-finger tap and pinch/hold detectors, tuning, smoothing, preference migration |
 | `Sources/IntentClick.swift` | One-second point-and-hold clicks, five-finger pinch clicks, and fingertip geometry |
+| `Sources/PracticeDiagnostics.swift` | Shared landmark-to-finger evidence, bounded opt-in recording, and camera-free replay |
+| `Sources/PracticeDiagnosticsUI.swift` | Read-only camera diagnostics, intent labels, and explicit recording/export controls |
 | `Sources/TapGuidance.swift` | Historical two-finger tap instructions retained for regression coverage |
 | `Sources/ForwardClick.swift` | Legacy 2D pose features, automatic hand reference, intentional forward-click state machine |
 | `Sources/InteractionEngine.swift` | Production pipeline, cursor acquisition, freshness/permission gates, gesture/filter ordering |
@@ -177,3 +179,16 @@ xcrun swiftc -swift-version 5 Sources/StartupUI.swift Sources/PracticeTasks.swif
 ```
 
 The renderer checks 24 light/dark, size, and disclosure states, resizing, five keyboard-accessible selectors, and visibility of Start/Pause while scrolling. Physical hand tracking and native event delivery require separate live-camera tests.
+
+## Practice diagnostics verification
+
+`bash scripts/test.sh` also builds and runs `Tests/PracticeDiagnosticsTests.swift`. It checks the shared camera classifier's original confidence/geometry boundaries, cancellation reasons, opt-in/bounded recording, metadata allowlisting, and JSON round-trip replay through the production practice engine at 15/30/60 fps. To analyze a recording explicitly exported from Click Practice, use `build/practice-diagnostics-tests --replay "/path/to/hand-mouse-diagnostics.json"`. Replay uses selected-hand landmarks and observed pinch ratios after Vision; it does not test Vision inference or hand selection from camera images. Attempt labels are user annotations, not inferred ground truth.
+
+Render the production diagnostics panel inside the launch layout without requesting camera or Accessibility access:
+
+```sh
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeDiagnostics.swift Sources/PracticeDiagnosticsUI.swift Sources/StartupUI.swift Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/PracticeDiagnosticsUISnapshot.swift -o build/diagnostics-ui-render
+build/diagnostics-ui-render "$PWD/build/diagnostics-ui"
+```
+
+This checks collapsed, holding, canceled, recording, and paused/exportable states at both supported widths and in light/dark appearances. Manual camera validation should additionally confirm mirrored skeleton alignment, readable finger scores, one-second holds, early cancellation, no repeated clicks, no OS input in Practice, explicit recording start/stop, and export after Escape. Keep live recordings outside version control. Neither these renders nor synthetic replay proves physical recognition quality; this feature deliberately leaves the detector thresholds unchanged.

@@ -14,6 +14,7 @@ struct HandFrame {
     var palm: CGPoint?
     var scrollPoint: CGPoint?
     var pointingPose: PointingPose?
+    var pointingObservation: PointingObservation?
     var pointingHint = "Keep your fingers visible"
     var fiveFingerPinchRatio: Double?
     var threeFingerPinchRatio: Double?
@@ -48,6 +49,12 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var observers: [NSObjectProtocol] = []
     private var consecutiveVisionFailures = 0 // Capture queue only.
     private let delivery = LatestFrameBuffer<(frame: HandCapture, token: Int)>()
+    private static let diagnosticJoints: [(String, VNHumanHandPoseObservation.JointName)] = [
+        ("wrist", .wrist), ("thumbCMC", .thumbCMC), ("thumbMP", .thumbMP), ("thumbIP", .thumbIP), ("thumbTip", .thumbTip),
+        ("indexMCP", .indexMCP), ("indexPIP", .indexPIP), ("indexDIP", .indexDIP), ("indexTip", .indexTip),
+        ("middleMCP", .middleMCP), ("middlePIP", .middlePIP), ("middleDIP", .middleDIP), ("middleTip", .middleTip),
+        ("ringMCP", .ringMCP), ("ringPIP", .ringPIP), ("ringDIP", .ringDIP), ("ringTip", .ringTip),
+        ("littleMCP", .littleMCP), ("littlePIP", .littlePIP), ("littleDIP", .littleDIP), ("littleTip", .littleTip)]
 
     override init() {
         super.init()
@@ -256,6 +263,12 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         var frame = HandFrame(points: [:], pinchRatio: nil, timestamp: capture.timestamp, aspect: aspect)
         frame.source = capture.source
         let all = try hand.recognizedPoints(.all)
+        let landmarks = Dictionary(uniqueKeysWithValues: Self.diagnosticJoints.compactMap { name, joint -> (String, HandLandmark)? in
+            guard let point = all[joint] else { return nil }
+            return (name, HandLandmark(x: 1 - point.location.x, y: 1 - point.location.y, confidence: point.confidence))
+        })
+        let pointing = PointingObservation(landmarks: landmarks, aspect: Double(aspect))
+        frame.pointingObservation = pointing
         frame.handSide = hand.chirality == .left ? "left" : (hand.chirality == .right ? "right" : nil)
         for (joint, point) in all where point.confidence >= 0.35 {
             frame.points[joint] = CGPoint(x: 1 - point.location.x, y: 1 - point.location.y)
@@ -274,18 +287,10 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                   let t = frame.points[tip], let p = frame.points[pip], let b = frame.points[base] else { return .uncertain }
             return ScrollPoseGeometry.shape(tip: t, pip: p, base: b, aspect: Double(aspect), foldedReachLimit: foldedReachLimit)
         }
-        let indexShape = finger(.indexTip, .indexPIP, .indexMCP)
-        let middleShape = finger(.middleTip, .middlePIP, .middleMCP)
-        frame.pointingPose = PointingPoseClassifier.classify(index: indexShape, middle: middleShape,
-            // Partly curled outer fingers need not form a tight fist. Keep the
-            // stricter default for raised fingers and legacy scroll/tap geometry.
-            ring: finger(.ringTip, .ringPIP, .ringMCP, confidence: 0.45, foldedReachLimit: 1.45),
-            little: finger(.littleTip, .littlePIP, .littleMCP, confidence: 0.45, foldedReachLimit: 1.45))
-        if frame.pointingPose == nil {
-            if indexShape != .extended { frame.pointingHint = "Show your index finger clearly" }
-            else if middleShape == .uncertain { frame.pointingHint = "Show your middle finger clearly" }
-            else { frame.pointingHint = "Keep your curled fingers visible" }
-        }
+        // Partly curled outer fingers need not form a tight fist. Keep the
+        // stricter default for raised fingers and legacy scroll/tap geometry.
+        frame.pointingPose = pointing.pose
+        frame.pointingHint = pointing.hint
         let scrollTipJoints: [VNHumanHandPoseObservation.JointName] = [.thumbTip, .indexTip, .middleTip]
         if (scrollTipJoints + palmJoints).allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
            let indexBase = frame.points[.indexMCP], let littleBase = frame.points[.littleMCP],
