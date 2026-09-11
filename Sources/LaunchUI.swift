@@ -4,15 +4,26 @@ import AppKit
 /// its layout can also be reviewed without starting capture or posting events.
 final class LaunchContentView: NSView {
     private var workspaceWidth: NSLayoutConstraint!
+    private let backdrop = WindowBackdropView(frame: .zero)
     init(title: NSTextField, cameraStatus: NSTextField, start: NSButton,
          practiceButton: NSButton, settingsButton: NSButton, guide: GestureGuideView,
          preview: NSView, feedback: NSView, practice: NSView,
-         setupDisclosure: NSView, setupRows: NSView, settingsRows: NSView) {
+         setupDisclosure: NSView, setupRows: NSView, settingsRows: NSView, diagnostics: NSView? = nil,
+         useNativeGlass: Bool = true) {
         super.init(frame: .zero)
         wantsLayer = true
         updateColors()
+        backdrop.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(backdrop)
+        NSLayoutConstraint.activate([
+            backdrop.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backdrop.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backdrop.topAnchor.constraint(equalTo: topAnchor),
+            backdrop.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
 
         practiceButton.contentTintColor = StartupStyle.text
+        practiceButton.controlSize = .large
         settingsButton.contentTintColor = StartupStyle.text
         title.font = .systemFont(ofSize: 14, weight: .semibold)
         title.textColor = StartupStyle.text
@@ -39,10 +50,11 @@ final class LaunchContentView: NSView {
         let divider = NSBox()
         divider.boxType = .separator
         let buttons = NSStackView(views: [start, divider, practiceButton])
+        buttons.setHuggingPriority(.required, for: .horizontal)
         buttons.alignment = .centerY
         buttons.spacing = 12
         buttons.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
-        let actionSurface = GlassControlSurface(content: buttons, cornerRadius: 24)
+        let actionSurface = GlassControlSurface(content: buttons, cornerRadius: 26, useNativeGlass: useNativeGlass)
         let hero = NSStackView(views: [headline, subtitle, actionSurface])
         hero.orientation = .vertical
         hero.alignment = .centerX
@@ -70,7 +82,8 @@ final class LaunchContentView: NSView {
         footer.alignment = .centerY
 
         let details = StartupStyle.column([setupDisclosure, setupRows], spacing: 12)
-        let body = StartupStyle.column([settingsRows, guide, live, practice, details], spacing: 24)
+        let diagnosticViews = diagnostics.map { [$0] } ?? []
+        let body = StartupStyle.column([settingsRows, guide, live, practice] + diagnosticViews + [details], spacing: 24)
         body.setCustomSpacing(18, after: practice)
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -95,7 +108,7 @@ final class LaunchContentView: NSView {
         NSLayoutConstraint.activate([
             header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 28),
             header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
-            header.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            header.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 16),
             header.heightAnchor.constraint(equalToConstant: 30),
             icon.widthAnchor.constraint(equalToConstant: 22),
             icon.heightAnchor.constraint(equalToConstant: 24),
@@ -133,7 +146,8 @@ final class LaunchContentView: NSView {
             practice.heightAnchor.constraint(equalToConstant: 260),
             guide.heightAnchor.constraint(equalToConstant: 280)
         ])
-        for view in [guide, live, practice, details, setupDisclosure, setupRows, settingsRows] {
+        for view in [guide, live, practice, details, setupDisclosure, setupRows, settingsRows] + diagnosticViews {
+            view.translatesAutoresizingMaskIntoConstraints = false
             view.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
         }
     }
@@ -152,7 +166,7 @@ final class LaunchContentView: NSView {
 
     private func updateColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = StartupStyle.background.cgColor
+            layer?.backgroundColor = NSColor.clear.cgColor
         }
     }
 }

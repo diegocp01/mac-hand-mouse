@@ -26,6 +26,8 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | --- | --- |
 | `Sources/Gesture.swift` | Legacy two-finger tap and pinch/hold detectors, tuning, smoothing, preference migration |
 | `Sources/IntentClick.swift` | One-second point-and-hold clicks, five-finger pinch clicks, and fingertip geometry |
+| `Sources/PracticeDiagnostics.swift` | Shared landmark-to-finger evidence, bounded opt-in recording, and camera-free replay |
+| `Sources/PracticeDiagnosticsUI.swift` | Read-only camera diagnostics, intent labels, and explicit recording/export controls |
 | `Sources/TapGuidance.swift` | Historical two-finger tap instructions retained for regression coverage |
 | `Sources/ForwardClick.swift` | Legacy 2D pose features, automatic hand reference, intentional forward-click state machine |
 | `Sources/InteractionEngine.swift` | Production pipeline, cursor acquisition, freshness/permission gates, gesture/filter ordering |
@@ -167,7 +169,7 @@ PR #23 integration preserves the animated tutorial and task practice introduced 
 
 ## Native launch layout
 
-The window follows system light/dark appearance and keeps Start/Pause and Practice in a persistent glass control area (macOS 26+, visual-effect fallback on older systems). The five animated tutorials and three task-based practice exercises are preserved. Settings, permissions, and practice scroll into view on demand. The default content size is 920×720; the minimum window is 720×650.
+The window uses a native behind-window frosted backdrop, translucent content panels, and clear glass for the persistent Start/Pause and Practice controls. Full-size content extends the backdrop under the titlebar while safe-area constraints keep the header clear of window controls. macOS 27 adds native interactive glass when built with a supporting SDK; macOS 26 keeps clear glass, and older systems use visual-effect materials. Text and controls retain full view opacity. Reduce Transparency or Increase Contrast makes the backdrop and panels opaque; Reduce Motion disables interactive glass and cosmetic transitions. Hover/selection highlights and section reveals ease between states without moving controls on hover or animating detector progress. The five animated tutorials and three task-based practice exercises are preserved. The default content size is 920×720; the minimum window is 720×650.
 
 Render the complete camera-free layout with:
 
@@ -176,4 +178,19 @@ xcrun swiftc -swift-version 5 Sources/StartupUI.swift Sources/PracticeTasks.swif
 /tmp/hand-mouse-launch-render "$PWD/build/ui-review"
 ```
 
-The renderer checks 24 light/dark, size, and disclosure states, resizing, five keyboard-accessible selectors, and visibility of Start/Pause while scrolling. Physical hand tracking and native event delivery require separate live-camera tests.
+The renderer, also run by `bash scripts/test.sh`, checks 48 combinations of automatic/native and forced legacy materials, light/dark appearance, size, and disclosure state, plus resizing, five keyboard-accessible selectors, and visibility of Start/Pause while scrolling. The primary button row requires horizontal content hugging because the legacy visual-effect wrapper has no intrinsic width; forced fallback coverage catches this on newer Macs too. It additionally checks opaque accessibility fallbacks, Reduce Motion policy, backdrop input passthrough, full control opacity, and native glass/interactivity availability. Static renders do not establish the live desktop blur or interactive animation appearance; review those in a visible window. Physical hand tracking and native event delivery require separate live-camera tests.
+
+## Practice diagnostics verification
+
+`Sources/FeatureFlags.swift` defines `FeatureFlags.diagnostics = false`. This default omits the diagnostics preview/panel and gates recording, export, observation, and replay entry points without changing normal gesture recognition. Flip the constant to `true` locally and rebuild to test diagnostics; restore `false` before committing or publishing a build. `bash scripts/test.sh` checks the disabled screen/replay gates by default, or runs the 20 diagnostics UI states when the local flag is enabled.
+
+`bash scripts/test.sh` also builds and runs `Tests/PracticeDiagnosticsTests.swift`. It checks the shared camera classifier's original confidence/geometry boundaries, cancellation reasons, opt-in/bounded recording, metadata allowlisting, and JSON round-trip replay through the production practice engine at 15/30/60 fps. To analyze a recording explicitly exported from Click Practice, use `build/practice-diagnostics-tests --replay "/path/to/hand-mouse-diagnostics.json"`. Replay uses selected-hand landmarks and observed pinch ratios after Vision; it does not test Vision inference or hand selection from camera images. Attempt labels are user annotations, not inferred ground truth.
+
+With the local diagnostics flag enabled, render the production diagnostics panel inside the launch layout without requesting camera or Accessibility access:
+
+```sh
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/FeatureFlags.swift Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeDiagnostics.swift Sources/PracticeDiagnosticsUI.swift Sources/StartupUI.swift Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/PracticeDiagnosticsUISnapshot.swift -o build/diagnostics-ui-render
+build/diagnostics-ui-render "$PWD/build/diagnostics-ui"
+```
+
+This checks collapsed, holding, canceled, recording, and paused/exportable states at both supported widths and in light/dark appearances. Manual camera validation should additionally confirm mirrored skeleton alignment, readable finger scores, one-second holds, early cancellation, no repeated clicks, no OS input in Practice, explicit recording start/stop, and export after Escape. Keep live recordings outside version control. Neither these renders nor synthetic replay proves physical recognition quality; this feature deliberately leaves the detector thresholds unchanged.

@@ -25,7 +25,13 @@ xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sourc
 build/steady-aim-tests
 xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Tests/IntentClickTests.swift -o build/intent-click-tests
 build/intent-click-tests
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/FeatureFlags.swift Sources/PracticeDiagnostics.swift Tests/PracticeDiagnosticsTests.swift -o build/practice-diagnostics-tests
+build/practice-diagnostics-tests
 xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeTasks.swift Tests/PracticeTaskTests.swift -o build/practice-task-tests
 build/practice-task-tests
 xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/StartupUI.swift Tests/GestureDemoTimelineTests.swift -framework AppKit -o build/gesture-demo-timeline-tests
 build/gesture-demo-timeline-tests
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/FeatureFlags.swift Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeDiagnostics.swift Sources/PracticeDiagnosticsUI.swift Sources/StartupUI.swift Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/PracticeDiagnosticsUISnapshot.swift -o build/diagnostics-ui-render
+build/diagnostics-ui-render
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/StartupUI.swift Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/LaunchUISnapshot.swift -o build/launch-ui-render
+build/launch-ui-render "$PWD/build/ui-review"
