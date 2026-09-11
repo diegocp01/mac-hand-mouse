@@ -178,7 +178,7 @@ xcrun swiftc -swift-version 5 Sources/StartupUI.swift Sources/PracticeTasks.swif
 /tmp/hand-mouse-launch-render "$PWD/build/ui-review"
 ```
 
-The renderer, also run by `bash scripts/test.sh`, checks 24 light/dark, size, and disclosure states, resizing, five keyboard-accessible selectors, and visibility of Start/Pause while scrolling. It additionally checks opaque accessibility fallbacks, Reduce Motion policy, backdrop input passthrough, full control opacity, and native glass/interactivity availability. Static renders do not establish the live desktop blur or interactive animation appearance; review those in a visible window. Physical hand tracking and native event delivery require separate live-camera tests.
+The renderer, also run by `bash scripts/test.sh`, checks 48 combinations of automatic/native and forced legacy materials, light/dark appearance, size, and disclosure state, plus resizing, five keyboard-accessible selectors, and visibility of Start/Pause while scrolling. The primary button row requires horizontal content hugging because the legacy visual-effect wrapper has no intrinsic width; forced fallback coverage catches this on newer Macs too. It additionally checks opaque accessibility fallbacks, Reduce Motion policy, backdrop input passthrough, full control opacity, and native glass/interactivity availability. Static renders do not establish the live desktop blur or interactive animation appearance; review those in a visible window. Physical hand tracking and native event delivery require separate live-camera tests.
 
 ## Practice diagnostics verification
 

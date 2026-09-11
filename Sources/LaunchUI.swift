@@ -8,7 +8,8 @@ final class LaunchContentView: NSView {
     init(title: NSTextField, cameraStatus: NSTextField, start: NSButton,
          practiceButton: NSButton, settingsButton: NSButton, guide: GestureGuideView,
          preview: NSView, feedback: NSView, practice: NSView,
-         setupDisclosure: NSView, setupRows: NSView, settingsRows: NSView, diagnostics: NSView? = nil) {
+         setupDisclosure: NSView, setupRows: NSView, settingsRows: NSView, diagnostics: NSView? = nil,
+         useNativeGlass: Bool = true) {
         super.init(frame: .zero)
         wantsLayer = true
         updateColors()
@@ -49,10 +50,11 @@ final class LaunchContentView: NSView {
         let divider = NSBox()
         divider.boxType = .separator
         let buttons = NSStackView(views: [start, divider, practiceButton])
+        buttons.setHuggingPriority(.required, for: .horizontal)
         buttons.alignment = .centerY
         buttons.spacing = 12
         buttons.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
-        let actionSurface = GlassControlSurface(content: buttons, cornerRadius: 26)
+        let actionSurface = GlassControlSurface(content: buttons, cornerRadius: 26, useNativeGlass: useNativeGlass)
         let hero = NSStackView(views: [headline, subtitle, actionSurface])
         hero.orientation = .vertical
         hero.alignment = .centerX

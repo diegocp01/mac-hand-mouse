@@ -149,13 +149,13 @@ final class GlassControlSurface: NSView {
     private var displayObserver: NSObjectProtocol?
     private var material: NSView?
 
-    init(content: NSView, cornerRadius: CGFloat = 24) {
+    init(content: NSView, cornerRadius: CGFloat = 24, useNativeGlass: Bool = true) {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = cornerRadius
         layer?.borderWidth = 1
 
-        let material = Self.makeMaterial(content: content, cornerRadius: cornerRadius)
+        let material = Self.makeMaterial(content: content, cornerRadius: cornerRadius, useNativeGlass: useNativeGlass)
         self.material = material
         material.translatesAutoresizingMaskIntoConstraints = false
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -188,11 +188,11 @@ final class GlassControlSurface: NSView {
         refreshAppearance()
     }
 
-    private static func makeMaterial(content: NSView, cornerRadius: CGFloat) -> NSView {
+    private static func makeMaterial(content: NSView, cornerRadius: CGFloat, useNativeGlass: Bool) -> NSView {
         // Xcode versions before 26 do not declare NSGlassEffectView. A runtime
         // availability check alone would still fail to compile with their SDKs.
 #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), useNativeGlass {
             let glass = NSGlassEffectView(frame: .zero)
             glass.style = .regular
             glass.cornerRadius = cornerRadius
