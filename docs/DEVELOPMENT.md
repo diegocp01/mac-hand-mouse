@@ -182,12 +182,14 @@ The renderer checks 24 light/dark, size, and disclosure states, resizing, five k
 
 ## Practice diagnostics verification
 
+`Sources/FeatureFlags.swift` defines `FeatureFlags.diagnostics = false`. This default omits the diagnostics preview/panel and gates recording, export, observation, and replay entry points without changing normal gesture recognition. Flip the constant to `true` locally and rebuild to test diagnostics; restore `false` before committing or publishing a build. `bash scripts/test.sh` checks the disabled screen/replay gates by default, or runs the 20 diagnostics UI states when the local flag is enabled.
+
 `bash scripts/test.sh` also builds and runs `Tests/PracticeDiagnosticsTests.swift`. It checks the shared camera classifier's original confidence/geometry boundaries, cancellation reasons, opt-in/bounded recording, metadata allowlisting, and JSON round-trip replay through the production practice engine at 15/30/60 fps. To analyze a recording explicitly exported from Click Practice, use `build/practice-diagnostics-tests --replay "/path/to/hand-mouse-diagnostics.json"`. Replay uses selected-hand landmarks and observed pinch ratios after Vision; it does not test Vision inference or hand selection from camera images. Attempt labels are user annotations, not inferred ground truth.
 
-Render the production diagnostics panel inside the launch layout without requesting camera or Accessibility access:
+With the local diagnostics flag enabled, render the production diagnostics panel inside the launch layout without requesting camera or Accessibility access:
 
 ```sh
-xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeDiagnostics.swift Sources/PracticeDiagnosticsUI.swift Sources/StartupUI.swift Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/PracticeDiagnosticsUISnapshot.swift -o build/diagnostics-ui-render
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/FeatureFlags.swift Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeDiagnostics.swift Sources/PracticeDiagnosticsUI.swift Sources/StartupUI.swift Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/PracticeDiagnosticsUISnapshot.swift -o build/diagnostics-ui-render
 build/diagnostics-ui-render "$PWD/build/diagnostics-ui"
 ```
 

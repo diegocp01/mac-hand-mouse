@@ -6,6 +6,12 @@ struct PracticeDiagnosticsUISnapshot {
 
     static func main() throws {
         _ = NSApplication.shared
+        if !FeatureFlags.diagnostics {
+            precondition(PracticeDiagnosticsView(preview: NSView()) == nil,
+                "Disabled diagnostics must not construct a screen or any entry controls")
+            print("Passed default-off diagnostics screen and entry-point check.")
+            return
+        }
         let destination = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "build/diagnostics-ui")
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         for width in [920.0, 720.0] {
@@ -22,7 +28,9 @@ struct PracticeDiagnosticsUISnapshot {
         let preview = NSImageView(image: NSImage(systemSymbolName: "hand.raised", accessibilityDescription: "Synthetic preview; camera off") ?? NSImage())
         preview.symbolConfiguration = .init(pointSize: 70, weight: .regular)
         preview.contentTintColor = .secondaryLabelColor
-        let diagnostics = PracticeDiagnosticsView(preview: preview)
+        guard let diagnostics = PracticeDiagnosticsView(preview: preview) else {
+            preconditionFailure("Enabled diagnostics must construct the test screen")
+        }
         precondition(!diagnostics.isExpanded, "Diagnostics must not expand or record automatically")
         diagnostics.setExpanded(state != .collapsed)
         var engine = InteractionEngine()

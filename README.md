@@ -86,6 +86,8 @@ Gesture recognition uses camera images, not measured depth or physical contact. 
 
 ## Test two-finger recognition with your camera
 
+Diagnostics are **disabled in normal builds**. To enable them locally, change `FeatureFlags.diagnostics` from `false` to `true` in `Sources/FeatureFlags.swift`, quit the app, and rebuild with `bash "Launch Hand Mouse.command"`. Keep this local change out of commits and restore `false` before sharing a build. There is no user-facing setting or saved preference that enables diagnostics.
+
 Choose **Practice → Click**, then **Show camera diagnostics** below the practice target. The panel uses the same camera and click detector as normal control, but Practice sends no system input. It shows the mirrored camera/skeleton, each finger's shape and minimum joint confidence, geometry ratios, hold progress, last cancellation reason, frame age/gap, and index movement. Confidence values are tracking scores, not probabilities. Hover over a finger row for the unchanged recognition cutoffs.
 
 To collect a calibration baseline:
@@ -98,7 +100,7 @@ To collect a calibration baseline:
 
 Recordings stop after three minutes or 9,000 events, and on pause, leaving Click Practice, camera changes, or interaction/settings resets. A stopped recording remains available for export even after **Esc**; unexported recordings disappear when the app quits. Starting another recording or discarding one requires confirmation when it contains samples. Exported files are not removed. The default export filename is ignored by Git; keep all real-hand recordings out of commits.
 
-For development, after `bash scripts/test.sh`, replay an explicitly exported session with:
+For development, with the diagnostics flag enabled and after `bash scripts/test.sh`, replay an explicitly exported session with:
 
 ```sh
 build/practice-diagnostics-tests --replay "/path/to/hand-mouse-diagnostics.json"
@@ -123,7 +125,7 @@ Replay feeds the recorded selected-hand landmarks through the production finger 
 
 ## Privacy
 
-Hand Mouse processes camera frames on your Mac. It never records or uploads video or audio, requests no microphone access, and includes no telemetry. By default it does not record hand landmarks. **Record session** in Click Practice explicitly opts into a bounded, in-memory record of selected-hand landmarks, confidence, relative timing, gesture decisions, attempt labels, and numeric display dimensions/aim settings. Only **Export JSON…** writes that recording to a location you choose; it excludes camera identifiers, screen content, device names, and machine uptime. No diagnostic data uploads automatically. Camera permission enables tracking. Accessibility permission enables mouse control and the Escape pause key. The resume shortcut registers a specific key combination with macOS; it does not collect a keyboard input stream.
+Hand Mouse processes camera frames on your Mac. It never records or uploads video or audio, requests no microphone access, and includes no telemetry. By default it does not record hand landmarks. In locally enabled diagnostics builds, **Record session** in Click Practice explicitly opts into a bounded, in-memory record of selected-hand landmarks, confidence, relative timing, gesture decisions, attempt labels, and numeric display dimensions/aim settings. Only **Export JSON…** writes that recording to a location you choose; it excludes camera identifiers, screen content, device names, and machine uptime. No diagnostic data uploads automatically. Camera permission enables tracking. Accessibility permission enables mouse control and the Escape pause key. The resume shortcut registers a specific key combination with macOS; it does not collect a keyboard input stream.
 
 ## Build, test, and package
 

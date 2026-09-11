@@ -72,11 +72,28 @@ struct PracticeDiagnosticsTests {
 
     static func main() throws {
         if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--replay" {
+            guard FeatureFlags.diagnostics else {
+                fputs("Diagnostics are disabled. Set FeatureFlags.diagnostics to true and rebuild to replay recordings.\n", stderr)
+                exit(1)
+            }
             let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))
             let session = try PracticeDiagnosticSession.decode(data)
             let report = try PracticeDiagnosticReplay.run(session)
             print(report.summary)
             return
+        }
+
+        if !FeatureFlags.diagnostics {
+            let replay = Process()
+            let output = Pipe()
+            replay.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+            replay.arguments = ["--replay", "diagnostics-must-not-be-opened.json"]
+            replay.standardError = output
+            try replay.run()
+            replay.waitUntilExit()
+            let message = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            check(replay.terminationStatus == 1 && message.contains("Diagnostics are disabled."),
+                "Disabled replay must stop before opening a recording")
         }
 
         let open = landmarks(click: false)

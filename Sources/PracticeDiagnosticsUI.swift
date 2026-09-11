@@ -28,7 +28,8 @@ final class PracticeDiagnosticsView: NSView {
         DiagnosticIntent.allCases[max(0, min(DiagnosticIntent.allCases.count - 1, intentPicker.indexOfSelectedItem))]
     }
 
-    init(preview: NSView) {
+    init?(preview: NSView) {
+        guard FeatureFlags.diagnostics else { return nil }
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 16
