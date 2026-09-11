@@ -1071,13 +1071,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case .current:
                 let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "current"
                 showUpdateAlert(title: "Hand Mouse is up to date", detail: "Version \(version) matches the latest version on GitHub.")
-            case .unsafe(let reason):
-                showUpdateAlert(title: "Update stopped safely", detail: reason + " Your files and installed app were not changed.")
             case .available:
                 let alert = NSAlert()
                 alert.alertStyle = .informational
                 alert.messageText = "A Hand Mouse update is available"
-                alert.informativeText = "Update to version \(check.remoteVersion ?? "the latest version") from GitHub? Hand Mouse will pause, update the source checkout, rebuild with its existing signing identity, and reopen."
+                alert.informativeText = "Install version \(check.remoteVersion ?? "the latest version") from GitHub? Hand Mouse will pause, update, and reopen."
                 alert.addButton(withTitle: "Update and Restart")
                 alert.addButton(withTitle: "Cancel")
                 guard alert.runModal() == .alertFirstButtonReturn else { return }

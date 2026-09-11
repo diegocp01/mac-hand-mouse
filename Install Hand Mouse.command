@@ -80,7 +80,11 @@ REPLACEMENT_COMPLETE=1
 UPDATE_STATE_DIR="${HAND_MOUSE_UPDATE_STATE_DIR:-$HOME/Library/Application Support/Hand Mouse}"
 if mkdir -p "$UPDATE_STATE_DIR" && chmod 700 "$UPDATE_STATE_DIR"; then
     SOURCE_STATE=$(mktemp "$UPDATE_STATE_DIR/.source-checkout.XXXXXX")
-    printf '%s\n' "$(pwd -P)" > "$SOURCE_STATE"
+    SOURCE_CHECKOUT="${HAND_MOUSE_SOURCE_CHECKOUT:-$(pwd -P)}"
+    if [ -d "$SOURCE_CHECKOUT" ]; then
+        SOURCE_CHECKOUT=$(cd "$SOURCE_CHECKOUT" && pwd -P)
+    fi
+    printf '%s\n' "$SOURCE_CHECKOUT" > "$SOURCE_STATE"
     chmod 600 "$SOURCE_STATE"
     mv "$SOURCE_STATE" "$UPDATE_STATE_DIR/source-checkout"
 else

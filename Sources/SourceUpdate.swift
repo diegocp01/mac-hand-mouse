@@ -3,21 +3,20 @@ import Foundation
 enum UpdateComparison: Equatable {
     case current
     case available
-    case unsafe(String)
 
-    static func evaluate(installedCommit: String?, localCommit: String, remoteCommit: String,
-                         installedVersion: String?, sourceVersion: String?, localIsAncestor: Bool) -> Self {
-        guard localIsAncestor else { return .unsafe("The local checkout has commits that are not on GitHub.") }
+    static func evaluate(installedCommit: String?, remoteCommit: String,
+                         installedVersion: String?, sourceVersion: String?) -> Self {
         if let installedCommit, !installedCommit.isEmpty {
-            return installedCommit == remoteCommit && localCommit == remoteCommit ? .current : .available
+            return installedCommit == remoteCommit ? .current : .available
         }
-        return localCommit == remoteCommit && installedVersion == sourceVersion ? .current : .available
+        guard let installedVersion, !installedVersion.isEmpty,
+              let sourceVersion, !sourceVersion.isEmpty else { return .available }
+        return installedVersion == sourceVersion ? .current : .available
     }
 }
 
 struct UpdateCheck {
     var comparison: UpdateComparison
-    var localCommit: String
     var remoteCommit: String
     var remoteVersion: String?
 }
@@ -71,21 +70,13 @@ enum SourceUpdate {
         guard isOfficialOrigin(origin) else {
             throw UpdateError("Updates are blocked because this checkout does not use the official Hand Mouse GitHub repository.")
         }
-        guard try git(["symbolic-ref", "--short", "HEAD"], at: checkout).output == "main" else {
-            throw UpdateError("Switch the source checkout to the main branch before updating.")
-        }
-        guard try git(["status", "--porcelain", "--untracked-files=normal"], at: checkout).output.isEmpty else {
-            throw UpdateError("The source checkout has local changes. Commit or move them before updating Hand Mouse.")
-        }
         _ = try git(["fetch", "--quiet", "origin", "main"], at: checkout)
-        let local = try git(["rev-parse", "HEAD"], at: checkout).output
         let remote = try git(["rev-parse", "origin/main"], at: checkout).output
-        let ancestor = runGit(["merge-base", "--is-ancestor", local, remote], at: checkout).status == 0
         let remotePlist = try git(["show", "origin/main:Info.plist"], at: checkout).output
         let remoteVersion = try? propertyListValue("CFBundleShortVersionString", in: remotePlist)
-        return UpdateCheck(comparison: .evaluate(installedCommit: installedCommit, localCommit: local,
-            remoteCommit: remote, installedVersion: installedVersion, sourceVersion: remoteVersion,
-            localIsAncestor: ancestor), localCommit: local, remoteCommit: remote, remoteVersion: remoteVersion)
+        return UpdateCheck(comparison: .evaluate(installedCommit: installedCommit,
+            remoteCommit: remote, installedVersion: installedVersion, sourceVersion: remoteVersion),
+            remoteCommit: remote, remoteVersion: remoteVersion)
     }
 
     static func propertyListValue(_ key: String, at url: URL) throws -> String {
