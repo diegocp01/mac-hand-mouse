@@ -8,7 +8,7 @@
 
 ## First launch
 
-The startup window follows your Mac's light or dark appearance and keeps **Start / Pause** and **Practice** visible. Five animated tutorials show Move, Click, Right click, Scroll, and Select text. **Settings** holds feature controls; **Permissions** contains setup help.
+The startup window uses a frosted backdrop, translucent panels, and native glass controls while keeping **Start / Pause** and **Practice** visible. It follows your Mac's light or dark appearance and respects Reduce Transparency, Increase Contrast, and Reduce Motion. Five animated tutorials show Move, Click, Right click, Scroll, and Select text. **Settings** holds feature controls; **Permissions** contains setup help.
 
 1. **Permissions:** **Enable Accessibility** → turn on **Hand Mouse** (add `~/Applications/Hand Mouse.app` with **+** if needed).
 2. Click **Start** → allow camera access.

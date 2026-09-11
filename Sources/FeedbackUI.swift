@@ -125,12 +125,13 @@ final class PracticeView: NSView {
     private var holding = false
     private(set) var hits = 0
     private(set) var rightClicks = 0
+    private var displayObserver: NSObjectProtocol?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = 16
-        layer?.borderWidth = 1
+        layer?.cornerRadius = 20
+        layer?.borderWidth = 0.5
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
 
@@ -164,11 +165,18 @@ final class PracticeView: NSView {
             nextButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             nextButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
+        displayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.updateColors() }
         updateColors()
         reset(task: .click)
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
+
+    deinit {
+        if let displayObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayObserver) }
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -183,7 +191,8 @@ final class PracticeView: NSView {
     private func updateColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = StartupStyle.surface.cgColor
-            layer?.borderColor = StartupStyle.accent.withAlphaComponent(0.20).cgColor
+            layer?.borderColor = StartupStyle.border.cgColor
+            layer?.borderWidth = SurfacePreferences.current.increaseContrast ? 1.5 : 0.5
         }
     }
 

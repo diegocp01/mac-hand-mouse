@@ -19,6 +19,8 @@ enum LaunchUISnapshot {
 
     static func main() throws {
         _ = NSApplication.shared
+        verifyMaterialPreferences()
+        verifyWindowChrome()
         let destination = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/private/tmp")
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 
@@ -30,6 +32,53 @@ enum LaunchUISnapshot {
             }
         }
         print("Launch layout: 24 size, appearance, and disclosure states passed.")
+    }
+
+    private static func verifyMaterialPreferences() {
+        let normal = SurfacePreferences()
+        precondition(normal.allowsTransparency && normal.panelOpacity < 1 && normal.raisedPanelOpacity < 1,
+            "Standard panels should be translucent without fading their content")
+        precondition(normal.transitionDuration > 0 && SurfacePreferences(reduceMotion: true).transitionDuration == 0,
+            "Reduce Motion must disable cosmetic transitions")
+        let backdrop = WindowBackdropView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let effect = backdrop.subviews.compactMap { $0 as? NSVisualEffectView }.first!
+        for preferences in [normal, SurfacePreferences(reduceTransparency: true), SurfacePreferences(increaseContrast: true)] {
+            backdrop.setPreferencesForRendering(preferences)
+            precondition(effect.isHidden == !preferences.allowsTransparency, "Accessibility preferences must disable background blur")
+            precondition(backdrop.isOpaque == !preferences.allowsTransparency, "The material fallback must be opaque")
+            precondition(backdrop.hitTest(NSPoint(x: 10, y: 10)) == nil, "The backdrop cannot intercept input")
+            precondition(backdrop.alphaValue == 1, "Only materials, not the entire view, may be translucent")
+            if !preferences.allowsTransparency {
+                precondition(preferences.panelOpacity == 1 && preferences.raisedPanelOpacity == 1,
+                    "Reduced transparency and high contrast need solid panels")
+                precondition(backdrop.layer?.backgroundColor?.alpha == 1, "The opaque fallback must fill the window")
+            }
+        }
+        precondition(effect.blendingMode == .behindWindow && effect.state == .followsWindowActiveState,
+            "Native material should follow window activation")
+    }
+
+    private static func verifyWindowChrome() {
+        let fixture = makeFixture(state: .ready)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 720),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.contentView = fixture.content
+        fixture.content.layoutSubtreeIfNeeded()
+        fixture.content.layoutSubtreeIfNeeded()
+        let content = fixture.content
+        precondition(content.safeAreaInsets.top > 0, "Window controls need a protected titlebar safe area")
+        precondition(content.bounds.height > window.contentLayoutRect.height, "The backdrop must extend underneath the titlebar")
+        let settings = fixture.settings.convert(fixture.settings.bounds, to: content)
+        precondition(settings.maxY <= content.bounds.maxY - content.safeAreaInsets.top,
+            "Custom header controls cannot overlap the titlebar")
+        let backdrop = content.subviews.compactMap { $0 as? WindowBackdropView }.first!
+        precondition(backdrop.frame == content.bounds, "Frosted material must cover the titlebar as well as the content")
+        window.close()
     }
 
     private static func makeFixture(state: State) -> Fixture {
@@ -150,6 +199,8 @@ enum LaunchUISnapshot {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.contentView = content
         try UIRenderSupport.prepare(content, size: size)
         content.layoutSubtreeIfNeeded() // Settle the guide's width-dependent row arrangement.
@@ -162,6 +213,24 @@ enum LaunchUISnapshot {
         precondition(ambiguous.isEmpty, "Ambiguous layout in \(context): \(ambiguous.map { String(describing: type(of: $0)) })")
         let clipped = UIRenderSupport.fullyClippedControls(in: content).filter(isVisible)
         precondition(clipped.isEmpty, "Fully clipped controls in \(context)")
+        let backdrop = content.subviews.compactMap { $0 as? WindowBackdropView }.first!
+        precondition(backdrop.frame == content.bounds, "The frosted backdrop must cover the content in \(context)")
+        precondition(content.layer?.backgroundColor?.alpha == 0 && content.alphaValue == 1 && fixture.start.alphaValue == 1,
+            "Window materials must not fade controls or be covered by an opaque root layer")
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            let glass = UIRenderSupport.descendants(of: content).compactMap { $0 as? NSGlassEffectView }.first!
+            let preferences = SurfacePreferences.current
+            precondition(glass.style == (preferences.allowsTransparency ? .clear : .regular),
+                "Native glass style must follow transparency preferences")
+#if compiler(>=6.4)
+            if #available(macOS 27.0, *) {
+                precondition(glass.effectIsInteractive == (preferences.allowsTransparency && !preferences.reduceMotion),
+                    "Interactive glass must respect Reduce Motion")
+            }
+#endif
+        }
+#endif
 
         let gestureLabels = Set(["Move", "Click", "Right click", "Scroll", "Select text"])
         let cards = UIRenderSupport.descendants(of: fixture.guide).compactMap { $0 as? NSButton }.filter { gestureLabels.contains($0.accessibilityLabel() ?? "") }
@@ -203,7 +272,7 @@ enum LaunchUISnapshot {
         case .permissions: revealed = fixture.setup
         }
         if let revealed, let scroll = revealed.enclosingScrollView, let document = scroll.documentView {
-            revealed.scrollToVisible(revealed.bounds)
+            StartupStyle.reveal(revealed, preferences: SurfacePreferences(reduceMotion: true))
             content.layoutSubtreeIfNeeded()
             let target = revealed.convert(revealed.bounds, to: document)
             precondition(scroll.contentView.documentVisibleRect.contains(target),

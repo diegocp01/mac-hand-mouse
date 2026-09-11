@@ -23,6 +23,7 @@ final class PracticeDiagnosticsView: NSView {
     private let recordingStatus = NSTextField(wrappingLabelWithString: "Not recording. Nothing is saved automatically.")
     private var body: NSStackView!
     private var live: NSStackView!
+    private var displayObserver: NSObjectProtocol?
 
     var selectedIntent: DiagnosticIntent {
         DiagnosticIntent.allCases[max(0, min(DiagnosticIntent.allCases.count - 1, intentPicker.indexOfSelectedItem))]
@@ -32,8 +33,8 @@ final class PracticeDiagnosticsView: NSView {
         guard FeatureFlags.diagnostics else { return nil }
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 16
-        layer?.borderWidth = 1
+        layer?.cornerRadius = 20
+        layer?.borderWidth = 0.5
         setAccessibilityRole(.group)
         setAccessibilityLabel("Click practice camera diagnostics")
 
@@ -116,10 +117,17 @@ final class PracticeDiagnosticsView: NSView {
         for label in [legend] + fingerLabels { label.widthAnchor.constraint(equalTo: fingers.widthAnchor).isActive = true }
         setExpanded(false)
         updateRecorder(PracticeDiagnosticRecorder(), canRecord: false)
+        displayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.updateColors() }
         updateColors()
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let displayObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayObserver) }
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -129,7 +137,8 @@ final class PracticeDiagnosticsView: NSView {
     private func updateColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = StartupStyle.surface.cgColor
-            layer?.borderColor = NSColor.separatorColor.cgColor
+            layer?.borderColor = StartupStyle.border.cgColor
+            layer?.borderWidth = SurfacePreferences.current.increaseContrast ? 1.5 : 0.5
         }
     }
 

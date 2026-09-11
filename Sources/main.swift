@@ -255,9 +255,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.mainMenu = appMenu
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 720),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Hand Mouse"
-        window.backgroundColor = StartupStyle.background
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.toolbarStyle = .unified
         window.delegate = self
@@ -488,8 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func revealInWorkspace(_ view: NSView) {
-        window?.contentView?.layoutSubtreeIfNeeded()
-        view.scrollToVisible(view.bounds)
+        StartupStyle.reveal(view)
     }
 
     private func refreshSetupSteps(trusted: Bool) {

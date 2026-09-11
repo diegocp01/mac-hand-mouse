@@ -169,7 +169,7 @@ PR #23 integration preserves the animated tutorial and task practice introduced 
 
 ## Native launch layout
 
-The window follows system light/dark appearance and keeps Start/Pause and Practice in a persistent glass control area (macOS 26+, visual-effect fallback on older systems). The five animated tutorials and three task-based practice exercises are preserved. Settings, permissions, and practice scroll into view on demand. The default content size is 920×720; the minimum window is 720×650.
+The window uses a native behind-window frosted backdrop, translucent content panels, and clear glass for the persistent Start/Pause and Practice controls. Full-size content extends the backdrop under the titlebar while safe-area constraints keep the header clear of window controls. macOS 27 adds native interactive glass when built with a supporting SDK; macOS 26 keeps clear glass, and older systems use visual-effect materials. Text and controls retain full view opacity. Reduce Transparency or Increase Contrast makes the backdrop and panels opaque; Reduce Motion disables interactive glass and cosmetic transitions. Hover/selection highlights and section reveals ease between states without moving controls on hover or animating detector progress. The five animated tutorials and three task-based practice exercises are preserved. The default content size is 920×720; the minimum window is 720×650.
 
 Render the complete camera-free layout with:
 
@@ -178,7 +178,7 @@ xcrun swiftc -swift-version 5 Sources/StartupUI.swift Sources/PracticeTasks.swif
 /tmp/hand-mouse-launch-render "$PWD/build/ui-review"
 ```
 
-The renderer checks 24 light/dark, size, and disclosure states, resizing, five keyboard-accessible selectors, and visibility of Start/Pause while scrolling. Physical hand tracking and native event delivery require separate live-camera tests.
+The renderer, also run by `bash scripts/test.sh`, checks 24 light/dark, size, and disclosure states, resizing, five keyboard-accessible selectors, and visibility of Start/Pause while scrolling. It additionally checks opaque accessibility fallbacks, Reduce Motion policy, backdrop input passthrough, full control opacity, and native glass/interactivity availability. Static renders do not establish the live desktop blur or interactive animation appearance; review those in a visible window. Physical hand tracking and native event delivery require separate live-camera tests.
 
 ## Practice diagnostics verification
 
