@@ -85,27 +85,36 @@ Gesture recognition uses camera images, not measured depth or physical contact. 
 
 ## Test two-finger recognition with your camera
 
-Diagnostics are **disabled in normal builds**. To enable them locally, change `FeatureFlags.diagnostics` from `false` to `true` in `Sources/FeatureFlags.swift`, quit the app, and rebuild with `bash "Launch Hand Mouse.command"`. Keep this local change out of commits and restore `false` before sharing a build. There is no user-facing setting or saved preference that enables diagnostics.
+Diagnostics are **disabled in normal builds**. Use a PR-first update flow: review and merge the PR, pull `main`, then enable and test diagnostics locally. Do not replace or restart the running app as part of preparing a PR.
 
-Choose **Practice → Click**, then **Show camera diagnostics** below the practice target. The panel uses the same camera and click detector as normal control, but Practice sends no system input. It shows the mirrored camera/skeleton, each finger's shape and minimum joint confidence, geometry ratios, hold progress, last cancellation reason, frame age/gap, and index movement. Confidence values are tracking scores, not probabilities. Hover over a finger row for the unchanged recognition cutoffs.
+To enable diagnostics after pulling, save any recording you want to keep, quit the app, change `FeatureFlags.diagnostics` from `false` to `true` in `Sources/FeatureFlags.swift`, and rebuild with `bash "Launch Hand Mouse.command"`. Keep this local flag change out of commits and restore `false` before sharing a build. There is no user-facing setting or saved preference that enables diagnostics.
 
-To collect a calibration baseline:
+**The goal is to explain detection, not automatically calibrate it.** The input is your hand gesture plus what you intend to do. The output is a readable result and, if you choose to save it, a JSON file that can help someone debug the detector. Recording alone does not train a model or change settings.
 
-1. Choose an **Intent**: Free test, Aim only, One left click, or Cancel a hold. Labels describe what you intend, not what the app predicts.
-2. Click **Record session**. This resets Click Practice and begins an in-memory numeric recording; it does not change gesture thresholds.
-3. Perform one attempt, reopening your hand before clicking. Choose **Next attempt** before repeating. Changing Intent also begins a new attempt. Use this button rather than Practice's **Retry**, which resets the interaction and stops the recording.
-4. Include successful clicks, missed clicks, ordinary non-click movements, and early cancellations. Repeat at comfortable distances and angles, changing one condition at a time.
-5. Choose **Stop recording**, then **Export JSON…**. Review and share the file only if you want to. Nothing uploads automatically.
+In a locally enabled build, choose **Camera test** next to Practice. This opens a focused screen, not the practice game. There is no Send target to hit, and no mouse input is sent to other apps.
 
-Recordings stop after three minutes or 9,000 events, and on pause, leaving Click Practice, camera changes, or interaction/settings resets. A stopped recording remains available for export even after **Esc**; unexported recordings disappear when the app quits. Starting another recording or discarding one requires confirmation when it contains samples. Exported files are not removed. The default export filename is ignored by Git; keep all real-hand recordings out of commits.
+1. **Preview:** check that your hand is visible. The camera processes frames on your Mac, but no recording is being saved yet.
+2. **Start recording:** open your hand, raise index + middle with ring + little fingers curled, hold for one second, then reopen. Make just one attempt.
+3. **Stop & review:** the camera stops. Read the result, such as one click detected, no completed hold, or a finger becoming unclear during the hold. Results describe what the detector observed, not a guaranteed physical cause.
+4. **Save results…** is optional. It writes a JSON file to the location you choose. **Show saved file** helps you find it.
+5. If you want help with a fix, attach that JSON to your chat or share it with a developer. They can inspect/replay the evidence, change the code, and ask you to try a fresh camera test. Nothing is uploaded automatically.
 
-For development, with the diagnostics flag enabled and after `bash scripts/test.sh`, replay an explicitly exported session with:
+The default goal is one left click. **Advanced details** contains other test goals and internal measurements; it starts collapsed and can be ignored. Recording and save controls stay visible when those details scroll. **Back to app** stops the camera and leaves the test without deleting its in-memory results.
+
+Recordings stop after three minutes or 9,000 events, and on pause, camera changes, or interaction/settings resets. Results remain available after **Esc** and can be reopened with **Camera test**. Unexported recordings disappear when the app quits. **Record another attempt** asks for confirmation before replacing an existing in-memory recording; saved files are not removed. Keep all real-hand recordings out of commits; the default JSON filename is ignored by Git.
+
+<details>
+<summary>Developer replay (optional)</summary>
+
+With the diagnostics flag enabled, run `bash scripts/test.sh`, then:
 
 ```sh
 build/practice-diagnostics-tests --replay "/path/to/hand-mouse-diagnostics.json"
 ```
 
-Replay feeds the recorded selected-hand landmarks through the production finger classifier and the practice interaction engine, including recorded tracking interruptions. It reports decision differences, click counts, and missed/false clicks against your attempt labels. It does not start a camera, post mouse events, rerun Apple's Vision model, or automatically tune the detector. Fresh live-camera trials are still needed to validate any later threshold changes.
+Replay feeds selected-hand landmarks through the same classifier and practice interaction engine, including tracking interruptions. It compares recorded and current decisions and checks click counts against the supplied goal labels. It does not start a camera, post mouse events, rerun Vision, or automatically tune detection. Fresh camera trials are needed to validate later code changes.
+
+</details>
 
 ## Troubleshooting
 
@@ -124,7 +133,7 @@ Replay feeds the recorded selected-hand landmarks through the production finger 
 
 ## Privacy
 
-Hand Mouse processes camera frames on your Mac. It never records or uploads video or audio, requests no microphone access, and includes no telemetry. By default it does not record hand landmarks. In locally enabled diagnostics builds, **Record session** in Click Practice explicitly opts into a bounded, in-memory record of selected-hand landmarks, confidence, relative timing, gesture decisions, attempt labels, and numeric display dimensions/aim settings. Only **Export JSON…** writes that recording to a location you choose; it excludes camera identifiers, screen content, device names, and machine uptime. No diagnostic data uploads automatically. Camera permission enables tracking. Accessibility permission enables mouse control and the Escape pause key. The resume shortcut registers a specific key combination with macOS; it does not collect a keyboard input stream.
+Hand Mouse processes camera frames on your Mac. It never records or uploads video or audio, requests no microphone access, and includes no telemetry. By default it does not record hand landmarks. In locally enabled diagnostics builds, **Start recording** in Camera test explicitly opts into a bounded, in-memory record of selected-hand landmarks, confidence, relative timing, gesture decisions, goal labels, and numeric display dimensions/aim settings. **Stop & review** stops the camera and explains the result locally. Only **Save results…** writes that recording to a location you choose; it excludes camera identifiers, screen content, device names, and machine uptime. No diagnostic data uploads automatically. Camera permission enables tracking. Accessibility permission enables mouse control and the Escape pause key. The resume shortcut registers a specific key combination with macOS; it does not collect a keyboard input stream.
 
 ## Build, test, and package
 

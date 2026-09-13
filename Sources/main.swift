@@ -128,6 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let practiceButton = NSButton(title: "Practice", target: nil, action: nil)
     private var diagnostics: PracticeDiagnosticsView?
     private var diagnosticPreview: PreviewView?
+    private var diagnosticsButton: NSButton?
+    private var diagnosticsPresented = false
+    private var diagnosticSavedURL: URL?
     private var diagnosticRecorder = PracticeDiagnosticRecorder()
     private var diagnosticLastFrame: Double?
     private var diagnosticRenderedAt = -Double.infinity
@@ -273,16 +276,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let diagnosticPreview = PreviewView(session: camera.session)
             self.diagnosticPreview = diagnosticPreview
             diagnostics = PracticeDiagnosticsView(preview: diagnosticPreview)
-            diagnostics?.onExpand = { [weak self] in
-                guard let self, let diagnostics = self.diagnostics else { return }
-                self.diagnosticRenderedAt = -.infinity
-                self.revealInWorkspace(diagnostics)
-            }
             diagnostics?.onRecord = { [weak self] in self?.toggleDiagnosticRecording() }
             diagnostics?.onExport = { [weak self] in self?.exportDiagnosticRecording() }
-            diagnostics?.onDiscard = { [weak self] in self?.discardDiagnosticRecording() }
-            diagnostics?.onNextAttempt = { [weak self] in self?.nextDiagnosticAttempt() }
-            diagnostics?.onIntentChange = { [weak self] in self?.nextDiagnosticAttempt() }
+            diagnostics?.onClose = { [weak self] in self?.closeDiagnostics() }
+            diagnostics?.onRevealSavedFile = { [weak self] in
+                if let url = self?.diagnosticSavedURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            }
+            let test = NSButton(title: "Camera test", target: self, action: #selector(openDiagnostics))
+            test.bezelStyle = .rounded
+            test.controlSize = .large
+            test.setAccessibilityLabel("Camera test: diagnose one click without controlling your Mac")
+            test.toolTip = "Preview your hand, record one attempt, and see a readable result. Nothing is uploaded."
+            diagnosticsButton = test
         }
         cameraStatus.font = .systemFont(ofSize: 11, weight: .medium)
         cameraStatus.textColor = StartupStyle.muted
@@ -417,7 +422,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let content = LaunchContentView(title: titleLabel, cameraStatus: cameraStatus,
             start: toggle, practiceButton: practiceButton, settingsButton: optionsToggle,
             guide: gestureGuide, preview: preview, feedback: feedback, practice: practice,
-            setupDisclosure: setupDisclosure, setupRows: setupRows, settingsRows: optionsRows, diagnostics: diagnostics)
+            setupDisclosure: setupDisclosure, setupRows: setupRows, settingsRows: optionsRows,
+            diagnostics: diagnostics, cameraTestButton: diagnosticsButton)
         window.contentView = content
 
         refreshClickChrome()
@@ -445,6 +451,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, self.running else { return }
             self.pause()
             self.showFeedback("Camera unavailable", message)
+            if self.diagnosticsPresented {
+                self.diagnosticExportMessage = "Camera unavailable. " + message
+                self.refreshDiagnosticControls()
+            }
             self.setupToggle.state = .on; self.toggleSetup()
         }
         localKey = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -466,6 +476,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         shortcut.onPress = { [weak self] in
             guard let self, self.activation.press() else { return }
+            guard CameraTestPolicy.allowsCameraToggle(presented: self.diagnosticsPresented,
+                running: self.running, hasRecording: self.diagnosticRecorder.session != nil) else { return }
             self.toggleCamera()
         }
         shortcut.onRelease = { [weak self] in self?.activation.release() }
@@ -790,7 +802,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func startPractice() {
+        if diagnosticsPresented { closeDiagnostics(); return }
         if practicing { finishPractice(); return }
+        enterPractice()
+    }
+
+    private func enterPractice(startCamera: Bool = true) {
         guard activation.canResume else { return }
         // Practice changes this session's output, not the user's saved preferences.
         allowClicks.state = .off
@@ -800,9 +817,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         resetInteraction(); practice.reset(task: .click); practiceCursor = nil; clearClickFeedback(); practiceMessageUntil = 0
         gestureGuide.select(.click)
         optionsToggle.state = .off; toggleOptions()
-        if !running { toggleCamera() }
+        if startCamera && !running { toggleCamera() }
         refreshClickChrome()
-        revealInWorkspace(practice)
+        if !diagnosticsPresented { revealInWorkspace(practice) }
     }
 
     private func finishPractice() {
@@ -831,17 +848,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @objc private func openDiagnostics() {
+        guard FeatureFlags.diagnostics, !diagnosticsPresented, activation.canResume, let diagnostics else { return }
+        diagnosticsPresented = true
+        let reviewing = diagnosticRecorder.session != nil
+        if reviewing && running { pause() }
+        if !practicing { enterPractice(startCamera: !reviewing) }
+        else if practice.currentTask != .click { practice.select(.click) }
+        diagnostics.setAdvanced(false)
+        diagnosticRenderedAt = -.infinity
+        refreshDiagnosticControls()
+    }
+
+    private func closeDiagnostics() {
+        guard FeatureFlags.diagnostics, diagnosticsPresented else { return }
+        diagnosticsPresented = false
+        pause()
+        refreshDiagnosticControls()
+    }
+
     private var canRecordDiagnostics: Bool {
-        FeatureFlags.diagnostics && practicing && running && practice.currentTask == .click
+        FeatureFlags.diagnostics && diagnosticsPresented && activation.canResume
     }
 
     private func refreshDiagnosticControls() {
         guard FeatureFlags.diagnostics, let diagnostics else { return }
-        diagnostics.isHidden = !(practicing && practice.currentTask == .click) && diagnosticRecorder.session == nil
-        diagnostics.updateRecorder(diagnosticRecorder, canRecord: canRecordDiagnostics, exporting: exportingDiagnostics)
-        if let message = diagnosticExportMessage, !diagnosticRecorder.isRecording, !exportingDiagnostics {
-            diagnostics.showExportResult(message)
-        }
+        (window?.contentView as? LaunchContentView)?.setDiagnosticsPresented(diagnosticsPresented)
+        diagnostics.updateRecorder(diagnosticRecorder, canRecord: canRecordDiagnostics, cameraRunning: running,
+            exporting: exportingDiagnostics, hasSavedFile: diagnosticSavedURL != nil)
+        diagnostics.showNotice(diagnosticExportMessage)
+        let canToggleCamera = CameraTestPolicy.allowsCameraToggle(presented: diagnosticsPresented,
+            running: running, hasRecording: diagnosticRecorder.session != nil)
+        toggle.isEnabled = canToggleCamera
+        cameraMenuItem?.isEnabled = canToggleCamera
     }
 
     private func stopDiagnosticRecording(_ reason: DiagnosticStopReason) {
@@ -854,9 +893,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard FeatureFlags.diagnostics else { return }
         guard diagnosticRecorder.sampleCount > 0 else { action(); return }
         let alert = NSAlert()
-        alert.messageText = "Discard the in-memory recording?"
-        alert.informativeText = "Export JSON first if you want to keep it. This does not remove any previously exported file."
-        alert.addButton(withTitle: "Discard recording")
+        alert.messageText = "Start a new recording?"
+        alert.informativeText = "Save results first if you want to keep this attempt. Starting again replaces the in-memory recording, but does not change any saved file."
+        alert.addButton(withTitle: "Start new recording")
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { response in
             if response == .alertFirstButtonReturn { action() }
@@ -864,47 +903,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func toggleDiagnosticRecording() {
-        guard FeatureFlags.diagnostics else { return }
-        if diagnosticRecorder.isRecording { stopDiagnosticRecording(.manual); return }
+        guard FeatureFlags.diagnostics, diagnosticsPresented else { return }
+        if diagnosticRecorder.isRecording {
+            stopDiagnosticRecording(.manual)
+            pause()
+            return
+        }
         guard canRecordDiagnostics, !exportingDiagnostics else { return }
         confirmDiagnosticReplacement { [weak self] in
             guard let self, self.canRecordDiagnostics, let diagnostics = self.diagnostics else { return }
+            if !self.practicing { self.enterPractice(startCamera: false) }
             self.practice.reset(task: .click)
             self.practiceTaskChanged(.click)
+            if !self.running { self.toggleCamera() }
             let bounds = CGDisplayBounds(self.targetDisplay)
             self.diagnosticRecorder.start(width: bounds.width, height: bounds.height,
                 settings: self.engine.settings, now: ProcessInfo.processInfo.systemUptime,
                 intent: diagnostics.selectedIntent)
             self.diagnosticExportMessage = nil
-            diagnostics.setExpanded(true)
-            self.refreshDiagnosticControls()
-            self.revealInWorkspace(diagnostics)
-        }
-    }
-
-    private func nextDiagnosticAttempt() {
-        guard FeatureFlags.diagnostics, let diagnostics else { return }
-        diagnosticRecorder.nextAttempt(intent: diagnostics.selectedIntent)
-        refreshDiagnosticControls()
-    }
-
-    private func discardDiagnosticRecording() {
-        guard FeatureFlags.diagnostics, !diagnosticRecorder.isRecording, !exportingDiagnostics else { return }
-        confirmDiagnosticReplacement { [weak self] in
-            guard let self else { return }
-            self.diagnosticRecorder.discard()
-            self.diagnosticExportMessage = nil
+            self.diagnosticSavedURL = nil
+            diagnostics.setAdvanced(false)
             self.refreshDiagnosticControls()
         }
     }
 
     private func exportDiagnosticRecording() {
-        guard FeatureFlags.diagnostics, !diagnosticRecorder.isRecording, !exportingDiagnostics,
+        guard FeatureFlags.diagnostics, diagnosticsPresented, !diagnosticRecorder.isRecording, !exportingDiagnostics,
               let session = diagnosticRecorder.session, !session.entries.isEmpty else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "hand-mouse-diagnostics.json"
-        panel.message = "Save local hand landmarks, confidence, timing, and attempt labels. No images or audio are included."
+        panel.message = "Save a diagnostic JSON file on this Mac. Share it only if you choose. It contains numbers and timing, not camera video or audio."
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
             self.exportingDiagnostics = true
@@ -916,11 +945,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     self.exportingDiagnostics = false
                     switch result {
                     case .success:
-                        self.diagnosticExportMessage = "Exported locally. Share the JSON only if you choose; nothing was uploaded."
+                        self.diagnosticSavedURL = url
+                        self.diagnosticExportMessage = "Saved \(url.lastPathComponent) on this Mac. Nothing was uploaded."
                     case .failure(let error):
-                        self.diagnosticExportMessage = "Export failed. The recording is still in memory; try another location."
+                        self.diagnosticExportMessage = "Could not save. Your results are still in memory; try another location."
                         let alert = NSAlert()
-                        alert.messageText = "Could not export diagnostics"
+                        alert.messageText = "Could not save results"
                         alert.informativeText = error.localizedDescription
                         alert.beginSheetModal(for: self.window)
                     }
@@ -931,7 +961,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func observePractice(_ frame: HandFrame, now: Double, step: InteractionStep, movement: Double?) {
-        guard FeatureFlags.diagnostics, let diagnostics, let diagnosticPreview,
+        guard FeatureFlags.diagnostics, diagnosticsPresented, let diagnostics, let diagnosticPreview,
               practice.currentTask == .click else { return }
         let input = PracticeDiagnosticInput(timestamp: frame.timestamp, now: now, aspect: Double(frame.aspect),
             landmarks: frame.pointingObservation?.landmarks ?? [:], handSide: frame.handSide,
@@ -943,18 +973,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         diagnosticRecorder.record(input, outcome: outcome, frameInterval: interval, movement: movement, destination: .practice)
         if now - diagnosticRenderedAt >= 0.1 || step.click || step.rightClick {
             diagnosticRenderedAt = now
-            if diagnostics.isExpanded {
-                diagnosticPreview.showPlaceholder(nil)
-                diagnosticPreview.update(step.blocked == .staleFrame ? nil : frame, phase: previewPhase,
-                    clicked: step.click || step.rightClick)
-                diagnostics.update(input: input, outcome: outcome, frameInterval: interval, movement: movement)
-            }
+            diagnosticPreview.showPlaceholder(nil)
+            diagnosticPreview.update(step.blocked == .staleFrame ? nil : frame, phase: previewPhase,
+                clicked: step.click || step.rightClick)
+            diagnostics.update(input: input, outcome: outcome, frameInterval: interval, movement: movement)
             refreshDiagnosticControls()
         }
     }
 
     private func observeDiagnosticInterruption(now: Double) {
-        guard FeatureFlags.diagnostics, let diagnostics, let diagnosticPreview,
+        guard FeatureFlags.diagnostics, diagnosticsPresented, let diagnostics, let diagnosticPreview,
               practice.currentTask == .click, !diagnosticInterrupted else { return }
         diagnosticInterrupted = true
         let outcome = PracticeDiagnosticOutcome(engine: engine,
@@ -991,6 +1019,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         diagnosticPreview?.controlRegion = engine.pointerControlRegion
         observePractice(frame, now: now, step: step, movement: movement)
         if let location = step.location { practiceCursor = location }
+        if diagnosticsPresented { return }
         let simulatedPoint = step.location.map {
             practice.point(forNormalizedInput: CGPoint(x: ($0.x - screen.minX) / screen.width,
                                                        y: ($0.y - screen.minY) / screen.height))
@@ -1156,7 +1185,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cameraMenuItem.title = "Start camera"
         showFeedback("Paused", "Use your mouse normally. Start the camera when you are ready.")
         updateDisplayStatus()
-        if practicing { finishPractice() }
+        if practicing && !diagnosticsPresented { finishPractice() }
+        refreshDiagnosticControls()
     }
     @objc private func controlChanged() { configureInteraction(); resetInteraction(); readyFeedback() }
     @objc private func allowClicksChanged() {
@@ -1203,6 +1233,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if FeatureFlags.diagnostics && diagnosticRecorder.isRecording {
             diagnosticRecorder.expire(at: ProcessInfo.processInfo.systemUptime)
             if !diagnosticRecorder.isRecording { refreshDiagnosticControls() }
+        }
+        if CameraTestPolicy.shouldStopCamera(presented: diagnosticsPresented, running: running,
+            hasRecording: diagnosticRecorder.session != nil, recording: diagnosticRecorder.isRecording) {
+            pause()
+            return
         }
         let trusted = AXIsProcessTrusted()
         if previouslyTrusted == true && !trusted {
@@ -1288,7 +1323,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 return
             }
         }
-        if practicing { handlePractice(frame, now: now); return }
+        if CameraTestPolicy.usesPracticeOutput(practicing: practicing, presented: diagnosticsPresented) {
+            handlePractice(frame, now: now); return
+        }
         guard CGDisplayIsActive(targetDisplay) != 0 else {
             pause(); showFeedback("Display disconnected", "Choose a connected display and start the camera again.")
             return
