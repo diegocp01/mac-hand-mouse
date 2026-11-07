@@ -247,3 +247,78 @@ private enum FingertipClusterGeometry {
         return ratio.isFinite ? ratio : nil
     }
 }
+
+/// Hold-still click: keep the on-screen pointer inside a small circle for one
+/// second and it clicks once. No finger pose is needed. After a click the
+/// pointer must travel away before another click can start, so resting in
+/// place never repeats clicks.
+struct StillClickDetector {
+    typealias Phase = PointHoldDetector.Phase
+
+    private(set) var phase: Phase = .ready
+    private(set) var lastCancellation: PointHoldDetector.Cancellation?
+    private var anchor: CGPoint?
+    private var stillSince: Double?
+    private var stillSamples = 0
+    private var lastTime: Double?
+    private var observed = 0.0
+
+    /// Stillness before the ring appears, so ordinary aiming shows nothing.
+    static let settleSeconds = 0.25
+    /// Ring fill time after settling. Total time to click is settle + hold.
+    static let holdSeconds = 0.75
+    /// Screen points the pointer may wander while still counting as still.
+    static let stillRadius = 14.0
+    /// Screen points the pointer must travel after a click to allow another.
+    static let rearmDistance = 36.0
+    private let maximumGap = 0.12
+
+    var progress: Double {
+        if phase == .clicked { return 1 }
+        guard phase == .holding else { return 0 }
+        return min(1, max(0, (observed - Self.settleSeconds) / Self.holdSeconds))
+    }
+
+    var remainingSeconds: Double {
+        phase == .holding ? max(0, Self.settleSeconds + Self.holdSeconds - observed) : 0
+    }
+
+    mutating func reset(cancellation: PointHoldDetector.Cancellation? = nil) {
+        if let cancellation, phase == .holding { lastCancellation = cancellation }
+        else if cancellation == nil { lastCancellation = nil }
+        // A reset after a click keeps the click anchor so stopping and
+        // restarting tracking in place cannot click again.
+        if phase != .clicked { phase = .ready; anchor = nil }
+        stillSince = nil; stillSamples = 0; lastTime = nil; observed = 0
+    }
+
+    /// `location` is the pointer position in screen points. Returns true once per click.
+    mutating func update(location: CGPoint?, time: Double) -> Bool {
+        guard time.isFinite else { reset(cancellation: .invalidTime); return false }
+        if let previous = lastTime, time <= previous || time - previous > maximumGap + 1e-9 {
+            reset(cancellation: time <= previous ? .invalidTime : .frameGap)
+        }
+        lastTime = time
+        guard let location, location.x.isFinite, location.y.isFinite else {
+            reset(cancellation: .invalidPoint); return false
+        }
+        if phase == .clicked {
+            guard let anchor, hypot(location.x - anchor.x, location.y - anchor.y) > Self.rearmDistance else { return false }
+            phase = .ready; self.anchor = location; stillSince = time; stillSamples = 1; observed = 0
+            return false
+        }
+        guard let anchor, let since = stillSince,
+              hypot(location.x - anchor.x, location.y - anchor.y) <= Self.stillRadius else {
+            if phase == .holding { lastCancellation = .movement }
+            phase = .ready; self.anchor = location; stillSince = time; stillSamples = 1; observed = 0
+            return false
+        }
+        stillSamples += 1
+        observed = time - since
+        if observed + 1e-9 >= Self.settleSeconds { phase = .holding }
+        guard phase == .holding, stillSamples >= 3,
+              observed + 1e-9 >= Self.settleSeconds + Self.holdSeconds else { return false }
+        phase = .clicked
+        return true
+    }
+}
