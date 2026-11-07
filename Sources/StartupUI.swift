@@ -252,7 +252,7 @@ enum GestureAction: CaseIterable {
     fileprivate var instruction: String {
         switch self {
         case .move: return "Show hand · Move"
-        case .click: return "Raise two · Hold 1 s"
+        case .click: return "Hold still · 1 s"
         case .rightClick: return "Five tips together"
         case .scroll: return "Three tips · Move"
         case .select: return "Two L hands · move"
@@ -264,7 +264,7 @@ enum GestureAction: CaseIterable {
         case .move:
             return "Show your hand and move to aim. The pointer follows your index fingertip; no special pose is needed."
         case .click:
-            return "Open your hand to aim, then raise index and middle with the other fingers curled. Hold for one second while the ring fills. Open your hand before another click."
+            return "Point at a target and stop moving. The ring fills and clicks once after one second. Move away before the next click."
         case .rightClick:
             return "Bring all five fingertips together in a pinch, keeping them visible to the camera. Hold briefly to right-click once. Open the hand before the next right-click."
         case .scroll:
@@ -314,11 +314,11 @@ enum GestureDemoTimeline {
             let elapsed = secondsInLoop(seconds)
             let held = elapsed >= clickHoldStart && elapsed < 3.5
             let activated = elapsed >= clickTime && elapsed < 3.5
-            return GestureDemoSample(primaryPose: held ? .raised : .point,
+            return GestureDemoSample(primaryPose: .point,
                 secondaryPose: nil, primaryX: 0.46, primaryY: 0.5,
                 resultProgress: held ? min(1, CGFloat(elapsed - clickHoldStart)) : 0,
                 gestureHeld: held, resultActivated: activated,
-                stage: activated ? "Clicked · lower middle" : (held ? "Hold two fingers · 1 second" : "Aim with index only"))
+                stage: activated ? "Clicked · move to click again" : (held ? "Hold still · 1 second" : "Aim with index only"))
         case .rightClick:
             let held = t >= 0.30 && t < 0.70
             let activated = t >= 0.34 && t < 0.70
@@ -843,7 +843,7 @@ private final class GestureDemoCanvas: NSView {
         drawCentered(activated ? "CLICKED" : "OPEN", in: button.offsetBy(dx: 0, dy: pressed ? 3 : 0), size: 12,
                      color: activated ? StartupStyle.background : StartupStyle.text, weight: .bold)
         if !compact {
-            drawCentered("Hold two fingers for 1 second", in: NSRect(x: rect.minX, y: button.maxY + 14, width: rect.width, height: 18),
+            drawCentered("Point and hold still for 1 second", in: NSRect(x: rect.minX, y: button.maxY + 14, width: rect.width, height: 18),
                          size: 10, color: StartupStyle.muted, weight: .medium)
         }
     }

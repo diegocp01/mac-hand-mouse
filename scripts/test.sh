@@ -25,6 +25,8 @@ xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sourc
 build/steady-aim-tests
 xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Tests/IntentClickTests.swift -o build/intent-click-tests
 build/intent-click-tests
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Tests/StillClickTests.swift -o build/still-click-tests
+build/still-click-tests
 xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/FeatureFlags.swift Sources/PracticeDiagnostics.swift Tests/PracticeDiagnosticsTests.swift -o build/practice-diagnostics-tests
 build/practice-diagnostics-tests
 xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeTasks.swift Tests/PracticeTaskTests.swift -o build/practice-task-tests

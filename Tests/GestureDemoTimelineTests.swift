@@ -17,9 +17,9 @@ enum GestureDemoTimelineTests {
         let held = GestureDemoTimeline.sample(action: .click, seconds: 2.0)
         let clicked = GestureDemoTimeline.sample(action: .click, seconds: GestureDemoTimeline.clickTime)
         check(aim.primaryPose == .point && !aim.resultActivated, "Aim uses index only")
-        check(held.primaryPose == .raised && held.gestureHeld && !held.resultActivated && held.resultProgress == 0.5,
-              "Two raised fingers count down before activation")
-        check(clicked.resultActivated && clicked.primaryPose == .raised, "Click occurs at hold completion")
+        check(held.primaryPose == .point && held.gestureHeld && !held.resultActivated && held.resultProgress == 0.5,
+              "Holding one pointing finger still counts down before activation")
+        check(clicked.resultActivated && clicked.primaryPose == .point, "Click occurs at hold completion")
         check(GestureDemoTimeline.clickTime - GestureDemoTimeline.clickHoldStart == 1, "Tutorial hold lasts one second")
         let right = GestureDemoTimeline.sample(action: .rightClick, seconds: 2)
         check(right.primaryPose == .allPinch && right.resultActivated, "Right click shows five-tip closure")
