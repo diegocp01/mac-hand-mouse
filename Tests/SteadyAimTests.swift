@@ -66,22 +66,21 @@ import CoreGraphics
         var clicks = 0
         var last = InteractionStep()
 
-        init(fps: Double, practice: Bool, enabled: Bool? = nil, mode: ClickMode = .twoFingerTap,
+        init(fps: Double, practice: Bool, enabled: Bool? = nil,
                 allowClicks: Bool = true, allowDragging: Bool = false) {
             self.fps = fps; destination = practice ? .practice : .system
-            var settings = InteractionSettings(mode: mode, allowClicks: allowClicks, allowDragging: allowDragging)
+            var settings = InteractionSettings(allowClicks: allowClicks, allowDragging: allowDragging)
             if let enabled { settings.steadyAim = enabled }
             engine.configure(settings)
         }
 
-        @discardableResult mutating func frame(_ point: CGPoint? = hand, pose: TapPose? = .raised,
-                separation: Double? = 0.6, trusted: Bool = true, companion: Bool = false) -> InteractionStep {
+        @discardableResult mutating func frame(_ point: CGPoint? = hand, trusted: Bool = true,
+                companion: Bool = false) -> InteractionStep {
             time += 1 / fps
-            last = engine.process(index: point, pinchRatio: 0.9,
-                timestamp: time, now: time + 0.01, bounds: display, running: true,
-                trusted: trusted && destination == .system, destination: destination,
-                cursorPosition: cursor, handSide: "left", companionPresent: companion, tapPose: pose,
-                fingerSeparationRatio: separation)
+            last = engine.process(HandInput(index: point, timestamp: time, handSide: "left", palm: point,
+                    threeFingerPinchRatio: 0.9, companionPresent: companion),
+                now: time + 0.01, bounds: display, running: true,
+                trusted: trusted && destination == .system, destination: destination, cursorPosition: cursor)
             if let location = last.location { cursor = location }
             if last.click { clicks += 1 }
             if destination == .practice {
@@ -91,7 +90,8 @@ import CoreGraphics
             return last
         }
 
-        mutating func hold(_ point: CGPoint = hand, seconds: Double = 0.7) {
+        /// Half a second by default: settled, but short of a hold-still click.
+        mutating func hold(_ point: CGPoint = hand, seconds: Double = 0.5) {
             for _ in 0..<Int(ceil(seconds * fps)) { frame(point) }
         }
     }
@@ -195,31 +195,20 @@ import CoreGraphics
                 session.hold()
                 check(session.engine.acquisition.active && session.cursor == initial,
                     "Default steady aiming acquires the existing cursor without a jump")
-                for i in 1...Int(fps * 2) {
-                    session.frame(CGPoint(x: 0.5 + 0.04 * Double(i) / (fps * 2), y: 0.5))
+                for i in 1...Int(fps * 0.5) {
+                    session.frame(CGPoint(x: 0.5 + 0.04 * Double(i) / (fps * 0.5), y: 0.5))
                 }
-                session.hold(end)
                 check(session.clicks == 0 && session.cursor.x > initial.x,
-                    "Aiming with raised fingers moves without an accidental click")
+                    "Aiming moves without an accidental click")
+                session.hold(end, seconds: 1.3)
                 let aim = session.cursor
-                session.frame(CGPoint(x: 0.65, y: 0.6), separation: 0.2)
-                check(session.cursor == aim && session.clicks == 0,
-                    "The first close-finger observation still locks the fine-aimed target")
-                // Use an ordinary tap duration, away from the detector's exact 50 ms boundary.
-                for _ in 0..<Int(ceil(0.12 * fps)) {
-                    session.frame(CGPoint(x: 0.65, y: 0.65), pose: .bent, separation: 0.2)
-                }
-                session.frame(CGPoint(x: 0.65, y: 0.6), separation: 0.2)
-                check(session.cursor == aim && session.clicks == 1,
-                    "A complete tap still clicks once at the locked fine-aimed location")
-                session.frame(CGPoint(x: 0.65, y: 0.6), separation: 0.6)
-                check(session.cursor == aim, "Separating fingers preserves the click target")
-                session.hold(CGPoint(x: 0.65, y: 0.6), seconds: 0.4)
-                for _ in 0..<2 { session.frame(CGPoint(x: 0.65, y: 0.6), pose: .bent) }
-                session.frame(nil, pose: nil)
-                session.hold(CGPoint(x: 0.65, y: 0.6))
+                check(session.clicks == 1, "Resting after fine aiming clicks once at the fine-aimed location")
+                session.hold(end, seconds: 1)
+                check(session.clicks == 1 && session.cursor == aim, "Resting after a click cannot repeat it")
+                session.frame(nil)
+                session.hold(end)
                 check(session.clicks == 1 && session.cursor == aim,
-                    "Tracking loss cancels an unfinished tap and reacquires without drift")
+                    "Tracking loss reacquires at the fine-aimed location without drift or a repeat click")
                 if !practice {
                     let denied = session.frame(CGPoint(x: 0.7, y: 0.6), trusted: false)
                     check(denied.blocked == .permission && denied.systemLocation == nil && !denied.systemClick,
@@ -231,22 +220,21 @@ import CoreGraphics
                 clicksOff.hold(); clicksOffUnassisted.hold()
                 for i in 1...Int(fps * 2) {
                     let point = CGPoint(x: 0.5 + 0.04 * Double(i) / (fps * 2), y: 0.5)
-                    clicksOff.frame(point, separation: 0.2)
-                    clicksOffUnassisted.frame(point, separation: 0.2)
+                    clicksOff.frame(point)
+                    clicksOffUnassisted.frame(point)
                 }
                 clicksOff.hold(end); clicksOffUnassisted.hold(end)
                 check(distance(initial, clicksOff.cursor) > 1 &&
                     distance(initial, clicksOff.cursor) < distance(initial, clicksOffUnassisted.cursor) * 0.75,
-                    "Default steady aiming works with clicks disabled and does not acquire a finger lock")
-                for _ in 0..<Int(ceil(0.12 * fps)) { clicksOff.frame(end, pose: .bent) }
-                clicksOff.frame(end)
+                    "Default steady aiming works with clicks disabled")
+                clicksOff.hold(end, seconds: 1.3)
                 check(clicksOff.clicks == 0 && !clicksOff.last.systemClick,
-                    "Fine aiming with clicks disabled never turns a completed tap into a click")
+                    "Resting with clicks disabled never clicks")
 
                 var companion = Session(fps: fps, practice: practice, allowDragging: true)
                 companion.hold()
-                for i in 1...Int(fps * 2) {
-                    companion.frame(CGPoint(x: 0.5 + 0.04 * Double(i) / (fps * 2), y: 0.5))
+                for i in 1...Int(fps * 0.5) {
+                    companion.frame(CGPoint(x: 0.5 + 0.04 * Double(i) / (fps * 0.5), y: 0.5))
                 }
                 companion.hold(end)
                 let companionAim = companion.cursor
@@ -258,16 +246,6 @@ import CoreGraphics
                 companion.hold(end)
                 check(distance(companionAim, companion.cursor) < 0.01 && companion.clicks == 0,
                     "Removing a non-dragging companion preserves the fine-aimed cursor")
-            }
-
-            var legacy = Session(fps: fps, practice: false, enabled: false, mode: .pinch)
-            var unchanged = Session(fps: fps, practice: false, enabled: true, mode: .pinch)
-            legacy.hold(); unchanged.hold()
-            for i in 1...Int(fps * 2) {
-                let point = CGPoint(x: 0.5 + 0.04 * Double(i) / (fps * 2), y: 0.5)
-                legacy.frame(point); unchanged.frame(point)
-                check(legacy.cursor == unchanged.cursor,
-                    "The tap-only steady aim setting does not alter legacy pinch motion")
             }
         }
 

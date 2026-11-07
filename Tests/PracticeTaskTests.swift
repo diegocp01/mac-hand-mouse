@@ -274,15 +274,12 @@ import CoreGraphics
         }
 
         @discardableResult
-        mutating func frame(tapPose: TapPose? = .raised, scrollRatio: Double? = 0.9,
-                            palm: CGPoint? = nil) -> Bool {
+        mutating func frame(scrollRatio: Double? = 0.9, palm: CGPoint? = nil) -> Bool {
             time += 1.0 / 30
-            let step = engine.process(index: CGPoint(x: 0.5, y: 0.5), pinchRatio: nil,
-                timestamp: time, now: time + 0.01, bounds: bounds,
-                running: true, trusted: false, destination: .practice,
-                cursorPosition: cursor, handSide: "left", palm: palm,
-                tapPose: tapPose, fingerSeparationRatio: 0.6,
-                scrollPinchRatio: scrollRatio)
+            let step = engine.process(HandInput(index: CGPoint(x: 0.5, y: 0.5), timestamp: time, handSide: "left",
+                    palm: palm, threeFingerPinchRatio: scrollRatio),
+                now: time + 0.01, bounds: bounds, running: true, trusted: false, destination: .practice,
+                cursorPosition: cursor)
             check(step.systemLocation == nil && !step.systemClick && step.systemScrollY == 0
                     && !step.systemDragging && !step.systemButtonHeld,
                   "an actual practice pipeline frame exposes no system input")
@@ -300,20 +297,17 @@ import CoreGraphics
     static func productionPipelineChecks() {
         let clickTarget = PracticeTaskState.clickTarget
         var click = PracticePipeline(task: .click,
-            settings: InteractionSettings(mode: .twoFingerTap, allowClicks: true),
+            settings: InteractionSettings(allowClicks: true),
             cursor: CGPoint(x: clickTarget.midX * 1000, y: clickTarget.midY * 1000))
-        for _ in 0..<30 { _ = click.frame() }
-        _ = click.frame(tapPose: .transition)
-        for _ in 0..<3 { _ = click.frame(tapPose: .bent) }
-        let clicked = click.frame(tapPose: .raised)
+        var clicked = false
+        for _ in 0..<45 { clicked = click.frame() || clicked }
         check(clicked && click.state.completed,
-              "an actual isolated two-finger tap completes the button task")
+              "an actual hold-still rest on the button completes the click task")
 
         var scroll = PracticePipeline(task: .scroll,
-            settings: InteractionSettings(mode: .twoFingerTap, allowClicks: true,
-                                          allowScrolling: true),
+            settings: InteractionSettings(allowClicks: true, allowScrolling: true),
             cursor: CGPoint(x: 500, y: 500))
-        for _ in 0..<30 { _ = scroll.frame() }
+        for _ in 0..<10 { _ = scroll.frame() }
         let scrollStart = CGPoint(x: 0.5, y: 0.5)
         for _ in 0..<10 { _ = scroll.frame(scrollRatio: 0.1, palm: scrollStart) }
         var revealed = false

@@ -26,7 +26,7 @@ struct PracticeDiagnosticsUISnapshot {
 
     static func sample(_ state: State) -> (PracticeDiagnosticRecorder, PracticeDiagnosticInput, PracticeDiagnosticOutcome) {
         var engine = InteractionEngine()
-        let settings = InteractionSettings(mode: .pointAndHold)
+        let settings = InteractionSettings()
         engine.configure(settings)
         let bounds = CGRect(x: 0, y: 0, width: 1440, height: 900)
         var cursor = CGPoint(x: 720, y: 450)
@@ -35,27 +35,27 @@ struct PracticeDiagnosticsUISnapshot {
             recorder.start(width: 1440, height: 900, settings: settings, now: 0, intent: .click)
         }
         var input = PracticeDiagnosticInput(timestamp: 0, now: 0.01, aspect: 4 / 3, landmarks: [:], handSide: "right")
-        var outcome = PracticeDiagnosticOutcome(engine: engine, step: InteractionStep(destination: .practice), pose: nil)
+        var outcome = PracticeDiagnosticOutcome(engine: engine, step: InteractionStep(destination: .practice))
         let count = state == .noData ? 0 : ((state == .success || state == .saved) ? 50 : 25)
         for frame in 0..<count {
             var landmarks: [String: HandLandmark] = [:]
-            let open = state == .preview || frame < 9
+            // A still fingertip rests into a click; the canceled state moves away at the end.
+            let moved = state == .canceled && frame == count - 1 ? 0.05 : 0
             for (i, finger) in ["index", "middle", "ring", "little"].enumerated() {
-                let x = 0.4 + Double(i) * 0.07
+                let x = 0.4 + Double(i) * 0.07 + (i == 0 ? moved : 0)
                 landmarks[finger + "MCP"] = HandLandmark(x: x, y: 0.6, confidence: 0.94)
                 landmarks[finger + "PIP"] = HandLandmark(x: x, y: 0.5, confidence: 0.91)
-                landmarks[finger + "Tip"] = HandLandmark(x: x, y: open || i < 2 ? 0.4 : 0.47, confidence: 0.89)
+                landmarks[finger + "Tip"] = HandLandmark(x: x, y: 0.4, confidence: 0.89)
             }
-            if state == .canceled && frame == count - 1 { landmarks["middlePIP"]?.confidence = 0.59 }
             input = PracticeDiagnosticInput(timestamp: Double(frame) / 30, now: Double(frame) / 30 + 0.01,
                 aspect: 4 / 3, landmarks: landmarks, handSide: "right", fiveFingerPinchRatio: 1.2)
             let observation = PointingObservation(landmarks: landmarks, aspect: input.aspect)
-            let step = engine.process(index: observation.indexPoint, pinchRatio: nil,
-                timestamp: input.timestamp, now: input.now, bounds: bounds, running: true, trusted: false,
-                destination: .practice, cursorPosition: cursor, handSide: "right",
-                pointingPose: observation.pose, fiveFingerPinchRatio: input.fiveFingerPinchRatio)
+            let step = engine.process(HandInput(index: observation.indexPoint, timestamp: input.timestamp,
+                    handSide: "right", fiveFingerPinchRatio: input.fiveFingerPinchRatio),
+                now: input.now, bounds: bounds, running: true, trusted: false,
+                destination: .practice, cursorPosition: cursor)
             if let location = step.location { cursor = location }
-            outcome = PracticeDiagnosticOutcome(engine: engine, step: step, pose: observation.pose)
+            outcome = PracticeDiagnosticOutcome(engine: engine, step: step)
             recorder.record(input, outcome: outcome, frameInterval: 1 / 30, movement: 0.003, destination: .practice)
             precondition(step.systemLocation == nil && !step.systemClick && !step.systemRightClick,
                 "Camera-test samples cannot produce system input")
@@ -176,7 +176,7 @@ struct PracticeDiagnosticsUISnapshot {
         }
         let labels = UIRenderSupport.descendants(of: diagnostics).compactMap { $0 as? NSTextField }.filter(visible).map(\.stringValue)
         if state == .success || state == .saved { precondition(labels.contains("One click detected"), "A successful attempt needs a readable result") }
-        if state == .canceled { precondition(labels.contains { $0.contains("middle finger") }, "Cancellation results name the unclear finger") }
+        if state == .canceled { precondition(labels.contains { $0.contains("moved too far") }, "Cancellation results explain the movement") }
         if state == .saved {
             precondition(labels.contains { $0.contains("Saved file kept on this Mac") } &&
                 !labels.contains { $0.contains("Unsaved results disappear") }, "Saved results must not be presented as unsaved")

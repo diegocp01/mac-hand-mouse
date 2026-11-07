@@ -30,16 +30,16 @@ import CoreGraphics
         var cursor = CGPoint(x: -720, y: 350)
         var clicks = 0
         var rightClicks = 0
-        init(fps: Double, stillClick: Bool = true, allowClicks: Bool = true) {
+        init(fps: Double, allowClicks: Bool = true) {
             self.fps = fps
-            engine.configure(InteractionSettings(mode: .pointAndHold, allowClicks: allowClicks, stillClick: stillClick))
+            engine.configure(InteractionSettings(allowClicks: allowClicks))
         }
-        mutating func hold(_ point: CGPoint, pose: PointingPose? = .move, right: Double? = 1.2, seconds: Double) {
+        mutating func hold(_ point: CGPoint, right: Double? = 1.2, seconds: Double) {
             for _ in 0..<max(1, Int((seconds * fps).rounded())) {
                 time += 1 / fps
-                let step = engine.process(index: point, pinchRatio: nil, timestamp: time, now: time + 0.01,
-                    bounds: bounds, running: true, trusted: true, cursorPosition: cursor, handSide: "left",
-                    palm: point, pointingPose: pose, fiveFingerPinchRatio: right, threeFingerPinchRatio: 0.9)
+                let step = engine.process(HandInput(index: point, timestamp: time, handSide: "left", palm: point,
+                        fiveFingerPinchRatio: right, threeFingerPinchRatio: 0.9),
+                    now: time + 0.01, bounds: bounds, running: true, trusted: true, cursorPosition: cursor)
                 if let location = step.location { cursor = location }
                 if step.click { clicks += 1 }
                 if step.rightClick { rightClicks += 1 }
@@ -90,7 +90,7 @@ import CoreGraphics
             check(lost.clicks == 0, "Lost tracking restarts the full hold instead of finishing it")
         }
 
-        // Production engine: open-hand aiming clicks after holding still; legacy pose is ignored.
+        // Production engine: aiming clicks after holding still.
         for fps in [15.0, 30.0, 60.0] {
             var session = Session(fps: fps)
             let aim = CGPoint(x: 0.5, y: 0.5)
@@ -110,10 +110,6 @@ import CoreGraphics
             var off = Session(fps: fps, allowClicks: false)
             off.hold(aim, seconds: 2)
             check(off.clicks == 0, "Disabled clicks never fire")
-
-            var legacy = Session(fps: fps, stillClick: false)
-            legacy.hold(aim, seconds: 2)
-            check(legacy.clicks == 0, "The two-finger path still needs its pose when hold-still is off")
         }
         print("Still click: \(checks) checks passed.")
     }

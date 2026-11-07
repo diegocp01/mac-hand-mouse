@@ -1,48 +1,29 @@
 import Foundation
 import CoreGraphics
 
-/// Validate the hand and cursor before anchoring; legacy modes also require a steady pose.
+/// A valid hand, cursor, and hand side take control immediately at the existing
+/// cursor. The owner is remembered so another hand cannot inherit the session.
 struct PointerAcquisition {
     private(set) var active = false
     private(set) var owner: String?
-    private var candidate: CGPoint?
-    private var candidateCursor: CGPoint?
-    private var candidateSide: String?
-    private var since: Double?
-    private var samples = 0
 
-    mutating func interrupt() {
-        active = false; candidate = nil; candidateCursor = nil; candidateSide = nil; since = nil; samples = 0
-    }
-    mutating func reset() { interrupt(); owner = nil }
+    mutating func interrupt() { active = false }
+    mutating func reset() { active = false; owner = nil }
 
-    mutating func update(point: CGPoint, cursor: CGPoint, side: String?, neutral: Bool, time: Double, immediately: Bool = false) -> Bool {
+    mutating func update(point: CGPoint, cursor: CGPoint, side: String?) -> Bool {
         guard point.x.isFinite, point.y.isFinite, (0...1).contains(point.x), (0...1).contains(point.y),
-              cursor.x.isFinite, cursor.y.isFinite, time.isFinite,
+              cursor.x.isFinite, cursor.y.isFinite,
               let side, side == "left" || side == "right", owner == nil || owner == side else {
             interrupt(); return false
         }
-        if active { return true }
-        if immediately {
-            active = true; owner = side
-            return true
-        }
-        guard neutral else { interrupt(); return false }
-        if candidateSide != side || candidate.map({ hypot(point.x - $0.x, point.y - $0.y) > 0.025 }) == true ||
-            candidateCursor.map({ hypot(cursor.x - $0.x, cursor.y - $0.y) > 3 }) == true ||
-            since.map({ time <= $0 }) == true { interrupt() }
-        if candidate == nil {
-            candidate = point; candidateCursor = cursor; candidateSide = side; since = time
-        }
-        samples += 1
-        if samples >= 4 && time - (since ?? time) >= 0.25 {
-            active = true; owner = side
-        }
-        return active
+        active = true; owner = side
+        return true
     }
 }
 
-enum ScrollPoseGeometry {
+/// Extended versus folded finger shapes from three joints, corrected for the
+/// frame aspect ratio. Used for the L pose, release evidence, and diagnostics.
+enum FingerGeometry {
     struct Measurement {
         let reachRatio: Double
         let straightness: Double
@@ -69,9 +50,24 @@ enum ScrollPoseGeometry {
     }
 }
 
+/// A stable movement source while the fingertips pinch: the mean of four
+/// confident palm joints, or nil when any of them is missing or unreliable.
+enum PalmGeometry {
+    static func center(points: [CGPoint?], confidences: [Double]) -> CGPoint? {
+        guard points.count == 4, confidences.count == 4,
+              confidences.allSatisfy({ $0.isFinite && (0.6...1).contains($0) }) else { return nil }
+        let valid = points.compactMap { $0 }
+        guard valid.count == 4, valid.allSatisfy({
+            $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y)
+        }) else { return nil }
+        return CGPoint(x: valid.reduce(0) { $0 + $1.x } / 4,
+                       y: valid.reduce(0) { $0 + $1.y } / 4)
+    }
+}
+
 enum ScrollPhase { case idle, confirming, scrolling }
 
-/// Two extended fingers explicitly enter scrolling; stopping or losing the pose emits no inertia.
+/// A held pinch explicitly enters scrolling; stopping or losing the pose emits no inertia.
 struct ScrollDetector {
     private(set) var phase: ScrollPhase = .idle
     private var since: Double?

@@ -1,10 +1,11 @@
 import Foundation
 import CoreGraphics
 
+/// Gates and settings of the production pipeline: every reason input can be
+/// blocked must also cancel a click in progress, and nothing resumes it later.
 @main struct InteractionEngineTests {
     static var checks = 0
-    static let neutral = ForwardPose(scale: 0.14, reach: 1.4, center: CGPoint(x: 0.5, y: 0.5), side: "left")
-    static let pressed = ForwardPose(scale: 0.16, reach: 0.8, center: CGPoint(x: 0.5, y: 0.5), side: "left")
+    static let a = CGPoint(x: 0.3, y: 0.5), b = CGPoint(x: 0.7, y: 0.5)
     static func check(_ value: Bool, _ message: String) {
         checks += 1
         if !value { fatalError(message) }
@@ -13,352 +14,119 @@ import CoreGraphics
         var engine = InteractionEngine()
         var time = 0.0
         var clicks = 0
+        var systemOutputs = 0
         var bounds = CGRect(x: 0, y: 0, width: 1440, height: 900)
         var running = true
         var trusted = true
         var destination: InteractionDestination = .system
         var last = InteractionStep()
-        var cursor: CGPoint?
-        var scrollPoint: CGPoint?
-        mutating func setup(allowClicks: Bool = true, duration: Double = 0.65) {
-            engine.configure(InteractionSettings(mode: .forward, allowClicks: allowClicks, dwellSeconds: duration))
-        }
-        @discardableResult mutating func frame(_ point: CGPoint? = CGPoint(x: 0.5, y: 0.5),
-                pose: ForwardPose? = neutral, ratio: Double? = 0.9, dt: Double = 1.0 / 30) -> InteractionStep {
-            time += dt
-            if cursor == nil { cursor = PointerFilter().unfrozenTarget(point: point ?? CGPoint(x: 0.5, y: 0.5), bounds: bounds) }
-            last = engine.process(index: point, pinchRatio: ratio, forwardPose: pose, timestamp: time, now: time + 0.01,
-                                  bounds: bounds, running: running, trusted: trusted, destination: destination, cursorPosition: cursor, handSide: pose?.side ?? "left", scrollPoint: scrollPoint)
+        var cursor = CGPoint(x: 400, y: 450)
+        var fps = 30.0
+        init(_ settings: InteractionSettings = InteractionSettings()) { engine.configure(settings) }
+        @discardableResult mutating func frame(_ point: CGPoint? = a, side: String? = "left",
+                                               timestamp: Double? = nil, now: Double? = nil) -> InteractionStep {
+            time += 1 / fps
+            last = engine.process(HandInput(index: point, timestamp: timestamp ?? time, handSide: side),
+                                  now: now ?? time + 0.01, bounds: bounds, running: running, trusted: trusted,
+                                  destination: destination, cursorPosition: cursor)
             if let location = last.location { cursor = location }
             if last.click { clicks += 1 }
+            if last.systemLocation != nil || last.systemClick || last.systemRightClick || last.systemScrollY != 0 {
+                systemOutputs += 1
+            }
             return last
         }
-        mutating func hold(_ point: CGPoint = CGPoint(x: 0.5, y: 0.5), pose: ForwardPose? = neutral,
-                           seconds: Double, fps: Double = 30) {
-            for _ in 0..<Int(ceil(seconds * fps)) { frame(point, pose: pose, dt: 1 / fps) }
+        mutating func hold(_ point: CGPoint = a, seconds: Double) {
+            for _ in 0..<Int((seconds * fps).rounded()) { frame(point) }
         }
     }
+
     static func main() {
-        let a = CGPoint(x: 0.3, y: 0.5), b = CGPoint(x: 0.7, y: 0.5)
-        check(ClickMode.restored("dwell") == .forward, "Legacy dwell migrates to explicit intent")
-        for fps in [15.0, 30.0, 60.0] {
-            var s = Session(); s.setup()
-            s.hold(a, seconds: 3, fps: fps)
-            check(s.clicks == 0 && s.engine.forward.progress == 0 && !s.engine.forward.shouldFreeze,
-                  "Standing still alone never shows a countdown or freezes the pointer")
-            let before = s.last.location!
-            s.hold(b, seconds: 1, fps: fps)
-            check(s.clicks == 0 && s.last.location!.x > before.x + 800, "Normal aiming remains responsive")
-            for i in 0..<Int(fps * 3) {
-                s.frame(CGPoint(x: 0.5 + Double(i) / fps * 20 / s.bounds.width, y: 0.5), dt: 1 / fps)
-            }
-            check(s.clicks == 0 && s.engine.forward.progress == 0, "Slow 20-point/sec aiming never starts a timer")
-            s = Session(); s.setup(); s.hold(a, seconds: 0.9, fps: fps)
-            let aimed = s.last.location!
-            s.hold(b, pose: pressed, seconds: 0.35, fps: fps)
-            check(s.engine.forward.progress > 0 && s.clicks == 0, "Only a confirmed forward pose starts progress")
-            check(s.last.location == aimed, "Forward projection cannot move the chosen target")
-            s.hold(b, pose: pressed, seconds: 0.6, fps: fps)
-            check(s.clicks == 1 && s.last.location == aimed, "Forward hold clicks the intended target once")
-            s.hold(b, pose: pressed, seconds: 1, fps: fps)
-            var outlier = pressed; outlier.center.x += 19 / s.bounds.width
-            s.frame(b, pose: outlier, dt: 1 / fps)
-            s.hold(b, pose: pressed, seconds: 1, fps: fps)
-            check(s.clicks == 1, "A positional outlier never rearms a completed click")
-            s.hold(a, seconds: 0.9, fps: fps); s.hold(a, pose: pressed, seconds: 1, fps: fps)
-            check(s.clicks == 2, "Withdrawal and a new press can click the same place")
-            s = Session(); s.setup(); s.hold(a, seconds: 0.9, fps: fps)
-            s.frame(a, pose: pressed, dt: 1 / fps); s.hold(a, seconds: 1, fps: fps)
-            check(s.clicks == 0 && s.engine.forward.progress == 0, "One pose outlier cannot start a timer")
-            s.hold(a, pose: pressed, seconds: 0.4, fps: fps)
-            s.frame(a, pose: nil, dt: 1 / fps); s.hold(a, pose: pressed, seconds: 2, fps: fps)
-            check(s.clicks == 0 && s.engine.forward.progress == 0, "Tracking loss requires a new neutral-to-forward transition")
-            s = Session(); s.setup(); s.hold(a, seconds: 0.9, fps: fps)
-            s.hold(a, pose: pressed, seconds: 0.35, fps: fps)
-            for i in 0..<Int(fps) {
-                var moving = pressed; moving.center.x += Double(i) / fps * 20 / s.bounds.width
-                s.frame(a, pose: moving, dt: 1 / fps)
-            }
-            check(s.clicks == 0 && s.engine.forward.progress == 0 && !s.engine.forward.shouldFreeze,
-                  "Sustained sideways drift cancels independently of the frozen pointer")
-            s = Session(); s.setup(allowClicks: false)
-            s.hold(a, seconds: 0.9, fps: fps); s.hold(b, pose: pressed, seconds: 2, fps: fps)
-            check(s.clicks == 0 && s.engine.forward.progress == 0 && !s.engine.forward.shouldFreeze,
-                  "Clicks-off pointing ignores all click gestures")
-            s = Session(); s.setup()
-            s.hold(b, pose: pressed, seconds: 2, fps: fps)
-            check(s.clicks == 0 && s.engine.forward.progress == 0, "Starting with a forward hold cannot click without a fresh transition")
-        }
-        for fps in [15.0, 30.0, 60.0] {
-            var s = Session(); s.setup(); s.hold(a, seconds: 1, fps: fps)
-            let restingCursor = s.cursor
-            for _ in 0..<5 { s.frame(nil, pose: nil, dt: 1 / fps) }
-            s.hold(b, pose: pressed, seconds: 2, fps: fps)
-            check(s.last.location == nil && s.cursor == restingCursor && s.clicks == 0,
-                  "Returning with a forward hold cannot acquire or jump to the returning fingertip")
-            s.hold(b, seconds: 1, fps: fps)
-            check(s.engine.acquisition.active && s.cursor == restingCursor && s.engine.forwardProfile != nil,
-                  "Normal pointing relearns automatically and resumes at the same cursor")
-            s.hold(b, pose: pressed, seconds: 1.2, fps: fps)
-            check(s.clicks == 1, "A fresh forward press clicks after safe reacquisition without setup")
-
-            s = Session(); s.engine.configure(InteractionSettings(mode: .forward, allowClicks: true, allowScrolling: true))
-            s.hold(a, seconds: 1, fps: fps)
-            let scrollCursor = s.cursor
-            s.scrollPoint = a; s.hold(a, seconds: 0.4, fps: fps)
-            s.scrollPoint = CGPoint(x: a.x, y: a.y - 0.02)
-            let scrolled = s.frame(a, pose: pressed, dt: 1 / fps)
-            check(scrolled.scrollY > 0 && !scrolled.click && s.cursor == scrollCursor && s.engine.forward.progress == 0,
-                  "Two-finger scrolling suppresses forward intent and keeps the target fixed")
-            s.scrollPoint = nil; s.hold(b, pose: pressed, seconds: 2, fps: fps)
-            check(!s.engine.acquisition.active && s.clicks == 0 && s.cursor == scrollCursor,
-                  "Leaving scroll mode while already pointing forward cannot click or jump")
-            s.hold(b, seconds: 1, fps: fps); s.hold(b, pose: pressed, seconds: 1.2, fps: fps)
-            check(s.clicks == 1 && s.cursor == scrollCursor, "Fresh pointing and press work after forward-mode scrolling")
-        }
-        var pinch = Session(); pinch.engine.configure(InteractionSettings(allowClicks: true))
-        pinch.hold(a, seconds: 0.5)
-        let aimed = pinch.last.location!
-        pinch.frame(b, ratio: 0.40)
-        let fired = pinch.frame(b, ratio: 0.40)
-        check(fired.click && fired.location == aimed, "Pinch freezes before its closing gesture moves the pointer")
-        for reason in ["permission", "pause", "pointer", "display", "overflow", "stale", "future", "duplicate", "nan", "hand"] {
-            var s = Session(); s.setup(); s.hold(a, seconds: 0.9); s.hold(a, pose: pressed, seconds: 0.4)
-            let step: InteractionStep
-            switch reason {
-            case "permission": s.trusted = false; step = s.frame(a, pose: pressed)
-            case "pause": s.running = false; step = s.frame(a, pose: pressed)
-            case "pointer": s.engine.configure(InteractionSettings(mode: .forward, allowClicks: true, pointerEnabled: false)); step = s.frame(a, pose: pressed)
-            case "display": s.bounds = .zero; step = s.frame(a, pose: pressed)
-            case "overflow":
-                s.bounds = CGRect(x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude,
-                                  width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-                step = s.frame(a, pose: pressed)
-            case "nan": step = s.frame(CGPoint(x: CGFloat.nan, y: 0.5), pose: pressed)
-            case "hand": step = s.frame(nil, pose: nil)
-            default:
-                let stamp = reason == "future" ? s.time + 1 : s.time
-                let now = reason == "stale" ? s.time + 0.3 : s.time + 0.01
-                step = s.engine.process(index: a, pinchRatio: 0.9, forwardPose: pressed, timestamp: stamp, now: now,
-                                        bounds: s.bounds, running: true, trusted: true)
-            }
-            check(step.location == nil && !step.click, "\(reason) blocks all output")
-            check(s.engine.forward.progress == 0, "\(reason) cancels active progress")
-        }
-        var restored = Session(); restored.setup(); restored.hold(a, seconds: 0.9)
-        restored.hold(a, pose: pressed, seconds: 0.4)
-        restored.trusted = false; restored.frame(a, pose: pressed)
-        restored.trusted = true; restored.hold(a, pose: pressed, seconds: 2)
-        check(restored.clicks == 0, "Permission restoration cannot resume a held gesture")
-        restored.hold(a, seconds: 0.9); restored.hold(a, pose: pressed, seconds: 1)
-        check(restored.clicks == 1, "Permission restoration accepts a fresh deliberate gesture")
-        var duration = Session(); duration.setup(); duration.hold(a, seconds: 0.9)
-        duration.hold(a, pose: pressed, seconds: 0.4)
-        duration.engine.configure(InteractionSettings(mode: .forward, allowClicks: true, dwellSeconds: 1.5))
-        duration.hold(a, pose: pressed, seconds: 2)
-        check(duration.clicks == 0, "Changing duration requires withdrawal")
-        duration.hold(a, seconds: 0.9); duration.hold(a, pose: pressed, seconds: 1)
-        check(duration.clicks == 0 && duration.engine.forward.remainingSeconds > 0.4, "Selected duration drives the timer")
-        duration.hold(a, pose: pressed, seconds: 0.9)
-        check(duration.clicks == 1, "A full longer hold fires once")
-        var wrongHand = Session(); wrongHand.setup(); wrongHand.hold(a, seconds: 0.9)
-        var other = pressed; other.side = "right"
-        wrongHand.hold(a, pose: other, seconds: 2)
-        check(wrongHand.clicks == 0, "A different hand cannot inherit the click gesture")
-        var reference = AutomaticForwardReference()
-        for i in 0..<30 {
-            var moving = neutral; moving.center.x = 0.2 + Double(i) * 0.015
-            _ = reference.update(moving, time: Double(i) / 30, canAdapt: true)
-        }
-        check(reference.profile != nil, "Ordinary moving-pointing learns automatically without a capture step")
-        let learned = reference.profile
-        _ = reference.update(pressed, time: 1, canAdapt: false)
-        check(reference.profile == learned, "A press cannot alter the reference during confirmation or holding")
-        _ = reference.update(nil, time: 1.03, canAdapt: true)
-        check(reference.profile == nil, "Lost landmarks discard the automatic reference")
-        for i in 0..<5 { _ = reference.update(neutral, time: 2 + Double(i) / 30, canAdapt: true) }
-        _ = reference.update(neutral, time: 3, canAdapt: true)
-        check(reference.profile == nil, "A tracking gap cannot count as observed pointing")
-        var invalid = neutral; invalid.scale = .nan
-        _ = reference.update(invalid, time: 3.03, canAdapt: true)
-        check(reference.profile == nil, "Invalid geometry cannot seed automatic thresholds")
-
-        for fps in [15.0, 30.0, 60.0] {
-            for scale in [0.08, 0.14, 0.28] {
-                for reach in [1.1, 1.4, 1.8] {
-                    for side in ["left", "right"] {
-                        var s = Session(); s.setup()
-                        let aim = ForwardPose(scale: scale, reach: reach, center: CGPoint(x: 0.5, y: 0.5), side: side)
-                        let press = ForwardPose(scale: scale * 1.12, reach: reach * 0.55, center: aim.center, side: side)
-                        s.hold(a, pose: aim, seconds: 0.9, fps: fps)
-                        check(s.engine.forwardProfile != nil && s.engine.forward.progress == 0,
-                              "Both hands and multiple camera scales start without manual setup")
-                        s.hold(a, pose: press, seconds: 1.2, fps: fps)
-                        check(s.clicks == 1, "Relative forward detection works across synthetic hand sizes and frame rates")
-                    }
-                }
-            }
-        }
-        // These strong forward points used to overshoot the scale/reach projection.
-        for fps in [15.0, 30.0, 60.0] {
-            for reach in [1.1, 1.4, 1.8] {
-                for shortening in [0.60, 0.35, 0.15] {
-                    for enlargement in [1.0, 1.12, 1.30] {
-                        var s = Session(); s.setup()
-                        let aim = ForwardPose(scale: 0.14, reach: reach, center: CGPoint(x: 0.5, y: 0.5), side: "right")
-                        let press = ForwardPose(scale: aim.scale * enlargement, reach: aim.reach * shortening,
-                                                center: aim.center, side: aim.side)
-                        s.hold(a, pose: aim, seconds: 0.9, fps: fps)
-                        s.hold(a, pose: press, seconds: 0.4, fps: fps)
-                        check(s.engine.forward.progress > 0, "A stronger forward point starts a timer with or without palm enlargement")
-                        s.hold(a, pose: press, seconds: 2, fps: fps)
-                        check(s.clicks == 1, "Strong forward holds click once without overshooting the accepted gesture")
-                    }
-                }
-            }
-        }
-        for fps in [15.0, 30.0, 60.0] {
-            for scaleFactor in [1.0, 1.3, 1.6] {
-                var s = Session(); s.setup(); s.hold(a, seconds: 0.9, fps: fps)
-                var ordinary = neutral; ordinary.scale *= scaleFactor; ordinary.reach *= 0.85
-                var timerAppeared = false
-                for _ in 0..<Int(fps * 2) {
-                    s.frame(a, pose: ordinary, dt: 1 / fps)
-                    timerAppeared = timerAppeared || s.engine.forward.progress > 0
-                }
-                check(s.clicks == 0 && !timerAppeared, "Palm growth with minor finger shortening never starts a click timer")
-            }
-        }
-        let profile = ForwardProfile(neutral: neutral, pressed: pressed)!
-        check(ForwardClickHint.current(pose: nil, profile: profile) == .unclear, "Missing landmarks explain why clicking is blocked")
-        check(ForwardClickHint.current(pose: neutral, profile: nil) == .observingAim, "Missing automatic reference has specific feedback")
-        check(ForwardClickHint.current(pose: pressed, profile: profile) == .returnToAim, "Unarmed forward poses request a fresh aiming transition")
-        var distant = neutral; distant.scale *= 2
-        check(ForwardClickHint.current(pose: distant, profile: profile) == .distanceChanged, "Excessive distance change has specific feedback")
         check(ClickPreference.restored(saved: nil, legacy: nil), "A new install enables clicks by default")
         check(!ClickPreference.restored(saved: false, legacy: true), "An explicit clicks-off choice survives relaunch and upgrade")
         check(ClickPreference.restored(saved: true, legacy: false), "The current saved setting wins over legacy preferences")
         check(!ClickPreference.restored(saved: nil, legacy: false), "Legacy clicks-off is preserved")
-        check(InteractionSettings().allowClicks, "The engine default matches the new-install preference")
+        let defaults = InteractionSettings()
+        check(defaults.allowClicks && defaults.pointerEnabled && defaults.steadyAim && !defaults.allowScrolling && !defaults.allowDragging,
+              "Engine defaults match the new-install preferences")
 
-        var changingDistance = Session(); changingDistance.setup(); changingDistance.hold(a, seconds: 0.9)
-        var enlarged = neutral; enlarged.scale *= 1.3
-        changingDistance.hold(a, pose: enlarged, seconds: 2)
-        check(changingDistance.clicks == 0 && changingDistance.engine.forward.progress == 0,
-              "Moving closer with an extended index does not count as pointing toward the screen")
-        check(abs(changingDistance.engine.forwardProfile!.neutral.scale - enlarged.scale) < 0.001,
-              "An ordinary extended index readapts to seating distance automatically")
-        var jitter = Session(); jitter.setup(); jitter.hold(a, seconds: 0.9)
-        var showedTimer = false
-        for i in 0..<120 {
-            var noisy = neutral
-            noisy.scale *= 1 + sin(Double(i)) * 0.025
-            noisy.reach += cos(Double(i)) * 0.04
-            jitter.frame(CGPoint(x: 0.3 + Double(i) / 400, y: 0.5), pose: noisy)
-            showedTimer = showedTimer || jitter.engine.forward.progress > 0
-        }
-        check(!showedTimer && jitter.clicks == 0, "Noisy ordinary pointing cannot silently become a countdown")
+        for fps in [15.0, 30.0, 60.0] {
+            var s = Session(); s.fps = fps
+            let start = s.cursor
+            check(s.frame().location == start && s.engine.acquisition.active, "The first frame takes control at the existing cursor")
+            s.hold(a, seconds: 0.6)
+            check(s.engine.clickPhase == .holding && s.clicks == 0, "Resting shows a countdown before it clicks")
+            s.hold(a, seconds: 0.7)
+            check(s.clicks == 1 && s.cursor == start, "A full rest clicks once where the pointer stopped at \(fps) fps")
+            s.hold(b, seconds: 0.4)
+            check(s.cursor.x > start.x + 300 && s.clicks == 1, "Aiming after a click moves normally")
 
-        for bounds in [CGRect(x: 0, y: 0, width: 1440, height: 900), CGRect(x: -2560, y: -100, width: 2560, height: 1440)] {
-            var simulated = Session(); simulated.setup(); simulated.bounds = bounds
-            simulated.destination = .practice; simulated.trusted = false
-            simulated.hold(a, seconds: 0.9); simulated.hold(a, pose: pressed, seconds: 0.4)
-            check(simulated.engine.forward.progress > 0 && simulated.last.location != nil,
-                  "Practice simulates the same desktop geometry without Accessibility")
-            var systemOutputs = 0
-            for _ in 0..<30 {
-                let step = simulated.frame(a, pose: pressed)
-                if step.systemLocation != nil || step.systemClick { systemOutputs += 1 }
+            for reason in ["permission", "pause", "pointer", "display", "overflow", "stale", "future", "duplicate", "nan", "hand", "cursor", "otherHand"] {
+                var s = Session(); s.fps = fps; s.hold(a, seconds: 0.6)
+                check(s.engine.clickProgress > 0, "\(reason) fixture starts mid-hold")
+                let step: InteractionStep
+                switch reason {
+                case "permission": s.trusted = false; step = s.frame()
+                case "pause": s.running = false; step = s.frame()
+                case "pointer": s.engine.configure(InteractionSettings(pointerEnabled: false)); step = s.frame()
+                case "display": s.bounds = .zero; step = s.frame()
+                case "overflow":
+                    s.bounds = CGRect(x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude,
+                                      width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+                    step = s.frame()
+                case "stale": step = s.frame(now: s.time + 1 / fps + 0.3)
+                case "future": step = s.frame(timestamp: s.time + 2)
+                case "duplicate": step = s.frame(timestamp: s.time)
+                case "nan": step = s.frame(CGPoint(x: CGFloat.nan, y: 0.5))
+                case "hand": step = s.frame(nil)
+                case "cursor": s.cursor = CGPoint(x: -50, y: 450); step = s.frame()
+                default: step = s.frame(side: "right")
+                }
+                check(step.location == nil && !step.click, "\(reason) blocks all output")
+                check(s.engine.clickProgress == 0 && s.engine.clickPhase == .ready, "\(reason) cancels the countdown")
             }
-            check(simulated.clicks == 1 && systemOutputs == 0, "A successful practice click cannot dispatch OS input")
-            simulated.destination = .system; simulated.trusted = true
-            simulated.hold(a, pose: pressed, seconds: 2)
-            check(simulated.clicks == 1 && simulated.engine.forward.progress == 0,
-                  "Switching out of simulation cannot carry click intent into the desktop")
-        }
-        var canceled = Session(); canceled.setup(); canceled.hold(a, seconds: 0.9)
-        canceled.hold(a, pose: pressed, seconds: 0.4); canceled.hold(a, seconds: 0.9)
-        check(canceled.clicks == 0 && !canceled.engine.forward.shouldFreeze && canceled.engine.forward.progress == 0,
-              "Pulling back cancels an active countdown and releases the pointer")
-        // Same pixel geometry expressed in square and wide normalized camera frames.
-        func measured(aspect: Double, folded: Bool = false) -> ForwardPose? {
-            func p(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: x / aspect, y: y) }
-            return ForwardPose.measure(index: p(0.4, folded ? 0.48 : 0.2), pip: p(0.4, 0.40),
-                dip: p(0.4, 0.30), base: p(0.4, 0.5), littleBase: p(0.6, 0.5),
-                middleBase: p(0.5, 0.5), wrist: p(0.5, 0.7), aspect: aspect, side: "left")
-        }
-        // Synthetic image landmarks, rather than prebuilt gesture features.
-        func straightIndex(reach: Double, aspect: Double) -> ForwardPose {
-            func p(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: x / aspect, y: y) }
-            let length = reach * 0.2
-            return ForwardPose.measure(index: p(0.4, 0.5 - length), pip: p(0.4, 0.5 - length * 0.35),
-                dip: p(0.4, 0.5 - length * 0.75), base: p(0.4, 0.5), littleBase: p(0.6, 0.5),
-                middleBase: p(0.5, 0.5), wrist: p(0.5, 0.7), aspect: aspect, side: "left")!
-        }
-        for aspect in [1.0, 16.0 / 9] {
-            for fps in [15.0, 30.0, 60.0] {
-                var s = Session(); s.setup()
-                s.hold(a, pose: straightIndex(reach: 1.4, aspect: aspect), seconds: 0.9, fps: fps)
-                s.hold(a, pose: straightIndex(reach: 0.25, aspect: aspect), seconds: 1.2, fps: fps)
-                check(s.clicks == 1, "Deeply foreshortened straight image landmarks can click through the production pipeline")
-            }
-        }
-        let square = measured(aspect: 1)!, wide = measured(aspect: 16.0 / 9)!
-        check(abs(square.scale - wide.scale) < 1e-9 && abs(square.reach - wide.reach) < 1e-9,
-              "Camera aspect correction preserves the forward gesture features")
-        check(measured(aspect: 1, folded: true) == nil, "Folded index is rejected rather than treated as forward intent")
-        check(measured(aspect: .nan) == nil, "Invalid frame geometry cannot produce gesture evidence")
-        // Synthetic confidence fixtures exercise the same assessment used by Camera.
-        // The fingertip and palm remain strong; only internal joints are moderate.
-        func assessed(reach: Double, aspect: Double = 1, confidence: [Double] = Array(repeating: 0.8, count: 7),
-                      missing: Int? = nil, folded: Bool = false) -> ForwardPoseAssessment {
-            let length = reach * 0.2
-            let raw = [CGPoint(x: 0.4, y: folded ? 0.48 : 0.5 - length),
-                       CGPoint(x: 0.4, y: 0.5 - length * 0.35), CGPoint(x: 0.4, y: 0.5 - length * 0.65),
-                       CGPoint(x: 0.4, y: 0.5), CGPoint(x: 0.6, y: 0.5),
-                       CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.5, y: 0.65)]
-            let joints: [ForwardJoint?] = raw.enumerated().map { i, p in
-                i == missing ? nil : ForwardJoint(point: CGPoint(x: p.x / aspect, y: p.y), confidence: confidence[i])
-            }
-            return ForwardPose.assess(index: joints[0], pip: joints[1], dip: joints[2], base: joints[3],
-                littleBase: joints[4], middleBase: joints[5], wrist: joints[6], aspect: aspect, side: "left")
-        }
-        var moderate = Array(repeating: 0.8, count: 7)
-        moderate[1] = 0.50; moderate[2] = 0.55
-        let accepted = assessed(reach: 0.65, confidence: moderate)
-        check(accepted.pose != nil && accepted.issue == nil, "Moderate internal-joint confidence retains valid forward geometry")
-        for joint in 0..<7 {
-            var weak = moderate; weak[joint] = joint == 1 || joint == 2 ? 0.44 : 0.59
-            let result = assessed(reach: 0.65, confidence: weak)
-            check(result.pose == nil && result.issue == (joint < 3 ? .indexHidden : .palmHidden),
-                  "Weak critical landmark blocks clicking and explains which part is hidden")
-            check(assessed(reach: 0.65, confidence: moderate, missing: joint).pose == nil,
-                  "Missing joints are never invented")
-            for invalid in [Double.nan, Double.infinity, -1, 1.1] {
-                weak = moderate; weak[joint] = invalid
-                check(assessed(reach: 0.65, confidence: weak).pose == nil, "Invalid confidence cannot authorize input")
+
+            var restored = Session(); restored.fps = fps; restored.hold(a, seconds: 0.6)
+            restored.trusted = false; restored.frame()
+            restored.trusted = true; restored.hold(a, seconds: 0.6)
+            check(restored.clicks == 0, "Permission restoration cannot finish the interrupted hold")
+            restored.hold(a, seconds: 0.7)
+            check(restored.clicks == 1, "A fresh full rest after restoration clicks once")
+
+            var changed = Session(); changed.fps = fps; changed.hold(a, seconds: 0.6)
+            changed.engine.configure(InteractionSettings(precisionMode: true))
+            changed.hold(a, seconds: 0.6)
+            check(changed.clicks == 0, "Changing settings restarts the hold")
+            changed.hold(a, seconds: 0.7)
+            check(changed.clicks == 1, "The new settings accept a complete rest")
+
+            var moved = Session(); moved.fps = fps; moved.hold(a, seconds: 0.6)
+            moved.cursor.x += 60
+            let takeover = moved.cursor
+            check(moved.frame().location == takeover && moved.engine.clickProgress == 0,
+                  "A physical mouse move cancels the hold and control resumes at the new cursor")
+            moved.hold(a, seconds: 0.6)
+            check(moved.cursor == takeover && moved.clicks == 0, "Resting after a takeover restarts the countdown in place")
+
+            var displays = Session(); displays.fps = fps; displays.hold(a, seconds: 0.6)
+            displays.bounds = CGRect(x: -2560, y: -100, width: 2560, height: 1440)
+            displays.cursor = CGPoint(x: -1200, y: 600)
+            displays.frame()
+            check(displays.engine.clickProgress == 0 && displays.cursor == CGPoint(x: -1200, y: 600),
+                  "A display change cancels the hold without moving the cursor")
+
+            for bounds in [CGRect(x: 0, y: 0, width: 1440, height: 900), CGRect(x: -2560, y: -100, width: 2560, height: 1440)] {
+                var simulated = Session(); simulated.fps = fps; simulated.bounds = bounds
+                simulated.cursor = CGPoint(x: bounds.midX, y: bounds.midY)
+                simulated.destination = .practice; simulated.trusted = false
+                simulated.hold(a, seconds: 1.3)
+                check(simulated.clicks == 1 && simulated.systemOutputs == 0,
+                      "Practice clicks without Accessibility and never dispatches OS input")
+                simulated.destination = .system; simulated.trusted = true
+                simulated.hold(a, seconds: 1.3)
+                check(simulated.clicks == 1, "Switching out of simulation cannot carry or repeat the click")
             }
         }
-        check(assessed(reach: 1.4, confidence: moderate, folded: true).issue == .ambiguousShape,
-              "Moderate confidence never bypasses folded-index geometry rejection")
-        for aspect in [1.0, 16.0 / 9] {
-            for fps in [15.0, 30.0, 60.0] {
-                var s = Session(); s.setup()
-                let aimPose = assessed(reach: 1.4, aspect: aspect, confidence: moderate).pose
-                let clickPose = assessed(reach: 0.65, aspect: aspect, confidence: moderate).pose
-                s.hold(a, pose: aimPose, seconds: 1, fps: fps)
-                check(s.engine.forward.phase == .ready && s.clicks == 0, "Moderate-confidence straight aiming only readies the detector")
-                s.hold(a, pose: clickPose, seconds: 1.2, fps: fps)
-                check(s.clicks == 1, "Camera confidence assessment can complete one deliberate forward click")
-                s.hold(a, pose: clickPose, seconds: 1, fps: fps)
-                check(s.clicks == 1, "Confidence change does not permit repeated clicks from one hold")
-                s = Session(); s.setup(); s.hold(a, pose: aimPose, seconds: 1, fps: fps)
-                s.hold(a, pose: clickPose, seconds: 0.4, fps: fps)
-                s.frame(a, pose: assessed(reach: 0.65, missing: 2).pose, dt: 1 / fps)
-                s.hold(a, pose: clickPose, seconds: 1.5, fps: fps)
-                check(s.clicks == 0, "Genuinely missing joints cancel rather than bridging unseen click intent")
-            }
-        }
-        print("Passed \(checks) production interaction and forward-intent checks.")
+        print("Passed \(checks) production interaction gate checks.")
     }
 }

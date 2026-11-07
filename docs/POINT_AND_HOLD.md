@@ -1,6 +1,8 @@
 # Point and hold
 
-The active gestures are visible-hand movement, a one-second two-finger hold for left-clicking, a five-fingertip pinch for right-clicking, thumb/index/middle pinch scrolling, and optional two-hand L dragging. The previous [two-finger tap](TWO_FINGER_TAP.md) detector is retained for regression coverage and is not an active click mode.
+> The two-finger hold described below was replaced by a hold-still click: rest the pointer for one second and it clicks once. The movement, right-click, scroll, and drag sections still apply. See [DEVELOPMENT.md](DEVELOPMENT.md) for the current detector and its tests.
+
+The active gestures are visible-hand movement, a hold-still left click, a five-fingertip pinch for right-clicking, thumb/index/middle pinch scrolling, and optional two-hand L dragging.
 
 ![Five gesture cards with index-only movement, a one-second click ring, three-fingertip scrolling, and five-fingertip right-clicking](images/point-and-hold-guide.png)
 

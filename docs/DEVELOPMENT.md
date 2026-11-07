@@ -24,25 +24,33 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 
 | File | Responsibility |
 | --- | --- |
-| `Sources/Gesture.swift` | Legacy two-finger tap and pinch/hold detectors, tuning, smoothing, preference migration |
-| `Sources/IntentClick.swift` | One-second point-and-hold clicks, five-finger pinch clicks, and fingertip geometry |
-| `Sources/PracticeDiagnostics.swift` | Shared landmark-to-finger evidence, bounded opt-in recording, and camera-free replay |
-| `Sources/PracticeDiagnosticsUI.swift` | Read-only camera diagnostics, intent labels, and explicit recording/export controls |
-| `Sources/TapGuidance.swift` | Historical two-finger tap instructions retained for regression coverage |
-| `Sources/ForwardClick.swift` | Legacy 2D pose features, automatic hand reference, intentional forward-click state machine |
-| `Sources/InteractionEngine.swift` | Production pipeline, cursor acquisition, freshness/permission gates, gesture/filter ordering |
-| `Sources/InputMotion.swift` | Cursor acquisition, scroll geometry/deltas, and activation lifecycle policy |
-| `Sources/ResumeShortcut.swift` | Exclusive global pause/resume shortcut registration |
-| `Sources/Camera.swift` | Camera capture and Vision landmarks |
+| `Sources/InteractionEngine.swift` | `HandInput`, settings, freshness/permission gates, pointer acquisition, and one step per gesture in priority order |
+| `Sources/ClickGestures.swift` | Hold-still left click, five-finger right-click pinch, and fingertip cluster geometry |
+| `Sources/InputMotion.swift` | Pointer acquisition, finger and palm geometry, scroll deltas, and activation lifecycle policy |
+| `Sources/PointerFilter.swift` | Pointer smoothing, soft travel margins, steady aim, and the click-injection safety latch |
+| `Sources/TwoHandDrag.swift` | Hand ownership, L-pose geometry, two-hand drag detector, and mouse-button bookkeeping |
+| `Sources/Camera.swift` | Camera capture, Vision landmarks, and the per-frame `HandFrame` the engine consumes |
 | `Sources/FrameMailbox.swift` | Bounded delivery of the newest result |
-| `Sources/main.swift` | Window, camera lifecycle, feedback orchestration, permissions, mouse events |
+| `Sources/main.swift` | Window, settings, camera lifecycle, permissions, mouse events, and the opt-in camera test |
+| `Sources/GestureFeedback.swift` | Status-card and cursor-overlay text for each live gesture state |
+| `Sources/PreviewView.swift` | Camera preview with the hand skeleton and travel guide |
+| `Sources/UpdateFlow.swift` | Menu-driven update check and hand-off to the relaunch helper |
 | `Sources/FeedbackUI.swift` | Determinate click ring, status card, simulated practice canvas, nonactivating cursor overlay |
-| `Sources/StartupUI.swift` | Startup palette, five-card gesture guide, setup state, and static camera-off artwork |
+| `Sources/StartupUI.swift` | Startup palette, glass surfaces, and static camera-off artwork |
+| `Sources/GestureGuide.swift` | Five-card gesture guide and its deterministic demo timeline |
+| `Sources/GestureDemoCanvas.swift` | Hand-drawn tutorial artwork |
+| `Sources/LaunchUI.swift` | Launch window layout |
+| `Sources/PracticeDiagnostics.swift` | Finger evidence, bounded opt-in recording, readable results, and camera-free replay |
+| `Sources/PracticeDiagnosticsUI.swift` | Read-only camera test screen with explicit recording/export controls |
 | `Sources/FeedbackGeometry.swift` | Screen-edge caption placement with a ring centered on the click target |
-| `Tests/main.swift` | Deterministic gesture and pointer checks |
+| `Tests/main.swift` | Pointer filter, geometry, frame delivery, safety latch, and feedback layout checks |
+| `Tests/InteractionEngineTests.swift` | Every blocking reason cancels a hold; settings changes, takeover, displays, and practice isolation |
+| `Tests/StillClickTests.swift` | Hold-still timing, tremor tolerance, cancel-on-move, and rearm distance at 15/30/60 fps |
+| `Tests/ClickGestureTests.swift` | Right-click and scroll gestures, their priority over clicking, fingertip geometry, and output gates |
 | `Tests/RecoveryScrollTests.swift` | Hand return, physical mouse takeover, scrolling, practice isolation, and activation gates |
-| `Tests/InteractionEngineTests.swift` | Production pipeline at 15/30/60 fps, intent/cancel/rearm, automatic reference and practice isolation |
-| `Tests/IntentClickTests.swift` | Point-and-hold and right-click timing, cancellation, rearming, and production output gates |
+| `Tests/SteadyAimTests.swift` | Fine-motion assistance, edge reach, and hold-still clicks at fine-aimed targets |
+| `Tests/TwoHandDragTests.swift` | Hand ownership, L geometry, drag lifecycle, and release on every interruption |
+| `Tests/PracticeDiagnosticsTests.swift` | Readable results, cancellation reasons, bounded recording, metadata allowlist, and replay |
 | `Tests/IntentClickUISnapshot.swift` | Camera-free countdown and right-click feedback review states |
 | `Tests/GestureGuideSnapshot.swift` | Camera-free default and narrow gesture-guide review states |
 | `Tests/GestureDemoTimelineTests.swift` | Deterministic tutorial phase and reduced-motion sequence checks |
@@ -53,13 +61,13 @@ To leave an existing development app untouched, use `HAND_MOUSE_BUILD_DIR=/tmp/h
 | `scripts/verify-update-identity.sh` | Reject updates that would discard an existing certificate-backed identity |
 | `Tests/signing.sh` | Changed binaries retain identity; different signers and ad-hoc downgrades are rejected |
 
-The app selects **Point and hold** for every launch. Start or reacquire with the index alone extended, palm toward the camera, and hold briefly. Move the index fingertip to aim, then raise the middle finger for a one-second left-click countdown at the held target. The ring fills during the hold; lower the middle finger to prepare another click. Pinch all five fingertips for one right-click, then open the hand before another attempt. **Scroll** uses a three-fingertip pinch (thumb + index + middle) and has a separate saved setting. See [current gesture behavior and validation](POINT_AND_HOLD.md). Two-finger tap, Pinch, and Point forward clicking remain internal regression paths with no selectable app modes.
+There is one click gesture. Show your hand to move; the pointer anchors at its current position and follows your index fingertip. **Click** by holding the pointer still: after a quarter second of rest a ring appears, and it clicks once when the ring fills 0.75 s later. Moving more than 14 points during the hold cancels it, and the pointer must travel 36 points after a click before another can start, so resting in place never repeats. Pinch all five fingertips for one right-click, then open the hand before another attempt. **Scroll** uses a three-fingertip pinch (thumb + index + middle) with a separate saved setting. See [current gesture behavior and validation](POINT_AND_HOLD.md).
 
-Pointer smoothing remains velocity-adaptive from 8–50 ms. Legacy pinch detector defaults: Balanced threshold 0.42 hand-scale units, confirmation after at least two samples and 25 ms, reopening above 0.60 for 70 ms, and a 300 ms click cooldown. Precise uses 0.34 and Easy uses 0.50, with release 0.18 above each threshold. Confirmation tolerates 0.06 units of threshold jitter. The hand scale is the greater of palm width and 0.75 times wrist-to-middle-base distance, corrected for frame aspect ratio.
+Pointer smoothing is velocity-adaptive from 8–50 ms. The scroll pinch closes below 0.42 hand-scale units and releases above 0.60. The hand scale is the greater of palm width and 0.75 times wrist-to-middle-base distance, corrected for frame aspect ratio.
 
-`InteractionEngine` evaluates the gesture before applying index motion, preserving the pre-gesture aim during the two-finger hold or five-finger pinch. Excessive hand movement cancels a left-click hold even while the pointer is frozen. A canceled right-click confirmation requires the hand to open before rearming. Its legacy tap/pinch/forward paths also preserve their pre-gesture aim. Legacy forward mode requires a forward transition relative to an automatically estimated hand reference before invoking the hold timer; neither normal motion nor stillness starts it. Palm motion is measured independently of the frozen pointer. Changing settings cancels active progress. The legacy hold presets are 0.65, 1, or 1.5 seconds, retained with the existing `dwellDurationPreset` preference; they do not change the active one-second left-click hold. The standalone Pinch detector tolerates missing pinch observations for at most 120 ms, but the production engine cancels all input immediately on a missing index or interrupts on a callback gap over 120 ms. Returning hands must reacquire the current cursor before gesture detection resumes. A legacy pinch attempted during cooldown is consumed rather than delayed. Camera results are coalesced to the latest frame and callbacks from old sessions are rejected. Camera and inference latency are additional to smoothing time. See the [legacy forward gesture design](FORWARD_CLICK.md) for automatic adaptation, thresholds, and limitations.
+`InteractionEngine.process` runs the gates (running, permission, pointer enabled, frame freshness, display, cursor, hand ownership, physical takeover), acquires the pointer at the existing cursor, then tries one gesture step at a time: two-hand drag, five-finger right click, three-finger scroll, and finally aiming with the hold-still click. A competing gesture cancels a hold in progress with an explicit reason. The pointer is frozen during right clicks and scrolling, and is reanchored when they end so finger motion never becomes pointer travel. Camera results are coalesced to the latest frame and callbacks from old sessions are rejected. Camera and inference latency are additional to smoothing time.
 
-Tests cover confirmation, gentle pinches, duplicate prevention, reopening, cooldown, tracking loss, malformed observations, pointer settling, overshoot, freezing, and display-coordinate mapping. The integration suite runs the same `InteractionEngine` used by the app, including freshness and permission gates. It does not use a physical camera or send mouse clicks. CI runs these tests plus installer regressions, app builds, and signature checks on Apple Silicon and Intel.
+Tests cover hold-still timing at 15/30/60 fps, tremor inside the still radius, cancel-on-move, rearm distance, right-click confirmation and reopening, scroll confirmation and release, duplicate prevention, tracking loss, malformed observations, pointer settling, overshoot, freezing, and display-coordinate mapping. The integration suites run the same `InteractionEngine` used by the app, including freshness and permission gates. They do not use a physical camera or send mouse clicks. CI runs these tests plus installer and signing checks.
 
 ## Install verification
 
@@ -111,9 +119,9 @@ Sleep, display sleep, user-session deactivation, and display configuration chang
 
 ## Recovery, scrolling, and keyboard activation
 
-See [current point-and-hold and pinch-scroll behavior](POINT_AND_HOLD.md) for the index-only starting pose and thumb + index + middle scrolling. The [v1.5 interaction recovery notes](RECOVERY_AND_SCROLL.md) retain the original activation policy, relative cursor anchoring, keyboard registration, and legacy regression coverage; their old click modes and scrolling pose are historical.
+See [current gesture behavior](POINT_AND_HOLD.md) for movement, right-click, and thumb + index + middle scrolling. The [v1.5 interaction recovery notes](RECOVERY_AND_SCROLL.md) retain the original activation policy, relative cursor anchoring, keyboard registration, and legacy regression coverage; their old click modes and scrolling pose are historical.
 
-Validation before release: with a live camera, confirm Start/Pause and no-hand recovery with the index alone extended, palm toward the camera. Check aiming, the ring filling during the one-second two-finger hold, cancellation by lowering the middle finger or moving too far, and no repeats until the middle finger is lowered. Check five-finger right-clicking, cancellation when a fingertip is hidden, and reopening after both successful and canceled attempts. Turn Click off during a pending hold. Try optional practice, thumb + index + middle pinch scrolling, Escape, Accessibility loss, and cursor feedback alignment on additional displays/full-screen apps. Use the practice canvas and app's Test click target. Synthetic tests do not verify physical tracking or delivery to other apps.
+Validation before release: with a live camera, confirm Start/Pause and no-hand recovery with a visible pointing hand. Check aiming, the ring appearing after a brief rest and filling over one second, cancellation by moving away, and no repeats until the pointer has traveled away from the click. Check five-finger right-clicking, cancellation when a fingertip is hidden, and reopening after both successful and canceled attempts. Turn Click off during a pending hold. Try optional practice, thumb + index + middle pinch scrolling, Escape, Accessibility loss, and cursor feedback alignment on additional displays/full-screen apps. Use the practice canvas and app's Test click target. Synthetic tests do not verify physical tracking or delivery to other apps.
 
 ## Gesture interface review
 
@@ -184,12 +192,12 @@ The renderer, also run by `bash scripts/test.sh`, checks 48 combinations of auto
 
 `Sources/FeatureFlags.swift` defines `FeatureFlags.diagnostics = false`. This default omits the diagnostics preview/panel and gates recording, export, observation, and replay entry points without changing normal gesture recognition. Flip the constant to `true` locally and rebuild to test diagnostics; restore `false` before committing or publishing a build. `bash scripts/test.sh` checks the disabled screen/replay gates by default, or runs 32 guided camera-test UI states when the local flag is enabled. The Camera test entry point is separate from Practice: the test replaces the marketing/practice workspace, keeps recording/save/navigation controls outside its details scroller, and collapses technical measurements by default.
 
-`bash scripts/test.sh` also builds and runs `Tests/PracticeDiagnosticsTests.swift`. It checks the shared camera classifier's original confidence/geometry boundaries, cancellation reasons, opt-in/bounded recording, metadata allowlisting, and JSON round-trip replay through the production practice engine at 15/30/60 fps. To analyze a recording explicitly exported from Click Practice, use `build/practice-diagnostics-tests --replay "/path/to/hand-mouse-diagnostics.json"`. Replay uses selected-hand landmarks and observed pinch ratios after Vision; it does not test Vision inference or hand selection from camera images. Attempt labels are user annotations, not inferred ground truth.
+`bash scripts/test.sh` also builds and runs `Tests/PracticeDiagnosticsTests.swift`. It checks finger evidence confidence/geometry boundaries, hold-still cancellation reasons, opt-in/bounded recording, metadata allowlisting, and JSON round-trip replay through the production practice engine at 15/30/60 fps. To analyze a recording explicitly exported from Click Practice, use `build/practice-diagnostics-tests --replay "/path/to/hand-mouse-diagnostics.json"`. Replay uses selected-hand landmarks and observed pinch ratios after Vision; it does not test Vision inference or hand selection from camera images. Attempt labels are user annotations, not inferred ground truth.
 
 With the local diagnostics flag enabled, render the production diagnostics panel inside the launch layout without requesting camera or Accessibility access:
 
 ```sh
-xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/FeatureFlags.swift Sources/Gesture.swift Sources/IntentClick.swift Sources/ForwardClick.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/OneHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeDiagnostics.swift Sources/PracticeDiagnosticsUI.swift Sources/StartupUI.swift Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/PracticeDiagnosticsUISnapshot.swift -o build/diagnostics-ui-render
+xcrun swiftc -swift-version 5 -module-cache-path "$PWD/build/module-cache" Sources/FeatureFlags.swift Sources/PointerFilter.swift Sources/ClickGestures.swift Sources/InputMotion.swift Sources/TwoHandDrag.swift Sources/InteractionEngine.swift Sources/PracticeDiagnostics.swift Sources/PracticeDiagnosticsUI.swift Sources/StartupUI.swift Sources/GestureGuide.swift Sources/GestureDemoCanvas.swift Sources/PracticeTasks.swift Sources/FeedbackGeometry.swift Sources/FeedbackUI.swift Sources/LaunchUI.swift Tests/UIRenderSupport.swift Tests/PracticeDiagnosticsUISnapshot.swift -o build/diagnostics-ui-render
 build/diagnostics-ui-render "$PWD/build/diagnostics-ui"
 ```
 

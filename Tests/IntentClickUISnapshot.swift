@@ -35,7 +35,7 @@ import AppKit
         canvas.addSubview(subtitle)
 
         let states = [
-            State(name: "01  MOVE", title: "Raise middle to click", fraction: nil,
+            State(name: "01  MOVE", title: "Hold still to click", fraction: nil,
                 clicked: false, leftHit: false, rightClick: false, holding: false),
             State(name: "02  HOLD START · 0.0 s", title: "Click in 1.0 s", fraction: 0,
                 clicked: false, leftHit: false, rightClick: false, holding: true),

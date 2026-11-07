@@ -30,9 +30,9 @@ struct FingerEvidence: Codable {
         foldedReachLimit = outer ? 1.45 : 1.2
         let joints = ["Tip", "PIP", "MCP"].map { landmarks[finger + $0] }
         confidence = joints.map { $0?.confidence ?? 0 }.min() ?? 0
-        let geometry: ScrollPoseGeometry.Measurement?
+        let geometry: FingerGeometry.Measurement?
         if let tip = joints[0], let pip = joints[1], let base = joints[2] {
-            geometry = ScrollPoseGeometry.measure(tip: tip.point, pip: pip.point, base: base.point, aspect: aspect)
+            geometry = FingerGeometry.measure(tip: tip.point, pip: pip.point, base: base.point, aspect: aspect)
         } else { geometry = nil }
         reachRatio = geometry?.reachRatio
         straightness = geometry?.straightness
@@ -49,22 +49,15 @@ struct FingerEvidence: Codable {
     }
 }
 
+/// Finger-by-finger evidence from one set of landmarks, with the same index
+/// fingertip gate the camera applies before the engine sees a hand.
 struct PointingObservation {
     let landmarks: [String: HandLandmark]
     let fingers: [FingerEvidence]
-    let pose: PointingPose?
 
     var indexPoint: CGPoint? {
         guard let index = landmarks["indexTip"], index.confidence >= 0.45 else { return nil }
         return index.point
-    }
-
-    var hint: String {
-        guard indexPoint != nil else { return "Keep your fingers visible" }
-        if pose != nil { return "Keep your fingers visible" }
-        if fingers[0].shape != .extended { return "Show your index finger clearly" }
-        if fingers[1].shape == .uncertain { return "Show your middle finger clearly" }
-        return "Keep your curled fingers visible"
     }
 
     init(landmarks: [String: HandLandmark], aspect: Double) {
@@ -72,10 +65,6 @@ struct PointingObservation {
         fingers = ["index", "middle", "ring", "little"].map {
             FingerEvidence(finger: $0, landmarks: landmarks, aspect: aspect)
         }
-        if (landmarks["indexTip"]?.confidence ?? 0) >= 0.45 {
-            pose = PointingPoseClassifier.classify(index: fingers[0].shape, middle: fingers[1].shape,
-                ring: fingers[2].shape, little: fingers[3].shape)
-        } else { pose = nil }
     }
 }
 
@@ -94,9 +83,9 @@ enum DiagnosticIntent: String, Codable, CaseIterable {
     var instruction: String {
         switch self {
         case .free: return "Explore comfortable hand positions. This label makes no assumptions about intended clicks."
-        case .aim: return "Open your hand and move normally. No click is intended."
-        case .click: return "Open your hand, raise index + middle, curl the outer fingers, and hold for one second."
-        case .cancel: return "Open your hand, start a two-finger hold, then lower the middle finger before it completes."
+        case .aim: return "Keep your hand moving the whole time. No click is intended."
+        case .click: return "Point at one spot and hold still for one second."
+        case .cancel: return "Point and hold still until the ring starts, then move away before it fills."
         }
     }
 }
@@ -128,26 +117,24 @@ struct PracticeDiagnosticInput: Codable {
 }
 
 struct PracticeDiagnosticOutcome: Codable {
-    let pose: PointingPose?
-    let phase: PointHoldDetector.Phase
+    let phase: StillClickDetector.Phase
     let progress: Double
-    let cancellation: PointHoldDetector.Cancellation?
+    let cancellation: StillClickDetector.Cancellation?
     let blocked: InteractionBlock?
     let click: Bool
     let rightClick: Bool
 
-    init(engine: InteractionEngine, step: InteractionStep, pose: PointingPose?) {
-        self.pose = pose
-        phase = engine.pointHold.phase
-        progress = engine.pointHold.progress
-        cancellation = engine.pointHold.lastCancellation
+    init(engine: InteractionEngine, step: InteractionStep) {
+        phase = engine.clickPhase
+        progress = engine.clickProgress
+        cancellation = engine.stillClick.lastCancellation
         blocked = step.blocked
         click = step.click
         rightClick = step.rightClick
     }
 
     func matches(_ other: Self) -> Bool {
-        pose == other.pose && phase == other.phase && abs(progress - other.progress) < 1e-6 &&
+        phase == other.phase && abs(progress - other.progress) < 1e-6 &&
             cancellation == other.cancellation && blocked == other.blocked && click == other.click && rightClick == other.rightClick
     }
 }
@@ -167,7 +154,7 @@ struct PracticeDiagnosticEntry: Codable {
 
 struct PracticeDiagnosticSession: Codable {
     var schemaVersion = 1
-    var detector = "pointAndHold-1"
+    var detector = "stillClick-1"
     var width: Double
     var height: Double
     var precisionMode: Bool
@@ -302,30 +289,26 @@ struct DiagnosticGuidance {
             return
         }
         switch outcome.phase {
-        case .needsMove:
-            title = "Open your hand first"
-            detail = "Show your palm and fingers clearly to prepare the detector. Then try the gesture once."
         case .ready:
-            let unclear = fingers.filter { $0.shape == .uncertain }.map { "\($0.finger) finger" }
-            if outcome.pose == nil && !unclear.isEmpty {
-                title = "Keep your fingers in view"
-                detail = "The detector cannot clearly read your \(unclear.joined(separator: " and ")). Adjust your hand until it is clear."
+            if fingers[0].shape == .uncertain {
+                title = "Keep your index finger in view"
+                detail = "The detector cannot clearly read your index finger. Adjust your hand until it is clear."
             } else {
-                title = "Now raise just two fingers"
-                detail = "Keep index and middle up. Curl ring and little fingers toward your palm, then hold still for one second."
+                title = "Now point and hold still"
+                detail = "Aim at one spot and stop moving. The ring appears after a moment and fills over one second."
             }
         case .holding:
             if intent == .cancel {
-                title = "Now lower your middle finger"
-                detail = "Release before the hold completes. Then choose Stop & review to check that no click was detected."
+                title = "Now move away"
+                detail = "Move the pointer before the ring fills. Then choose Stop & review to check that no click was detected."
             } else {
-                title = "Keep those two fingers raised"
-                detail = String(format: "Hold still: %.1f seconds left. The bar shows what the detector has actually observed.",
-                    max(0, 1 - outcome.progress))
+                title = "Keep holding still"
+                detail = String(format: "%.1f seconds left. The bar shows what the detector has actually observed.",
+                    max(0, StillClickDetector.holdSeconds * (1 - outcome.progress)))
             }
         case .clicked:
             title = "Click detected"
-            detail = "Open your hand again, then choose Stop & review. There is no Send button to aim at in this test."
+            detail = "Move the pointer away, then choose Stop & review. There is no Send button to aim at in this test."
         }
     }
 }
@@ -405,29 +388,20 @@ struct DiagnosticResult {
             explanation = Self.cancellationDescription(cancellation)
         } else if held {
             explanation = "The recording stopped before a complete one-second hold was observed. This does not prove the gesture failed."
-        } else if frames.contains(where: { $0.outcome.pose == .click }) && !frames.contains(where: { $0.outcome.phase == .ready }) {
-            explanation = "The click pose was seen before the detector was ready. Begin with an open hand briefly, then raise just index and middle."
         } else {
-            explanation = "No two-finger hold started in this recording. The detector did not confirm the click pose."
+            explanation = "The pointer never rested long enough to start a hold. The detector needs about a quarter second of stillness before the ring appears."
         }
-        nextStep = "Try once more with index and middle raised and ring and little fingers curled. Or save this recording so someone can inspect the evidence."
+        nextStep = "Try once more: point at one spot and keep your hand still for a full second. Or save this recording so someone can inspect the evidence."
     }
 
     private static func cancellationDescription(_ entry: PracticeDiagnosticEntry) -> String {
         switch entry.outcome.cancellation {
-        case .uncertainPose:
-            let fingers = entry.fingers.filter { $0.shape == .uncertain }.map { "\($0.finger) finger" }
-            return fingers.isEmpty
-                ? "The detector could not reliably read the finger pose, so it canceled the hold."
-                : "The detector could not clearly read your \(fingers.joined(separator: " and ")) during the hold, so it canceled the click."
-        case .releasedPose:
-            return "The fingers returned to an aiming pose before the one-second hold completed."
         case .movement:
-            return "The tracked index fingertip moved too far during the hold, so the detector canceled it."
+            return "The pointer moved too far before the ring filled, so the detector canceled the hold."
         case .frameGap, .trackingInterrupted, .invalidTime:
             return "Hand tracking was interrupted or delayed during the hold, so the detector canceled the click."
         case .invalidPoint:
-            return "The detector lost a usable index-fingertip position during the hold."
+            return "The detector lost a usable pointer position during the hold."
         case .competingGesture:
             return "Another gesture took priority and interrupted the click hold."
         case .clicksDisabled:
@@ -459,13 +433,12 @@ enum PracticeDiagnosticReplay {
     }
 
     static func run(_ session: PracticeDiagnosticSession) throws -> Report {
-        guard session.schemaVersion == 1, session.detector == "pointAndHold-1",
+        guard session.schemaVersion == 1, session.detector == "stillClick-1",
               session.width.isFinite, session.height.isFinite, session.width > 1, session.height > 1 else {
             throw PracticeDiagnosticError.unsupportedSession
         }
         var engine = InteractionEngine()
-        engine.configure(InteractionSettings(mode: .pointAndHold,
-            precisionMode: session.precisionMode, steadyAim: session.steadyAim))
+        engine.configure(InteractionSettings(precisionMode: session.precisionMode, steadyAim: session.steadyAim))
         let bounds = CGRect(x: 0, y: 0, width: session.width, height: session.height)
         var cursor = CGPoint(x: bounds.midX, y: bounds.midY)
         var report = Report()
@@ -476,17 +449,17 @@ enum PracticeDiagnosticReplay {
             case .trackingInterrupted:
                 engine.trackingInterrupted()
                 outcome = PracticeDiagnosticOutcome(engine: engine,
-                    step: InteractionStep(blocked: .staleFrame, destination: .practice), pose: nil)
+                    step: InteractionStep(blocked: .staleFrame, destination: .practice))
             case .frame:
                 guard let input = entry.input else { throw PracticeDiagnosticError.unsupportedSession }
                 let observation = PointingObservation(landmarks: input.landmarks, aspect: input.aspect)
-                let step = engine.process(index: observation.indexPoint, pinchRatio: nil,
-                    timestamp: input.timestamp, now: input.now, bounds: bounds, running: true, trusted: false,
-                    destination: .practice, cursorPosition: cursor, handSide: input.handSide,
-                    pointingPose: observation.pose, fiveFingerPinchRatio: input.fiveFingerPinchRatio,
-                    threeFingerPinchRatio: input.threeFingerPinchRatio)
+                let step = engine.process(HandInput(index: observation.indexPoint, timestamp: input.timestamp,
+                        handSide: input.handSide, fiveFingerPinchRatio: input.fiveFingerPinchRatio,
+                        threeFingerPinchRatio: input.threeFingerPinchRatio),
+                    now: input.now, bounds: bounds, running: true, trusted: false,
+                    destination: .practice, cursorPosition: cursor)
                 if let location = step.location { cursor = location }
-                outcome = PracticeDiagnosticOutcome(engine: engine, step: step, pose: observation.pose)
+                outcome = PracticeDiagnosticOutcome(engine: engine, step: step)
                 report.frames += 1
                 var attempt = attempts[entry.attempt] ?? (entry.intent, 0, 0)
                 if outcome.click { report.leftClicks += 1; attempt.left += 1 }

@@ -11,12 +11,12 @@ final class PracticeDiagnosticsView: NSView {
 
     private let goals: [DiagnosticIntent] = [.click, .aim, .cancel, .free]
     private let step = NSTextField(labelWithString: "1 · Record   →   2 · Review   →   3 · Save if needed")
-    private let heading = NSTextField(wrappingLabelWithString: "Test your two-finger click")
+    private let heading = NSTextField(wrappingLabelWithString: "Test your click")
     private let introduction = NSTextField(wrappingLabelWithString:
         "Record one attempt to see what the detector recognizes. This does not calibrate or change any settings.")
     private let liveTitle = NSTextField(wrappingLabelWithString: "Check your hand in the preview")
     private let liveDetail = NSTextField(wrappingLabelWithString:
-        "Open your hand. When you are ready, start recording and try one click. You do not need to aim at a button.")
+        "Point at one spot. When you are ready, start recording and hold still for one second. You do not need to aim at a button.")
     private let progress = NSProgressIndicator()
     private let resultTitle = NSTextField(wrappingLabelWithString: "")
     private let resultDetail = NSTextField(wrappingLabelWithString: "")
@@ -212,7 +212,7 @@ final class PracticeDiagnosticsView: NSView {
                 finger.reachRatio.map { String(format: "%.2f", $0) } ?? "—",
                 finger.straightness.map { String(format: "%.2f", $0) } ?? "—")
         }
-        technicalState.stringValue = "Pose: \(outcome.pose?.rawValue ?? "uncertain") · State: \(outcome.phase.rawValue)\nLast canceled: \(outcome.cancellation?.title ?? "none")"
+        technicalState.stringValue = "State: \(outcome.phase.rawValue)\nLast canceled: \(outcome.cancellation?.title ?? "none")"
         timing.stringValue = "Frame age \(input.map { String(format: "%.0f ms", ($0.now - $0.timestamp) * 1000) } ?? "—") · Gap \(frameInterval.map { String(format: "%.0f ms", $0 * 1000) } ?? "—") · Movement \(movement.map { String(format: "%.3f", $0) } ?? "—")"
     }
 
@@ -236,11 +236,11 @@ final class PracticeDiagnosticsView: NSView {
         switch stage {
         case .preview:
             reviewedResult = nil; reviewedSampleCount = nil
-            heading.stringValue = "Test your two-finger click"
+            heading.stringValue = "Test your click"
             introduction.stringValue = "Input: one hand gesture. Output: a readable result, plus an optional file for debugging. No automatic calibration."
             liveTitle.stringValue = cameraRunning ? "Preview only — not recording" : "Camera is paused"
             liveDetail.stringValue = selectedIntent == .click
-                ? "Open your hand. Press Start recording, try one click, then Stop & review. You do not need to aim at a button."
+                ? "Point at one spot. Press Start recording, hold still for one second, then Stop & review. You do not need to aim at a button."
                 : selectedIntent.instruction + " Start recording when you are ready, then choose Stop & review."
             step.stringValue = "1 · Record   →   2 · Review   →   3 · Save if needed"
         case .recording:
@@ -248,7 +248,7 @@ final class PracticeDiagnosticsView: NSView {
             heading.stringValue = "Recording one attempt"
             introduction.stringValue = recorder.intent.instruction + " Then choose Stop & review."
             step.stringValue = "1 · Recording locally — your Mac is not being controlled"
-            if changed { liveTitle.stringValue = "Open your hand first"; liveDetail.stringValue = recorder.intent.instruction }
+            if changed { liveTitle.stringValue = "Point at one spot"; liveDetail.stringValue = recorder.intent.instruction }
         case .review:
             if reviewedSampleCount != recorder.sampleCount || reviewedResult == nil, let session = recorder.session {
                 reviewedResult = DiagnosticResult(session: session)

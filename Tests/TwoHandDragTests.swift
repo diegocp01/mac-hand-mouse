@@ -26,21 +26,19 @@ import CoreGraphics
         var primaryL = false
         var companion = false
         var companionL = false
-        var ratio = 0.9
-        var scrollPoint: CGPoint?
-        var mode = ClickMode.pinch
+        var scrollPinch = 0.9
         mutating func setup() {
-            engine.configure(InteractionSettings(mode: mode, allowClicks: true, allowScrolling: true, allowDragging: true))
-            hold(1)
+            engine.configure(InteractionSettings(allowClicks: true, allowScrolling: true, allowDragging: true))
+            hold(0.5)
         }
         @discardableResult mutating func frame(dt: Double? = nil, age: Double = 0.01) -> InteractionStep {
             time += dt ?? (1 / fps)
-            let pose = ForwardPose(scale: 0.14, reach: 1.4, center: aim, side: side)
-            last = engine.process(index: point, pinchRatio: ratio, forwardPose: pose,
-                timestamp: time, now: time + age, bounds: bounds, running: running, trusted: trusted,
-                destination: destination, cursorPosition: cursor, handSide: side, scrollPoint: scrollPoint,
-                primaryL: primaryL, companionPresent: companion, companionL: companionL,
-                primaryReleased: releaseVisible && !primaryL, companionReleased: releaseVisible && !companionL)
+            last = engine.process(HandInput(index: point, timestamp: time, handSide: side, palm: point,
+                    threeFingerPinchRatio: scrollPinch, isL: primaryL,
+                    lReleased: releaseVisible && !primaryL, companionPresent: companion, companionL: companionL,
+                    companionReleased: releaseVisible && !companionL),
+                now: time + age, bounds: bounds, running: running, trusted: trusted,
+                destination: destination, cursorPosition: cursor)
             events += output.update(last)
             if let location = last.location { cursor = location }
             return last
@@ -99,38 +97,36 @@ import CoreGraphics
             otherFingersFolded: false, aspect: 1), "An open palm is not the explicit L pose")
 
         for fps in [15.0, 30.0, 60.0] {
-            for mode in [ClickMode.pinch, .forward] {
-                var s = Session(); s.fps = fps; s.mode = mode; s.setup()
-                let original = s.cursor
-                s.primaryL = true; s.hold(0.6)
-                check(s.downs == 0, "One L hand never starts a drag")
-                s.companion = true; s.ratio = 0.1; s.scrollPoint = aim; s.hold(0.4)
-                check(s.downs == 0 && !s.last.click && s.last.scrollY == 0,
-                      "Second hand suppresses pinch and scroll without controlling the cursor")
-                s.ratio = 0.9; s.scrollPoint = nil; s.companionL = true
+            var s = Session(); s.fps = fps; s.setup()
+            let original = s.cursor
+            s.primaryL = true; s.hold(0.6)
+            check(s.downs == 0, "One L hand never starts a drag")
+            s.companion = true; s.scrollPinch = 0.2; s.hold(1.2)
+            check(s.downs == 0 && !s.last.click && s.last.scrollY == 0 && s.cursor == original,
+                  "Second hand suppresses hold-still clicks and scrolling without controlling the cursor")
+            s.scrollPinch = 0.9; s.companionL = true
+            s.frame()
+            check(s.downs == 0 && s.cursor == original, "First L-pair frame freezes aim without pressing")
+            s.hold(0.10)
+            check(s.downs == 0, "Brief accidental L poses cannot press")
+            s.hold(0.4)
+            check(s.downs == 1 && s.ups == 0 && s.last.dragging, "Both L poses press once after confirmation")
+            check(s.events.first?.location == original, "Mouse-down uses the original selected target")
+            for i in 1...12 {
+                s.point = CGPoint(x: aim.x + Double(i) * 0.005, y: aim.y + Double(i) * 0.002)
                 s.frame()
-                check(s.downs == 0 && s.cursor == original, "First L-pair frame freezes aim without pressing")
-                s.hold(0.10)
-                check(s.downs == 0, "Brief accidental L poses cannot press")
-                s.hold(0.4)
-                check(s.downs == 1 && s.ups == 0 && s.last.dragging, "Both L poses press once after confirmation")
-                check(s.events.first?.location == original, "Mouse-down uses the original selected target")
-                for i in 1...12 {
-                    s.point = CGPoint(x: aim.x + Double(i) * 0.005, y: aim.y + Double(i) * 0.002)
-                    s.frame()
-                }
-                check(s.cursor.x > original.x && s.cursor.y > original.y && s.downs == 1,
-                      "Owner movement extends a held selection without additional downs")
-                check(s.events.contains { $0.kind == .moved }, "Held motion emits drag events")
-                let end = s.cursor
-                s.primaryL = false; s.frame()
-                check(s.ups == 1 && s.events.last?.location == end && !s.last.click && s.last.scrollY == 0,
-                      "Breaking owner L releases at the last drag position with no trailing click")
-                s.hold(0.4); check(s.ups == 1, "Release is idempotent")
-                s.drag(); check(s.downs == 2, "A new deliberate pair can drag again")
-                s.companionL = false; s.frame()
-                check(s.ups == 2, "Breaking modifier L also releases")
             }
+            check(s.cursor.x > original.x && s.cursor.y > original.y && s.downs == 1,
+                  "Owner movement extends a held selection without additional downs")
+            check(s.events.contains { $0.kind == .moved }, "Held motion emits drag events")
+            let end = s.cursor
+            s.primaryL = false; s.frame()
+            check(s.ups == 1 && s.events.last?.location == end && !s.last.click && s.last.scrollY == 0,
+                  "Breaking owner L releases at the last drag position with no trailing click")
+            s.hold(0.4); check(s.ups == 1, "Release is idempotent")
+            s.drag(); check(s.downs == 2, "A new deliberate pair can drag again")
+            s.companionL = false; s.frame()
+            check(s.ups == 2, "Breaking modifier L also releases")
 
             // Every production guard must reconcile a held button to exactly one up.
             for interruption in 0..<11 {
@@ -181,18 +177,18 @@ import CoreGraphics
 
             var disabled = Session(); disabled.fps = fps; disabled.setup()
             disabled.engine.configure(InteractionSettings(allowScrolling: true, allowDragging: false))
-            disabled.hold(1)
+            disabled.hold(0.5)
             var single = disabled
             disabled.primaryL = true; disabled.companionL = true; disabled.companion = true
-            // A bystander cannot suppress ordinary clicking when the feature is off.
-            for i in 0..<60 {
-                disabled.ratio = i < 20 ? 0.9 : (i < 40 ? 0.1 : 0.9)
-                single.ratio = disabled.ratio
+            // A bystander cannot suppress ordinary hold-still clicking when the feature is off.
+            var clicksSeen = 0
+            for _ in 0..<Int(fps * 2) {
                 disabled.frame(); single.frame()
                 check(disabled.last.click == single.last.click && disabled.last.location == single.last.location,
                       "Disabled modifier preserves single-hand input")
+                if disabled.last.click { clicksSeen += 1 }
             }
-            check(disabled.downs == 0, "Dragging is opt-in")
+            check(disabled.downs == 0 && clicksSeen == 1, "Dragging is opt-in and resting still clicks once")
             var toggled = Session(); toggled.fps = fps; toggled.setup(); toggled.drag()
             toggled.engine.configure(InteractionSettings(allowDragging: false)); toggled.frame()
             check(toggled.ups == 1, "Disabling dragging releases the button")
