@@ -5,12 +5,16 @@ import AppKit
 final class LaunchContentView: NSView {
     private var workspaceWidth: NSLayoutConstraint!
     private let backdrop = WindowBackdropView(frame: .zero)
+    private var diagnosticView: NSView?
+    private var overviewViews: [NSView] = []
+    private(set) var showsDiagnostics = false
     init(title: NSTextField, cameraStatus: NSTextField, start: NSButton,
          practiceButton: NSButton, settingsButton: NSButton, guide: GestureGuideView,
          preview: NSView, feedback: NSView, practice: NSView,
          setupDisclosure: NSView, setupRows: NSView, settingsRows: NSView, diagnostics: NSView? = nil,
-         useNativeGlass: Bool = true) {
+         cameraTestButton: NSButton? = nil, useNativeGlass: Bool = true) {
         super.init(frame: .zero)
+        diagnosticView = diagnostics
         wantsLayer = true
         updateColors()
         backdrop.translatesAutoresizingMaskIntoConstraints = false
@@ -49,7 +53,8 @@ final class LaunchContentView: NSView {
 
         let divider = NSBox()
         divider.boxType = .separator
-        let buttons = NSStackView(views: [start, divider, practiceButton])
+        let actions: [NSView] = [start, divider, practiceButton] + (cameraTestButton.map { [$0] } ?? [])
+        let buttons = NSStackView(views: actions)
         buttons.setHuggingPriority(.required, for: .horizontal)
         buttons.alignment = .centerY
         buttons.spacing = 12
@@ -82,8 +87,7 @@ final class LaunchContentView: NSView {
         footer.alignment = .centerY
 
         let details = StartupStyle.column([setupDisclosure, setupRows], spacing: 12)
-        let diagnosticViews = diagnostics.map { [$0] } ?? []
-        let body = StartupStyle.column([settingsRows, guide, live, practice] + diagnosticViews + [details], spacing: 24)
+        let body = StartupStyle.column([settingsRows, guide, live, practice, details], spacing: 24)
         body.setCustomSpacing(18, after: practice)
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -146,13 +150,32 @@ final class LaunchContentView: NSView {
             practice.heightAnchor.constraint(equalToConstant: 260),
             guide.heightAnchor.constraint(equalToConstant: 280)
         ])
-        for view in [guide, live, practice, details, setupDisclosure, setupRows, settingsRows] + diagnosticViews {
+        for view in [guide, live, practice, details, setupDisclosure, setupRows, settingsRows] {
             view.translatesAutoresizingMaskIntoConstraints = false
             view.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
         }
+        overviewViews = [hero, scroll, settingsButton]
+        if let diagnostics {
+            diagnostics.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(diagnostics)
+            NSLayoutConstraint.activate([
+                diagnostics.centerXAnchor.constraint(equalTo: centerXAnchor),
+                diagnostics.widthAnchor.constraint(equalTo: body.widthAnchor),
+                diagnostics.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 16),
+                diagnostics.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -14)
+            ])
+        }
+        setDiagnosticsPresented(false)
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func setDiagnosticsPresented(_ presented: Bool) {
+        showsDiagnostics = presented && diagnosticView != nil
+        for view in overviewViews { view.isHidden = showsDiagnostics }
+        diagnosticView?.isHidden = !showsDiagnostics
+        needsLayout = true
+    }
 
     override func layout() {
         workspaceWidth.constant = min(840, max(0, bounds.width - 64))

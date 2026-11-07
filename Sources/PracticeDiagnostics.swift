@@ -260,6 +260,184 @@ struct PracticeDiagnosticRecorder {
     }
 }
 
+enum CameraTestPolicy {
+    static func usesPracticeOutput(practicing: Bool, presented: Bool) -> Bool { practicing || presented }
+
+    static func allowsCameraToggle(presented: Bool, running: Bool, hasRecording: Bool) -> Bool {
+        !presented || running || !hasRecording
+    }
+
+    static func shouldStopCamera(presented: Bool, running: Bool, hasRecording: Bool, recording: Bool) -> Bool {
+        presented && running && hasRecording && !recording
+    }
+}
+
+struct DiagnosticGuidance {
+    let title: String
+    let detail: String
+
+    init(outcome: PracticeDiagnosticOutcome, fingers: [FingerEvidence], intent: DiagnosticIntent) {
+        if let blocked = outcome.blocked {
+            switch blocked {
+            case .missingHand, .acquiring, .differentHand:
+                title = "Show one hand to the camera"
+                detail = "Keep your palm, fingertips, and knuckles in view. This test does not move your Mac's pointer."
+            case .staleFrame:
+                title = "Tracking paused briefly"
+                detail = "Keep your hand visible and wait for fresh camera updates. No click is pending."
+            default:
+                title = "The camera test is not ready"
+                detail = "Stop and start another recording. No mouse input is sent to other apps."
+            }
+            return
+        }
+        if intent == .free {
+            title = "Explore comfortable hand positions"
+            detail = "This is an ungraded recording. Choose Stop & review when you have captured what you want to inspect."
+            return
+        }
+        if intent == .aim {
+            title = outcome.click || outcome.rightClick ? "An unwanted click was detected" : "Move your open hand normally"
+            detail = "Do not make a click gesture. When you have tried moving, choose Stop & review."
+            return
+        }
+        switch outcome.phase {
+        case .needsMove:
+            title = "Open your hand first"
+            detail = "Show your palm and fingers clearly to prepare the detector. Then try the gesture once."
+        case .ready:
+            let unclear = fingers.filter { $0.shape == .uncertain }.map { "\($0.finger) finger" }
+            if outcome.pose == nil && !unclear.isEmpty {
+                title = "Keep your fingers in view"
+                detail = "The detector cannot clearly read your \(unclear.joined(separator: " and ")). Adjust your hand until it is clear."
+            } else {
+                title = "Now raise just two fingers"
+                detail = "Keep index and middle up. Curl ring and little fingers toward your palm, then hold still for one second."
+            }
+        case .holding:
+            if intent == .cancel {
+                title = "Now lower your middle finger"
+                detail = "Release before the hold completes. Then choose Stop & review to check that no click was detected."
+            } else {
+                title = "Keep those two fingers raised"
+                detail = String(format: "Hold still: %.1f seconds left. The bar shows what the detector has actually observed.",
+                    max(0, 1 - outcome.progress))
+            }
+        case .clicked:
+            title = "Click detected"
+            detail = "Open your hand again, then choose Stop & review. There is no Send button to aim at in this test."
+        }
+    }
+}
+
+struct DiagnosticResult {
+    enum Verdict { case confirmed, notConfirmed, unexpected, noData, recorded }
+    let verdict: Verdict
+    let title: String
+    let explanation: String
+    let nextStep: String
+    let leftClicks: Int
+    let rightClicks: Int
+    let frameCount: Int
+
+    init(session: PracticeDiagnosticSession) {
+        let frames = session.entries.filter { $0.event == .frame }
+        frameCount = frames.count
+        leftClicks = frames.filter { $0.outcome.click }.count
+        rightClicks = frames.filter { $0.outcome.rightClick }.count
+        let counts = "Detected \(leftClicks) left click\(leftClicks == 1 ? "" : "s") and \(rightClicks) right click\(rightClicks == 1 ? "" : "s")."
+        let usable = frames.contains { entry in
+            guard entry.outcome.blocked == nil, let index = entry.input?.landmarks["indexTip"] else { return false }
+            return index.confidence >= 0.45 && index.x.isFinite && index.y.isFinite &&
+                (0...1).contains(index.x) && (0...1).contains(index.y)
+        }
+        guard usable else {
+            verdict = .noData
+            title = frameCount == 0 ? "No camera samples were recorded" : "No usable hand sample"
+            explanation = frameCount == 0
+                ? "The recording did not receive camera data. Check camera permission and try again."
+                : "Camera updates arrived, but the detector did not get a clear, usable hand sample. Updates may have been unclear or delayed."
+            nextStep = "Try again with one hand, good light, and your fingertips and knuckles in view."
+            return
+        }
+        let intents = Set(frames.map { $0.intent.rawValue })
+        let attempts = Set(frames.map(\.attempt))
+        let intent = frames.first?.intent ?? .free
+        if intents.count != 1 || attempts.count != 1 || intent == .free {
+            verdict = .recorded; title = "Recording captured"
+            explanation = counts + " This is a free test or contains multiple labeled attempts, so it is not graded as one click."
+            nextStep = "Save the JSON to keep it or share it for analysis. Detection thresholds stayed the same."
+            return
+        }
+        if rightClicks > 0 || (intent == .click ? leftClicks > 1 : leftClicks > 0) {
+            verdict = .unexpected
+            title = rightClicks > 0 ? "A right click was detected" : "Extra clicks were detected"
+            explanation = counts + " That does not match the selected goal: \(intent.title.lowercased())."
+            nextStep = "Save this recording for analysis. If you made more than one attempt, try a separate one-attempt recording."
+            return
+        }
+        if intent == .click && leftClicks == 1 || intent == .aim && leftClicks == 0 {
+            verdict = .confirmed
+            title = intent == .click ? "One click detected" : "No unwanted clicks detected"
+            explanation = counts + " This recording matched your selected goal."
+            nextStep = "Save the results if you want to keep or share them. Detection thresholds stayed the same."
+            return
+        }
+        let held = frames.contains { $0.outcome.phase == .holding }
+        var cancellation: PracticeDiagnosticEntry?
+        var previous: PracticeDiagnosticEntry?
+        for entry in session.entries {
+            if previous?.outcome.phase == .holding, entry.outcome.phase != .holding,
+               !entry.outcome.click, entry.outcome.cancellation != nil {
+                cancellation = entry
+            }
+            previous = entry
+        }
+        if intent == .cancel && cancellation != nil {
+            verdict = .confirmed; title = "The hold ended without a click"
+            explanation = counts + " " + Self.cancellationDescription(cancellation!)
+            nextStep = "Save the recording if you want to keep or share it. Detection thresholds stayed the same."
+            return
+        }
+        verdict = .notConfirmed
+        title = "No click was confirmed"
+        if let cancellation {
+            explanation = Self.cancellationDescription(cancellation)
+        } else if held {
+            explanation = "The recording stopped before a complete one-second hold was observed. This does not prove the gesture failed."
+        } else if frames.contains(where: { $0.outcome.pose == .click }) && !frames.contains(where: { $0.outcome.phase == .ready }) {
+            explanation = "The click pose was seen before the detector was ready. Begin with an open hand briefly, then raise just index and middle."
+        } else {
+            explanation = "No two-finger hold started in this recording. The detector did not confirm the click pose."
+        }
+        nextStep = "Try once more with index and middle raised and ring and little fingers curled. Or save this recording so someone can inspect the evidence."
+    }
+
+    private static func cancellationDescription(_ entry: PracticeDiagnosticEntry) -> String {
+        switch entry.outcome.cancellation {
+        case .uncertainPose:
+            let fingers = entry.fingers.filter { $0.shape == .uncertain }.map { "\($0.finger) finger" }
+            return fingers.isEmpty
+                ? "The detector could not reliably read the finger pose, so it canceled the hold."
+                : "The detector could not clearly read your \(fingers.joined(separator: " and ")) during the hold, so it canceled the click."
+        case .releasedPose:
+            return "The fingers returned to an aiming pose before the one-second hold completed."
+        case .movement:
+            return "The tracked index fingertip moved too far during the hold, so the detector canceled it."
+        case .frameGap, .trackingInterrupted, .invalidTime:
+            return "Hand tracking was interrupted or delayed during the hold, so the detector canceled the click."
+        case .invalidPoint:
+            return "The detector lost a usable index-fingertip position during the hold."
+        case .competingGesture:
+            return "Another gesture took priority and interrupted the click hold."
+        case .clicksDisabled:
+            return "Click detection was disabled before the hold completed."
+        case nil:
+            return "The hold did not complete."
+        }
+    }
+}
+
 enum PracticeDiagnosticError: Error { case unsupportedSession }
 
 enum PracticeDiagnosticReplay {

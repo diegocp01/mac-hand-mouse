@@ -70,6 +70,104 @@ struct PracticeDiagnosticsTests {
         }
     }
 
+    static func humanReadableResults() throws {
+        for practicing in [false, true] {
+            check(CameraTestPolicy.usesPracticeOutput(practicing: practicing, presented: true),
+                "A presented camera test always uses simulated output, including after pause")
+        }
+        check(!CameraTestPolicy.usesPracticeOutput(practicing: false, presented: false),
+            "Leaving the test retains normal output routing")
+        check(!CameraTestPolicy.allowsCameraToggle(presented: true, running: false, hasRecording: true),
+            "A resume shortcut cannot silently restart the camera while reviewing results")
+        check(CameraTestPolicy.allowsCameraToggle(presented: true, running: true, hasRecording: true),
+            "Pause must remain available during recording")
+        check(CameraTestPolicy.shouldStopCamera(presented: true, running: true, hasRecording: true, recording: false),
+            "Finishing or expiring a recording stops the test camera")
+        check(!CameraTestPolicy.shouldStopCamera(presented: true, running: true, hasRecording: false, recording: false),
+            "A clearly labeled preview can run without recording")
+        check(!CameraTestPolicy.shouldStopCamera(presented: false, running: true, hasRecording: true, recording: false),
+            "An old test result cannot stop normal camera control after leaving the test")
+        let open = landmarks(click: false)
+        let click = landmarks(click: true)
+        var success = Trace(fps: 30)
+        success.hold(open, seconds: 0.4)
+        success.hold(click, seconds: 1.3)
+        success.recorder.stop(.manual)
+        let before = try success.recorder.session!.encoded()
+        let result = DiagnosticResult(session: success.recorder.session!)
+        check(result.verdict == .confirmed && result.leftClicks == 1 && result.rightClicks == 0,
+            "A single recorded click gets a plain-English confirmation")
+        check(try success.recorder.session!.encoded() == before, "Review does not change the recording or detector settings")
+
+        var missed = Trace(fps: 30)
+        missed.hold(open, seconds: 1.5)
+        missed.recorder.stop(.manual)
+        let missedResult = DiagnosticResult(session: missed.recorder.session!)
+        check(missedResult.verdict == .notConfirmed && missedResult.explanation.contains("two-finger hold"),
+            "A recording with no click pose explains what was not observed")
+
+        var unprepared = Trace(fps: 30)
+        unprepared.hold(click, seconds: 1.3)
+        unprepared.recorder.stop(.manual)
+        check(DiagnosticResult(session: unprepared.recorder.session!).explanation.contains("open hand"),
+            "A click pose that never armed the detector explains the missing preparation step")
+
+        var short = Trace(fps: 30)
+        short.hold(open, seconds: 0.4)
+        short.hold(click, seconds: 0.3)
+        short.recorder.stop(.manual)
+        check(DiagnosticResult(session: short.recorder.session!).explanation.contains("recording stopped"),
+            "Stopping mid-hold is not blamed on an unseen finger failure")
+
+        var unclear = click
+        unclear["middlePIP"]?.confidence = 0.59
+        var canceled = Trace(fps: 30)
+        canceled.hold(open, seconds: 0.4)
+        canceled.hold(click, seconds: 0.4)
+        canceled.frame(unclear)
+        canceled.hold(open, seconds: 0.5)
+        canceled.recorder.stop(.manual)
+        let canceledResult = DiagnosticResult(session: canceled.recorder.session!)
+        check(canceledResult.verdict == .notConfirmed && canceledResult.explanation.contains("middle finger"),
+            "Review uses the actual cancellation frame even after the hand becomes clear again")
+
+        var noHand = Trace(fps: 30)
+        noHand.hold([:], seconds: 0.4)
+        noHand.recorder.stop(.manual)
+        check(DiagnosticResult(session: noHand.recorder.session!).verdict == .noData,
+            "No tracked hand is not a successful no-click test")
+        let empty = PracticeDiagnosticSession(width: 1440, height: 900, precisionMode: false, steadyAim: true)
+        check(DiagnosticResult(session: empty).verdict == .noData, "Empty recordings explain that no data was captured")
+
+        var aim = Trace(fps: 30)
+        aim.recorder.nextAttempt(intent: .aim)
+        aim.hold(open, seconds: 0.8)
+        aim.recorder.stop(.manual)
+        check(DiagnosticResult(session: aim.recorder.session!).verdict == .confirmed,
+            "A labeled move-only attempt can confirm that no click was detected")
+
+        var repeated = Trace(fps: 30)
+        for _ in 0..<2 {
+            repeated.hold(open, seconds: 0.4)
+            repeated.hold(click, seconds: 1.3)
+        }
+        repeated.recorder.stop(.manual)
+        check(DiagnosticResult(session: repeated.recorder.session!).verdict == .unexpected,
+            "Multiple clicks are not reported as one successful intended click")
+
+        var right = Trace(fps: 30)
+        right.hold(open, seconds: 0.4)
+        for _ in 0..<8 { right.frame(click, right: 0.3) }
+        right.recorder.stop(.manual)
+        check(DiagnosticResult(session: right.recorder.session!).verdict == .unexpected,
+            "A right click does not satisfy a left-click test")
+
+        let ready = PracticeDiagnosticOutcome(engine: missed.engine, step: InteractionStep(), pose: .move)
+        let guidance = DiagnosticGuidance(outcome: ready, fingers: PointingObservation(landmarks: open, aspect: 1).fingers, intent: .click)
+        check(guidance.detail.contains("ring") && guidance.detail.contains("little"),
+            "Ready guidance tells the user what to do with their fingers instead of showing internal state names")
+    }
+
     static func main() throws {
         if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--replay" {
             guard FeatureFlags.diagnostics else {
@@ -96,6 +194,7 @@ struct PracticeDiagnosticsTests {
                 "Disabled replay must stop before opening a recording")
         }
 
+        try humanReadableResults()
         let open = landmarks(click: false)
         let click = landmarks(click: true)
         let observation = PointingObservation(landmarks: click, aspect: 4 / 3)
