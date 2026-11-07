@@ -156,7 +156,7 @@ not validate camera recognition, native-window focus, or event delivery.
 
 The earlier four-card review on September 7, 2026, before Point and hold, rendered both guide sizes without ambiguous layout or
 fully clipped controls. `bash scripts/test.sh` passed 187 core, 465 interaction,
-3,377 recovery/scroll, 526 two-hand drag, 415 one-hand drag, 16 source-update, and
+3,377 recovery/scroll, 526 two-hand drag, 415 one-hand drag, 17 source-update, and
 1,002 two-finger tap checks, plus the update shell regressions. An isolated arm64
 application build completed with ad hoc signing and passed strict code-signature
 verification. The Mac login was

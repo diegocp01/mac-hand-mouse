@@ -13,21 +13,24 @@ import Foundation
             check(!SourceUpdate.isOfficialOrigin(origin), "Untrusted update origin is rejected")
         }
         let old = String(repeating: "a", count: 40), latest = String(repeating: "b", count: 40)
-        check(UpdateComparison.evaluate(installedCommit: latest, localCommit: latest, remoteCommit: latest,
-            installedVersion: "1", sourceVersion: "1", localIsAncestor: true) == .current,
-            "Matching installed, checkout, and remote commits are current")
-        check(UpdateComparison.evaluate(installedCommit: old, localCommit: latest, remoteCommit: latest,
-            installedVersion: "1", sourceVersion: "1", localIsAncestor: true) == .available,
+        check(UpdateComparison.evaluate(installedCommit: latest, remoteCommit: latest,
+            installedVersion: "1", sourceVersion: "1") == .current,
+            "Matching installed and remote commits are current")
+        check(UpdateComparison.evaluate(installedCommit: old, remoteCommit: latest,
+            installedVersion: "1", sourceVersion: "1") == .available,
             "An older installed build is updated even after a previous pull")
-        check(UpdateComparison.evaluate(installedCommit: old, localCommit: old, remoteCommit: latest,
-            installedVersion: "1", sourceVersion: "2", localIsAncestor: true) == .available,
-            "A remote fast-forward is available")
-        check(UpdateComparison.evaluate(installedCommit: nil, localCommit: latest, remoteCommit: latest,
-            installedVersion: "1.7", sourceVersion: "1.7", localIsAncestor: true) == .current,
+        check(UpdateComparison.evaluate(installedCommit: old, remoteCommit: latest,
+            installedVersion: "1", sourceVersion: "2") == .available,
+            "A newer remote commit is available")
+        check(UpdateComparison.evaluate(installedCommit: nil, remoteCommit: latest,
+            installedVersion: "1.7", sourceVersion: "1.7") == .current,
             "Legacy builds can fall back to version comparison")
-        if case .unsafe = UpdateComparison.evaluate(installedCommit: old, localCommit: old, remoteCommit: latest,
-            installedVersion: nil, sourceVersion: nil, localIsAncestor: false) { checks += 1 }
-        else { fatalError("Divergent checkouts are unsafe") }
+        check(UpdateComparison.evaluate(installedCommit: nil, remoteCommit: latest,
+            installedVersion: "1.7", sourceVersion: "1.8") == .available,
+            "Legacy builds detect a newer version")
+        check(UpdateComparison.evaluate(installedCommit: nil, remoteCommit: latest,
+            installedVersion: nil, sourceVersion: nil) == .available,
+            "Missing legacy version metadata does not hide an update")
         let plist = """
         <?xml version="1.0" encoding="UTF-8"?>
         <plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>9.8.7</string></dict></plist>

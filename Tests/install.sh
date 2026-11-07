@@ -54,6 +54,14 @@ test "$(cat "$TARGET_APP/Contents/Resources/build-marker")" = first
 codesign --verify --deep --strict "$TARGET_APP"
 test "$(cat "$TEST_ROOT/update-state/source-checkout")" = "$FIXTURE_REPO"
 
+SAVED_CHECKOUT="$TEST_ROOT/saved-source"
+mkdir -p "$SAVED_CHECKOUT"
+SAVED_CHECKOUT=$(cd "$SAVED_CHECKOUT" && pwd -P)
+HAND_MOUSE_INSTALL_DIR="$INSTALL_DIR" HAND_MOUSE_NO_OPEN=1 \
+    HAND_MOUSE_UPDATE_STATE_DIR="$TEST_ROOT/update-state" HAND_MOUSE_SOURCE_CHECKOUT="$SAVED_CHECKOUT" \
+    FIXTURE_MARKER=override bash "$FIXTURE_REPO/Install Hand Mouse.command" >/dev/null
+test "$(cat "$TEST_ROOT/update-state/source-checkout")" = "$SAVED_CHECKOUT"
+
 touch "$TARGET_APP/Contents/Resources/stale-from-old-version"
 run_installer second >/dev/null
 test "$(cat "$TARGET_APP/Contents/Resources/build-marker")" = second

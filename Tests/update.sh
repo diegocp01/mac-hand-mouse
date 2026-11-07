@@ -46,6 +46,7 @@ chmod +x "$PUBLISHER/Install Hand Mouse.command"
 /usr/bin/git clone --quiet "$REMOTE" "$SOURCE"
 /usr/bin/git -C "$SOURCE" remote set-url origin https://github.com/diegocp01/mac-hand-mouse.git
 /usr/bin/git config --file "$GLOBAL_CONFIG" url."file://$REMOTE".insteadOf https://github.com/diegocp01/mac-hand-mouse.git
+SOURCE_HEAD=$(/usr/bin/git -C "$SOURCE" rev-parse HEAD)
 
 mkdir -p "$TARGET/Contents/Resources"
 printf '%s\n' old > "$TARGET/Contents/Resources/version"
@@ -57,24 +58,28 @@ EXPECTED=$(/usr/bin/git -C "$PUBLISHER" rev-parse HEAD)
 
 GIT_CONFIG_GLOBAL="$GLOBAL_CONFIG" HAND_MOUSE_NO_OPEN=1 \
     bash scripts/update-and-relaunch.sh "$SOURCE" "$TARGET" 999999 "$EXPECTED" "$STATE"
-test "$(/usr/bin/git -C "$SOURCE" rev-parse HEAD)" = "$EXPECTED"
+test "$(/usr/bin/git -C "$SOURCE" rev-parse HEAD)" = "$SOURCE_HEAD"
 test "$(cat "$TARGET/Contents/Resources/version")" = new
 grep -q '^success$' "$STATE/update-result"
+test "$(/usr/bin/git -C "$SOURCE" worktree list --porcelain | grep -c '^worktree ')" = 1
 
 printf '%s\n' newest > "$PUBLISHER/VERSION"
 /usr/bin/git -C "$PUBLISHER" add VERSION
 /usr/bin/git -C "$PUBLISHER" commit --quiet -m second-update
 /usr/bin/git -C "$PUBLISHER" push --quiet
 NEXT=$(/usr/bin/git -C "$PUBLISHER" rev-parse HEAD)
+/usr/bin/git -C "$SOURCE" switch --quiet -c feature/local-work
 printf '%s\n' local-change >> "$SOURCE/VERSION"
-if GIT_CONFIG_GLOBAL="$GLOBAL_CONFIG" HAND_MOUSE_NO_OPEN=1 \
-    bash scripts/update-and-relaunch.sh "$SOURCE" "$TARGET" 999999 "$NEXT" "$STATE" >/dev/null 2>&1; then
-    echo "Updater changed a dirty checkout" >&2
-    exit 1
-fi
-test "$(/usr/bin/git -C "$SOURCE" rev-parse HEAD)" = "$EXPECTED"
-test "$(cat "$TARGET/Contents/Resources/version")" = new
-grep -q '^failure$' "$STATE/update-result"
+SOURCE_STATUS=$(/usr/bin/git -C "$SOURCE" status --porcelain --untracked-files=normal)
+GIT_CONFIG_GLOBAL="$GLOBAL_CONFIG" HAND_MOUSE_NO_OPEN=1 \
+    bash scripts/update-and-relaunch.sh "$SOURCE" "$TARGET" 999999 "$NEXT" "$STATE"
+test "$(/usr/bin/git -C "$SOURCE" symbolic-ref --short HEAD)" = feature/local-work
+test "$(/usr/bin/git -C "$SOURCE" rev-parse HEAD)" = "$SOURCE_HEAD"
+test "$(/usr/bin/git -C "$SOURCE" status --porcelain --untracked-files=normal)" = "$SOURCE_STATUS"
+test "$(tail -n 1 "$SOURCE/VERSION")" = local-change
+test "$(cat "$TARGET/Contents/Resources/version")" = newest
+grep -q '^success$' "$STATE/update-result"
+test "$(/usr/bin/git -C "$SOURCE" worktree list --porcelain | grep -c '^worktree ')" = 1
 
 /usr/bin/git -C "$SOURCE" remote set-url origin "$REMOTE"
 if GIT_CONFIG_GLOBAL="$GLOBAL_CONFIG" HAND_MOUSE_NO_OPEN=1 \
@@ -84,4 +89,4 @@ if GIT_CONFIG_GLOBAL="$GLOBAL_CONFIG" HAND_MOUSE_NO_OPEN=1 \
 fi
 grep -q 'official Hand Mouse repository' "$STATE/update-result"
 
-echo "Passed in-app fast-forward, reinstall, dirty-checkout, and official-origin update checks."
+echo "Passed latest-main install, untouched feature checkout, reinstall, and official-origin update checks."

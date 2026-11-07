@@ -33,14 +33,11 @@ fail() {
 case "$SOURCE" in ""|/) fail "The saved source checkout is unsafe." ;; esac
 case "$TARGET_APP" in *.app) ;; *) fail "The installed app path is invalid." ;; esac
 [ -e "$SOURCE/.git" ] || fail "The saved source checkout is unavailable."
-[ -f "$SOURCE/Install Hand Mouse.command" ] || fail "The installer is missing from the source checkout."
 ORIGIN=$(/usr/bin/git -C "$SOURCE" config --get remote.origin.url 2>/dev/null || true)
 case "$ORIGIN" in
     https://github.com/diegocp01/mac-hand-mouse.git|https://github.com/diegocp01/mac-hand-mouse|git@github.com:diegocp01/mac-hand-mouse.git|git@github.com:diegocp01/mac-hand-mouse|ssh://git@github.com/diegocp01/mac-hand-mouse.git|ssh://git@github.com/diegocp01/mac-hand-mouse) ;;
     *) fail "The source checkout does not use the official Hand Mouse repository." ;;
 esac
-[ "$(/usr/bin/git -C "$SOURCE" symbolic-ref --short HEAD 2>/dev/null || true)" = main ] || fail "The source checkout is not on main."
-[ -z "$(/usr/bin/git -C "$SOURCE" status --porcelain --untracked-files=normal 2>/dev/null)" ] || fail "The source checkout has local changes."
 
 for _ in {1..150}; do
     if ! /bin/kill -0 "$RUNNING_PID" 2>/dev/null; then break; fi
@@ -48,28 +45,47 @@ for _ in {1..150}; do
 done
 if /bin/kill -0 "$RUNNING_PID" 2>/dev/null; then fail "Hand Mouse did not quit in time."; fi
 
-run_pull() {
-    /usr/bin/git -C "$SOURCE" pull --ff-only origin main >"$LOG" 2>&1 &
-    pull_pid=$!
+run_fetch() {
+    /usr/bin/git -C "$SOURCE" fetch --quiet origin main >"$LOG" 2>&1 &
+    fetch_pid=$!
     for _ in {1..300}; do
-        if ! /bin/kill -0 "$pull_pid" 2>/dev/null; then wait "$pull_pid"; return $?; fi
+        if ! /bin/kill -0 "$fetch_pid" 2>/dev/null; then wait "$fetch_pid"; return $?; fi
         /bin/sleep 0.1
     done
-    /bin/kill "$pull_pid" 2>/dev/null || true
-    wait "$pull_pid" 2>/dev/null || true
+    /bin/kill "$fetch_pid" 2>/dev/null || true
+    wait "$fetch_pid" 2>/dev/null || true
     return 124
 }
 
-if ! run_pull; then
-    fail "Git could not fast-forward the source checkout. See $LOG"
+if ! run_fetch; then
+    fail "Git could not fetch the latest version. See $LOG"
 fi
-if ! /usr/bin/git -C "$SOURCE" merge-base --is-ancestor "$EXPECTED_COMMIT" HEAD >/dev/null 2>&1; then
+REMOTE_COMMIT=$(/usr/bin/git -C "$SOURCE" rev-parse origin/main 2>/dev/null || true)
+if [ -z "$REMOTE_COMMIT" ] || ! /usr/bin/git -C "$SOURCE" merge-base --is-ancestor "$EXPECTED_COMMIT" "$REMOTE_COMMIT" >/dev/null 2>&1; then
     fail "GitHub changed unexpectedly during the update. No app was replaced."
 fi
 
+UPDATE_WORKTREE=""
+cleanup_worktree() {
+    result=$?
+    if [ -n "$UPDATE_WORKTREE" ]; then
+        /usr/bin/git -C "$SOURCE" worktree remove --force "$UPDATE_WORKTREE" >>"$LOG" 2>&1 || true
+    fi
+    trap - EXIT
+    exit "$result"
+}
+trap cleanup_worktree EXIT
+WORKTREE_PATH=$(mktemp -d "$STATE_DIR/update-source.XXXXXX")
+rmdir "$WORKTREE_PATH"
+if ! /usr/bin/git -C "$SOURCE" worktree add --quiet --detach "$WORKTREE_PATH" "$REMOTE_COMMIT" >>"$LOG" 2>&1; then
+    fail "The latest GitHub version could not be prepared. See $LOG"
+fi
+UPDATE_WORKTREE="$WORKTREE_PATH"
+[ -f "$UPDATE_WORKTREE/Install Hand Mouse.command" ] || fail "The installer is missing from the latest GitHub version."
+
 TARGET_PARENT=$(/usr/bin/dirname "$TARGET_APP")
-if ! HAND_MOUSE_INSTALL_DIR="$TARGET_PARENT" HAND_MOUSE_NO_OPEN=1 \
-    /bin/bash "$SOURCE/Install Hand Mouse.command" >>"$LOG" 2>&1; then
+if ! HAND_MOUSE_INSTALL_DIR="$TARGET_PARENT" HAND_MOUSE_NO_OPEN=1 HAND_MOUSE_SOURCE_CHECKOUT="$SOURCE" \
+    /bin/bash "$UPDATE_WORKTREE/Install Hand Mouse.command" >>"$LOG" 2>&1; then
     fail "The update could not be installed. The previous app was kept. See $LOG"
 fi
 
