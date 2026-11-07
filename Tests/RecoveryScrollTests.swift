@@ -22,20 +22,23 @@ import CoreGraphics
         var scrolled = 0
         var last = InteractionStep()
         mutating func setup() { engine.configure(InteractionSettings(allowClicks: true, allowScrolling: true)) }
-        @discardableResult mutating func frame(_ point: CGPoint? = aim, ratio: Double? = 0.9,
-                side: String? = "left", scroll: CGPoint? = nil, dt: Double? = nil) -> InteractionStep {
+        /// `pinch` is the three-fingertip ratio; `palm` drives scrolling while pinched.
+        @discardableResult mutating func frame(_ point: CGPoint? = aim, pinch: Double? = 0.9,
+                side: String? = "left", palm: CGPoint? = nil, dt: Double? = nil) -> InteractionStep {
             time += dt ?? (1 / fps)
-            last = engine.process(index: point, pinchRatio: ratio, timestamp: time, now: time + 0.01,
-                bounds: bounds, running: running, trusted: trusted, destination: destination,
-                cursorPosition: cursor, handSide: side, scrollPoint: scroll)
+            last = engine.process(HandInput(index: point, timestamp: time, handSide: side,
+                                            palm: palm ?? point, threeFingerPinchRatio: pinch),
+                now: time + 0.01, bounds: bounds, running: running, trusted: trusted,
+                destination: destination, cursorPosition: cursor)
             if let location = last.location { cursor = location }
             if last.click { clicks += 1 }
             scrolled += Int(last.scrollY)
             return last
         }
-        mutating func hold(_ point: CGPoint = aim, seconds: Double = 0.7, ratio: Double? = 0.9,
-                           side: String? = "left", scroll: CGPoint? = nil) {
-            for _ in 0..<Int(ceil(seconds * fps)) { frame(point, ratio: ratio, side: side, scroll: scroll) }
+        /// Half a second: long enough to settle, short of a hold-still click.
+        mutating func hold(_ point: CGPoint = aim, seconds: Double = 0.5, pinch: Double? = 0.9,
+                           side: String? = "left", palm: CGPoint? = nil) {
+            for _ in 0..<Int((seconds * fps).rounded()) { frame(point, pinch: pinch, side: side, palm: palm) }
         }
     }
 
@@ -46,24 +49,21 @@ import CoreGraphics
                 var s = Session(); s.setup(); s.fps = fps; s.bounds = bounds
                 s.cursor = CGPoint(x: bounds.minX + bounds.width * 0.2, y: bounds.midY)
                 let original = s.cursor
-                check(s.frame().location == nil, "A first observed frame cannot move the pointer")
+                check(s.frame().location == original && s.engine.acquisition.active,
+                      "A first observed frame takes control at the existing cursor without moving it")
                 s.hold()
-                check(s.engine.acquisition.active && s.cursor == original, "Steady open activation preserves the actual cursor")
+                check(s.cursor == original && s.clicks == 0, "Resting briefly moves nothing and clicks nothing")
                 for _ in 0..<5 { s.frame(nil) }
+                check(s.last.blocked == .missingHand && !s.engine.acquisition.active, "A missing hand releases control")
                 let firstReturn = s.frame(returned)
-                check(firstReturn.location == nil && !firstReturn.click && firstReturn.scrollY == 0,
-                      "HM-06: return at x=0.7 after five missing frames emits no input")
-                s.hold(returned, seconds: 0.10)
-                check(s.cursor == original && !s.engine.acquisition.active, "Returning hand must settle before resuming")
+                check(firstReturn.location == original && !firstReturn.click && firstReturn.scrollY == 0,
+                      "HM-06: return at x=0.7 after five missing frames anchors at the old cursor without input")
                 s.hold(returned)
                 check(s.cursor == original && s.engine.acquisition.active && s.clicks == 0,
-                      "Reacquisition anchors at the existing cursor, without an eased or immediate warp")
+                      "Reacquisition stays at the existing cursor, without an eased or immediate warp")
                 s.hold(CGPoint(x: 0.72, y: 0.5), seconds: 0.3)
                 check(s.cursor.x > original.x && s.cursor.x - original.x < 170,
                       "Small motion after resuming stays small and responsive")
-                s.frame(nil); s.hold(aim, ratio: 0.1)
-                check(!s.engine.acquisition.active && s.clicks == 0 && s.last.location == nil,
-                      "Returning with an already-closed pinch cannot take control or click")
                 s.hold(aim, side: "right")
                 check(s.last.blocked == .differentHand && s.last.location == nil,
                       "A different hand does not inherit an active session")
@@ -73,10 +73,10 @@ import CoreGraphics
                 check(s.cursor == manual && s.engine.acquisition.active, "Resume respects physical mouse use while the hand was absent")
                 s.cursor.x += 60
                 let takeover = s.cursor
-                check(s.frame().location == nil, "Physical mouse movement interrupts active hand control")
+                check(s.frame().location == takeover, "Physical mouse movement hands control back at the new position")
                 s.hold()
                 check(s.cursor == takeover, "Resuming after manual takeover cannot snap back")
-                check(s.frame(returned, dt: 0.3).location == nil, "A delivery gap reacquires even without explicit missing-hand frames")
+                check(s.frame(returned, dt: 0.3).location == takeover, "A delivery gap reanchors instead of jumping")
                 s.hold(returned)
                 check(s.cursor == takeover, "A callback gap cannot create a delayed pointer jump")
                 s.cursor = CGPoint(x: bounds.maxX + 10, y: bounds.midY)
@@ -86,57 +86,54 @@ import CoreGraphics
 
             var scroll = Session(); scroll.setup(); scroll.fps = fps; scroll.hold()
             let locked = scroll.cursor
-            scroll.frame(ratio: 0.1, scroll: aim)
+            scroll.frame(pinch: 0.2)
             check(scroll.clicks == 0 && scroll.scrolled == 0 && scroll.cursor == locked,
-                  "Scroll candidate suppresses click detection immediately")
-            scroll.hold(seconds: 0.4, ratio: 0.1, scroll: aim)
+                  "A scroll pinch suppresses click detection immediately")
+            scroll.hold(seconds: 0.4, pinch: 0.2)
             check(scroll.engine.scroll.phase == .scrolling && scroll.scrolled == 0,
-                  "Two fingers must be held deliberately before scrolling")
+                  "The pinch must be held deliberately before scrolling")
             var bounded = true
             for i in 1...Int(fps) {
                 let p = CGPoint(x: 0.3, y: 0.5 - 0.1 * Double(i) / fps)
-                let step = scroll.frame(p, ratio: 0.1, scroll: p)
+                let step = scroll.frame(p, pinch: 0.2)
                 bounded = bounded && abs(Double(step.scrollY)) <= 600 / fps + 1
             }
             check((98...101).contains(scroll.scrolled) && bounded && scroll.cursor == locked && scroll.clicks == 0,
                   "Scrolling follows motion consistently across frame rates, with the pointer fixed and no clicks")
             let stopped = scroll.scrolled
-            scroll.hold(CGPoint(x: 0.3, y: 0.4), seconds: 1, scroll: CGPoint(x: 0.3, y: 0.4))
-            check(scroll.scrolled == stopped, "A still scroll pose emits no continuing scroll or inertia")
-            scroll.frame(returned, ratio: 0.1)
-            scroll.hold(returned, ratio: 0.1)
-            check(scroll.scrolled == stopped && scroll.clicks == 0 && !scroll.engine.acquisition.active,
-                  "Leaving scrolling with a closed pinch cannot click or jump")
+            scroll.hold(CGPoint(x: 0.3, y: 0.4), seconds: 1.2, pinch: 0.2)
+            check(scroll.scrolled == stopped && scroll.clicks == 0, "A still scroll pose emits no inertia and never clicks")
+            scroll.frame(returned)
+            check(scroll.cursor == locked && scroll.engine.scroll.phase == .idle, "Releasing the pinch reanchors aiming at the same cursor")
             scroll.hold(returned)
-            check(scroll.cursor == locked, "Leaving scroll mode reanchors normal pointing at the same cursor")
-            scroll.hold(returned, seconds: 0.2, ratio: 0.1)
-            check(scroll.clicks == 1, "A fresh pinch works after scrolling and rearming")
+            check(scroll.cursor == locked && scroll.clicks == 0, "The release frame itself is not pointer travel")
+            scroll.hold(returned, seconds: 0.9)
+            check(scroll.clicks == 1, "Holding still after scrolling clicks once")
 
             var outlier = Session(); outlier.setup(); outlier.fps = fps; outlier.hold()
-            outlier.hold(scroll: aim)
-            check(outlier.frame(scroll: CGPoint(x: 0.3, y: 0.1)).scrollY == 0 && outlier.engine.scroll.phase == .idle,
+            outlier.hold(pinch: 0.2)
+            check(outlier.frame(pinch: 0.2, palm: CGPoint(x: 0.3, y: 0.1)).scrollY == 0 && outlier.engine.scroll.phase == .idle,
                   "A tracking outlier cancels instead of scrolling an entire page")
-            outlier.hold(scroll: aim)
-            check(!outlier.engine.acquisition.active && outlier.scrolled == 0,
-                  "A scroll outlier requires fresh pointing before held scrolling can resume")
-            outlier.trusted = false; outlier.frame(scroll: aim)
-            outlier.trusted = true; outlier.hold(scroll: aim)
-            check(outlier.scrolled == 0 && !outlier.engine.acquisition.active,
-                  "Permission restoration cannot resume scrolling with the old pose still held")
+            outlier.hold(seconds: 0.2, pinch: 0.2)
+            check(outlier.engine.scroll.phase != .scrolling && outlier.scrolled == 0,
+                  "After an outlier a steady pinch starts over from confirmation")
+            outlier.trusted = false; outlier.frame(pinch: 0.2)
+            outlier.trusted = true; outlier.hold(pinch: 0.2)
+            check(outlier.scrolled == 0, "Permission restoration cannot carry scroll motion")
 
             var simulated = Session(); simulated.setup(); simulated.fps = fps
             simulated.destination = .practice; simulated.trusted = false
-            simulated.hold(); simulated.hold(scroll: aim)
+            simulated.hold(); simulated.hold(pinch: 0.2)
             var leaked = false
             for i in 1...Int(fps) {
                 let p = CGPoint(x: 0.3, y: 0.5 + 0.1 * Double(i) / fps)
-                let step = simulated.frame(p, scroll: p)
+                let step = simulated.frame(p, pinch: 0.2)
                 leaked = leaked || step.systemLocation != nil || step.systemClick || step.systemScrollY != 0
             }
             check(simulated.scrolled < -95 && !leaked, "Practice scroll changes only the simulation")
         }
         for gate in ["clicksOff", "scrollOff", "preview", "permission", "pause"] {
-            var s = Session(); s.setup(); s.hold(); s.hold(scroll: aim)
+            var s = Session(); s.setup(); s.hold(); s.hold(pinch: 0.2)
             switch gate {
             case "clicksOff": s.engine.configure(InteractionSettings(allowClicks: false, allowScrolling: true))
             case "scrollOff": s.engine.configure(InteractionSettings(allowClicks: true, allowScrolling: false))
@@ -144,24 +141,23 @@ import CoreGraphics
             case "permission": s.trusted = false
             default: s.running = false
             }
-            let step = s.frame(scroll: CGPoint(x: 0.3, y: 0.48))
+            let step = s.frame(CGPoint(x: 0.3, y: 0.48), pinch: 0.2)
             check(step.scrollY == 0 && !step.click, "Changing \(gate) cancels current output")
         }
         var off = Session(); off.engine.configure(InteractionSettings(allowClicks: false, allowScrolling: false))
-        off.hold(); off.hold(scroll: aim)
+        off.hold(); off.hold(pinch: 0.2)
         check(off.engine.scroll.phase == .idle && off.scrolled == 0, "Scrolling is off by default")
         var independent = Session(); independent.engine.configure(InteractionSettings(allowClicks: false, allowScrolling: true))
-        independent.hold(); independent.hold(scroll: aim)
-        independent.frame(scroll: CGPoint(x: 0.3, y: 0.49))
+        independent.hold(); independent.hold(pinch: 0.2)
+        independent.frame(CGPoint(x: 0.3, y: 0.49), pinch: 0.2)
         check(independent.scrolled > 0 && independent.clicks == 0, "Scrolling has its own opt-in and works with clicks disabled")
-        var pinchPractice = Session(); pinchPractice.setup(); pinchPractice.destination = .practice; pinchPractice.trusted = false
-        pinchPractice.hold()
-        var practiceClickLeaked = false
-        for _ in 0..<10 {
-            let step = pinchPractice.frame(ratio: 0.1)
-            practiceClickLeaked = practiceClickLeaked || step.systemClick || step.systemLocation != nil || step.systemScrollY != 0
+        var practice = Session(); practice.setup(); practice.destination = .practice; practice.trusted = false
+        var practiceLeaked = false
+        for _ in 0..<40 {
+            let step = practice.frame()
+            practiceLeaked = practiceLeaked || step.systemClick || step.systemLocation != nil || step.systemScrollY != 0
         }
-        check(pinchPractice.clicks == 1 && !practiceClickLeaked, "Pinch practice clicks work without Accessibility and expose no system input")
+        check(practice.clicks == 1 && !practiceLeaked, "Practice clicks work without Accessibility and expose no system input")
 
         var keyboard = ActivationPolicy()
         check(keyboard.press() && !keyboard.press(), "Holding the shortcut toggles only once")
@@ -218,8 +214,8 @@ import CoreGraphics
         let frozenRegion = frozen.controlRegion
         for i in 1...10 {
             check(frozen.update(point: CGPoint(x: 0.98, y: 0.98), bounds: display, time: Double(i) / 30, freeze: true) == target,
-                  "Click freeze ignores motion even beyond the smaller region")
-            check(frozen.controlRegion == frozenRegion, "A frozen click cannot silently rebase the travel guide")
+                  "A frozen gesture ignores motion even beyond the smaller region")
+            check(frozen.controlRegion == frozenRegion, "A frozen gesture cannot silently rebase the travel guide")
         }
         for hand in [0.0, 0.01, 0.22, 0.5, 0.78, 0.99, 1.0] {
             for cursor in [0.0, 0.5, 1.0] {
@@ -236,12 +232,12 @@ import CoreGraphics
         }
 
         let base = CGPoint(x: 0.5, y: 0.6), pip = CGPoint(x: 0.5, y: 0.5)
-        check(ScrollPoseGeometry.shape(tip: CGPoint(x: 0.5, y: 0.35), pip: pip, base: base, aspect: 1.5) == .extended,
+        check(FingerGeometry.shape(tip: CGPoint(x: 0.5, y: 0.35), pip: pip, base: base, aspect: 1.5) == .extended,
               "An extended finger is recognized")
-        check(ScrollPoseGeometry.shape(tip: CGPoint(x: 0.51, y: 0.59), pip: pip, base: base, aspect: 1.5) == .folded,
+        check(FingerGeometry.shape(tip: CGPoint(x: 0.51, y: 0.59), pip: pip, base: base, aspect: 1.5) == .folded,
               "A folded finger is recognized")
-        check(ScrollPoseGeometry.shape(tip: CGPoint(x: CGFloat.nan, y: 0.35), pip: pip, base: base, aspect: 1.5) == .uncertain,
-              "Invalid landmarks cannot establish scroll intent")
+        check(FingerGeometry.shape(tip: CGPoint(x: CGFloat.nan, y: 0.35), pip: pip, base: base, aspect: 1.5) == .uncertain,
+              "Invalid landmarks cannot establish finger shape")
         print("Passed \(checks) recovery, scroll, practice, and keyboard activation checks.")
     }
 }

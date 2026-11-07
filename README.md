@@ -65,11 +65,9 @@ See [source-update behavior and safeguards](docs/UPDATES.md) for details.
 
 1. Click **Start**. Show your hand and move to aim.
 2. Move your index fingertip within the dashed box to aim. Its edges reach the screen edges; your palm can extend outside the box.
-3. From an open hand, raise **index + middle** with the other fingers curled. The pointer holds its target and a ring fills for **one second**, then sends one left-click. Open your hand before the next click. Index-only aiming can also prepare a click.
+3. **Hold still to click.** Point at a target and stop moving. After a moment a ring appears and fills for about **one second**, then it sends one left-click. Move the pointer away before the next click.
 
-Keep both fingers and their knuckles visible during the countdown. Lower the middle finger before it finishes to cancel. Keeping both fingers raised after a click does not repeat it. Excessive hand movement, missing tracking, a competing gesture, or **Esc** cancels the pending click.
-
-**Point and hold replaces two-finger tap.** Your saved click choice is preserved. Bringing thumb + index + middle fingertips together scrolls; bringing all five fingertips together right-clicks. One-hand pinch dragging is unavailable in this mode.
+Resting in one place never repeats a click: the pointer has to travel a little first. Moving before the ring fills cancels the click, as do missing tracking, a competing gesture, or **Esc**. Bringing thumb + index + middle fingertips together scrolls; bringing all five fingertips together right-clicks.
 
 - **Practice:** click **Send**, scroll to **Quarterly review**, or select a sentence without sending mouse events to other apps. Right clicks are counted separately. Finishing practice leaves clicks, scrolling, and selection off for that session without changing saved preferences.
 - **Steady aim:** on by default in Settings. Slow, careful hand movements make smaller pointer adjustments; faster movements keep normal travel. After smoothing settles, the pointer stays at your fine adjustment. This responds to your movement, without detecting buttons or other targets. Turn it off to use the previous pointer behavior.
@@ -83,7 +81,7 @@ Keep both fingers and their knuckles visible during the countdown. Lower the mid
 
 Gesture recognition uses camera images, not measured depth or physical contact. Good lighting and a visible palm help. Physical testing across hands and cameras is still needed, including five-finger visibility and Steady aim tuning; synthetic tests do not establish small-target accuracy. Start in practice. An explicit double-click gesture is not included. See [point-and-hold behavior and validation](docs/POINT_AND_HOLD.md).
 
-## Test two-finger recognition with your camera
+## Test clicking with your camera
 
 Diagnostics are **disabled in normal builds**. Use a PR-first update flow: review and merge the PR, pull `main`, then enable and test diagnostics locally. Do not replace or restart the running app as part of preparing a PR.
 
@@ -94,8 +92,8 @@ To enable diagnostics after pulling, save any recording you want to keep, quit t
 In a locally enabled build, choose **Camera test** next to Practice. This opens a focused screen, not the practice game. There is no Send target to hit, and no mouse input is sent to other apps.
 
 1. **Preview:** check that your hand is visible. The camera processes frames on your Mac, but no recording is being saved yet.
-2. **Start recording:** open your hand, raise index + middle with ring + little fingers curled, hold for one second, then reopen. Make just one attempt.
-3. **Stop & review:** the camera stops. Read the result, such as one click detected, no completed hold, or a finger becoming unclear during the hold. Results describe what the detector observed, not a guaranteed physical cause.
+2. **Start recording:** point at one spot and hold still for one second, then move away. Make just one attempt.
+3. **Stop & review:** the camera stops. Read the result, such as one click detected, no completed hold, or the pointer moving before the ring filled. Results describe what the detector observed, not a guaranteed physical cause.
 4. **Save results…** is optional. It writes a JSON file to the location you choose. **Show saved file** helps you find it.
 5. If you want help with a fix, attach that JSON to your chat or share it with a developer. They can inspect/replay the evidence, change the code, and ask you to try a fresh camera test. Nothing is uploaded automatically.
 

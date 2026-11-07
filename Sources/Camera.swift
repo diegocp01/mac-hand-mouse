@@ -3,28 +3,28 @@ import Vision
 
 struct HandFrame {
     var points: [VNHumanHandPoseObservation.JointName: CGPoint]
-    var pinchRatio: Double?
     var timestamp: Double
     var aspect: CGFloat
-    var forwardPose: ForwardPose?
-    var forwardIssue: ForwardPoseIssue? = nil
     var source = ""
     var handSide: String?
-    var dragPinchRatio: Double?
     var palm: CGPoint?
-    var scrollPoint: CGPoint?
-    var pointingPose: PointingPose?
-    var pointingObservation: PointingObservation?
-    var pointingHint = "Keep your fingers visible"
+    /// Named joints with confidence, for the opt-in camera test only.
+    var landmarks: [String: HandLandmark] = [:]
     var fiveFingerPinchRatio: Double?
     var threeFingerPinchRatio: Double?
-    var tapPose: TapPose?
-    var fingerSeparationRatio: Double?
     var isL = false
     var lReleased = false
     var companionPresent = false
     var companionL = false
     var companionReleased = false
+
+    /// The engine's view of this frame.
+    var input: HandInput {
+        HandInput(index: points[.indexTip], timestamp: timestamp, handSide: handSide, palm: palm,
+                  fiveFingerPinchRatio: fiveFingerPinchRatio, threeFingerPinchRatio: threeFingerPinchRatio,
+                  isL: isL, lReleased: lReleased, companionPresent: companionPresent,
+                  companionL: companionL, companionReleased: companionReleased)
+    }
 }
 
 struct HandCapture {
@@ -260,66 +260,43 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     }
     private func measure(_ hand: VNHumanHandPoseObservation, capture: HandCapture) throws -> HandFrame {
         let aspect = capture.aspect
-        var frame = HandFrame(points: [:], pinchRatio: nil, timestamp: capture.timestamp, aspect: aspect)
+        var frame = HandFrame(points: [:], timestamp: capture.timestamp, aspect: aspect)
         frame.source = capture.source
         let all = try hand.recognizedPoints(.all)
-        let landmarks = Dictionary(uniqueKeysWithValues: Self.diagnosticJoints.compactMap { name, joint -> (String, HandLandmark)? in
+        frame.landmarks = Dictionary(uniqueKeysWithValues: Self.diagnosticJoints.compactMap { name, joint -> (String, HandLandmark)? in
             guard let point = all[joint] else { return nil }
             return (name, HandLandmark(x: 1 - point.location.x, y: 1 - point.location.y, confidence: point.confidence))
         })
-        let pointing = PointingObservation(landmarks: landmarks, aspect: Double(aspect))
-        frame.pointingObservation = pointing
         frame.handSide = hand.chirality == .left ? "left" : (hand.chirality == .right ? "right" : nil)
         for (joint, point) in all where point.confidence >= 0.35 {
             frame.points[joint] = CGPoint(x: 1 - point.location.x, y: 1 - point.location.y)
         }
         let palmJoints: [VNHumanHandPoseObservation.JointName] = [.wrist, .indexMCP, .middleMCP, .littleMCP]
-        frame.palm = PinchDragPalm.measure(points: palmJoints.map { frame.points[$0] },
+        frame.palm = PalmGeometry.center(points: palmJoints.map { frame.points[$0] },
             confidences: palmJoints.map { Double(all[$0]?.confidence ?? 0) })
         // A hidden thumb or pinky must not prevent index-finger movement.
         guard (all[.indexTip]?.confidence ?? 0) >= 0.45 else {
             frame.points.removeValue(forKey: .indexTip); return frame
         }
         func finger(_ tip: VNHumanHandPoseObservation.JointName, _ pip: VNHumanHandPoseObservation.JointName,
-                    _ base: VNHumanHandPoseObservation.JointName, confidence: Float = 0.6,
-                    foldedReachLimit: Double = 1.2) -> FingerShape {
-            guard [tip, pip, base].allSatisfy({ (all[$0]?.confidence ?? 0) >= confidence }),
+                    _ base: VNHumanHandPoseObservation.JointName) -> FingerShape {
+            guard [tip, pip, base].allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
                   let t = frame.points[tip], let p = frame.points[pip], let b = frame.points[base] else { return .uncertain }
-            return ScrollPoseGeometry.shape(tip: t, pip: p, base: b, aspect: Double(aspect), foldedReachLimit: foldedReachLimit)
+            return FingerGeometry.shape(tip: t, pip: p, base: b, aspect: Double(aspect))
         }
-        // Partly curled outer fingers need not form a tight fist. Keep the
-        // stricter default for raised fingers and legacy scroll/tap geometry.
-        frame.pointingPose = pointing.pose
-        frame.pointingHint = pointing.hint
-        let scrollTipJoints: [VNHumanHandPoseObservation.JointName] = [.thumbTip, .indexTip, .middleTip]
-        if (scrollTipJoints + palmJoints).allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
-           let indexBase = frame.points[.indexMCP], let littleBase = frame.points[.littleMCP],
-           let wrist = frame.points[.wrist], let middleBase = frame.points[.middleMCP] {
-            frame.threeFingerPinchRatio = ThreeFingerPinchGeometry.ratio(tips: scrollTipJoints.compactMap { frame.points[$0] },
-                indexBase: indexBase, littleBase: littleBase, wrist: wrist, middleBase: middleBase, aspect: Double(aspect))
+        func clusterRatio(_ tips: [VNHumanHandPoseObservation.JointName]) -> Double? {
+            guard (tips + palmJoints).allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
+                  let indexBase = frame.points[.indexMCP], let littleBase = frame.points[.littleMCP],
+                  let wrist = frame.points[.wrist], let middleBase = frame.points[.middleMCP] else { return nil }
+            let points = tips.compactMap { frame.points[$0] }
+            return tips.count == 3
+                ? ThreeFingerPinchGeometry.ratio(tips: points, indexBase: indexBase, littleBase: littleBase,
+                                                 wrist: wrist, middleBase: middleBase, aspect: Double(aspect))
+                : FiveFingerPinchGeometry.ratio(tips: points, indexBase: indexBase, littleBase: littleBase,
+                                                wrist: wrist, middleBase: middleBase, aspect: Double(aspect))
         }
-        let tipJoints: [VNHumanHandPoseObservation.JointName] = [.thumbTip, .indexTip, .middleTip, .ringTip, .littleTip]
-        if (tipJoints + palmJoints).allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
-           let indexBase = frame.points[.indexMCP], let littleBase = frame.points[.littleMCP],
-           let wrist = frame.points[.wrist], let middleBase = frame.points[.middleMCP] {
-            frame.fiveFingerPinchRatio = FiveFingerPinchGeometry.ratio(tips: tipJoints.compactMap { frame.points[$0] },
-                indexBase: indexBase, littleBase: littleBase, wrist: wrist, middleBase: middleBase, aspect: Double(aspect))
-        }
-        let tapJoints: [VNHumanHandPoseObservation.JointName] = [.indexTip, .indexPIP, .indexMCP, .middleTip, .middlePIP, .middleMCP]
-        if tapJoints.allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }) {
-            let indexShape = finger(.indexTip, .indexPIP, .indexMCP)
-            let middleShape = finger(.middleTip, .middlePIP, .middleMCP)
-            if indexShape == .extended && middleShape == .extended { frame.tapPose = .raised }
-            else if indexShape == .folded && middleShape == .folded { frame.tapPose = .bent }
-            else { frame.tapPose = .transition }
-        }
-        let separationJoints: [VNHumanHandPoseObservation.JointName] = [.indexTip, .middleTip, .indexMCP, .littleMCP]
-        if separationJoints.allSatisfy({ (all[$0]?.confidence ?? 0) >= 0.6 }),
-           let index = frame.points[.indexTip], let middle = frame.points[.middleTip] {
-            frame.fingerSeparationRatio = HandGeometry.pinchRatio(thumb: middle, index: index,
-                indexBase: frame.points[.indexMCP], littleBase: frame.points[.littleMCP],
-                wrist: nil, middleBase: nil, aspect: Double(aspect))
-        }
+        frame.threeFingerPinchRatio = clusterRatio([.thumbTip, .indexTip, .middleTip])
+        frame.fiveFingerPinchRatio = clusterRatio([.thumbTip, .indexTip, .middleTip, .ringTip, .littleTip])
         // Only clearly folded pointing fingers or unfolded remaining fingers prove release.
         // Low-confidence joints and marginal L angles never rearm a canceled drag.
         frame.lReleased = finger(.thumbTip, .thumbIP, .thumbMP) == .folded
@@ -337,32 +314,6 @@ final class HandCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                     && finger(.ringTip, .ringPIP, .ringMCP) == .folded
                     && finger(.littleTip, .littlePIP, .littleMCP) == .folded,
                 aspect: Double(aspect))
-        }
-        if finger(.indexTip, .indexPIP, .indexMCP) == .extended,
-           finger(.middleTip, .middlePIP, .middleMCP) == .extended,
-           finger(.ringTip, .ringPIP, .ringMCP) == .folded,
-           finger(.littleTip, .littlePIP, .littleMCP) == .folded,
-           let index = frame.points[.indexTip], let middle = frame.points[.middleTip] {
-            frame.scrollPoint = CGPoint(x: (index.x + middle.x) / 2, y: (index.y + middle.y) / 2)
-        }
-        func forwardJoint(_ name: VNHumanHandPoseObservation.JointName) -> ForwardJoint? {
-            guard let point = all[name] else { return nil }
-            return ForwardJoint(point: CGPoint(x: 1 - point.location.x, y: 1 - point.location.y),
-                                confidence: Double(point.confidence))
-        }
-        let forward = ForwardPose.assess(index: forwardJoint(.indexTip), pip: forwardJoint(.indexPIP),
-            dip: forwardJoint(.indexDIP), base: forwardJoint(.indexMCP), littleBase: forwardJoint(.littleMCP),
-            middleBase: forwardJoint(.middleMCP), wrist: forwardJoint(.wrist),
-            aspect: Double(aspect), side: frame.handSide ?? "unknown")
-        frame.forwardPose = forward.pose
-        frame.forwardIssue = forward.issue
-        guard let thumb = frame.points[.thumbTip], let index = frame.points[.indexTip] else { return frame }
-        frame.pinchRatio = HandGeometry.pinchRatio(thumb: thumb, index: index,
-            indexBase: frame.points[.indexMCP], littleBase: frame.points[.littleMCP],
-            wrist: frame.points[.wrist], middleBase: frame.points[.middleMCP], aspect: Double(aspect))
-        if frame.palm != nil, (all[.thumbTip]?.confidence ?? 0) >= 0.6,
-           (all[.indexTip]?.confidence ?? 0) >= 0.6 {
-            frame.dragPinchRatio = frame.pinchRatio
         }
         return frame
     }

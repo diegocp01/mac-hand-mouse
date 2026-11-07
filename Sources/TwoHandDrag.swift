@@ -30,8 +30,8 @@ enum LPoseGeometry {
               [thumbTip, thumbIP, thumbBase, indexTip, indexPIP, indexBase].allSatisfy({
                   $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y)
               }),
-              ScrollPoseGeometry.shape(tip: indexTip, pip: indexPIP, base: indexBase, aspect: aspect) == .extended,
-              ScrollPoseGeometry.shape(tip: thumbTip, pip: thumbIP, base: thumbBase, aspect: aspect) == .extended else { return false }
+              FingerGeometry.shape(tip: indexTip, pip: indexPIP, base: indexBase, aspect: aspect) == .extended,
+              FingerGeometry.shape(tip: thumbTip, pip: thumbIP, base: thumbBase, aspect: aspect) == .extended else { return false }
         let thumb = CGPoint(x: (thumbTip.x - thumbBase.x) * aspect, y: thumbTip.y - thumbBase.y)
         let index = CGPoint(x: (indexTip.x - indexBase.x) * aspect, y: indexTip.y - indexBase.y)
         let denominator = hypot(thumb.x, thumb.y) * hypot(index.x, index.y)
